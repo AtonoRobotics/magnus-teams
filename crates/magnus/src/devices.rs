@@ -280,6 +280,55 @@ impl Devices {
         self.save(&g.devices).map_err(|e| IssueError::Unavailable(format!("{e:#}")))?;
         Ok(out)
     }
+
+    /// Revoke every live device of `person`: dead here at once, whatever
+    /// Cloudflare answers, so the device gate refuses them; then deleted at
+    /// Cloudflare when `cf` is given, a failure there logged. The devices
+    /// revoked.
+    pub async fn revoke_person(&self, cf: Option<&Cloudflare>, person: &str) -> Vec<Device> {
+        let revoked: Vec<Device> = {
+            let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let now = Utc::now();
+            let mut out = vec![];
+            for d in g.devices.values_mut().filter(|d| d.person == person && d.live()) {
+                d.revoked = Some(now);
+                out.push(d.clone());
+            }
+            if !out.is_empty() {
+                if let Err(e) = self.save(&g.devices) {
+                    tracing::error!("{person}'s devices are revoked but the registry was not saved: {e:#}");
+                }
+            }
+            out
+        };
+        if let Some(cf) = cf {
+            for d in &revoked {
+                if let Err(e) = cloudflare_revoke(cf, &d.cloudflare_id).await {
+                    tracing::warn!("{person}'s device {} is revoked here; Cloudflare did not delete its certificate: {e}", d.id);
+                }
+            }
+        }
+        revoked
+    }
+
+    /// A device as if paired, for tests that need one without Cloudflare.
+    #[cfg(test)]
+    pub(crate) fn paired_for_test(&self, person: &str, fingerprint: &str) -> String {
+        let id = crate::kernel::new_id("dev");
+        let d = Device {
+            id: id.clone(),
+            person: person.into(),
+            name: "test".into(),
+            cloudflare_id: format!("cf-{id}"),
+            fingerprint: normalize_fp(fingerprint),
+            cloudflare_fingerprint: String::new(),
+            serial: String::new(),
+            created: Utc::now(),
+            revoked: None,
+        };
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).devices.insert(id.clone(), d);
+        id
+    }
 }
 
 fn clean_name(name: &str) -> std::result::Result<String, IssueError> {

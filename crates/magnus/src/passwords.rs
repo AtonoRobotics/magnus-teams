@@ -62,8 +62,9 @@ async fn totp_begin(State(k): K, Caller(p): Caller) -> Response {
     Json(json!({ "secret": secret, "uri": uri })).into_response()
 }
 
-/// The person's current password from `b`, checked: replacing or removing
-/// an authenticator takes it, so a session alone cannot lock its owner out.
+/// The person's current password from `b`, checked: adding, replacing or
+/// removing an authenticator takes it, so a session alone cannot lock its
+/// owner out.
 async fn current_password(k: &Kernel, person: &str, peer: SocketAddr, h: &HeaderMap, b: &Value) -> Result<(), Box<Response>> {
     let password = b["current_password"].as_str().unwrap_or_default();
     if password.is_empty() {
@@ -77,23 +78,53 @@ async fn current_password(k: &Kernel, person: &str, peer: SocketAddr, h: &Header
     }
 }
 
-/// Confirm the authenticator app with a 6-digit code from it. Replacing one
-/// already enrolled also takes the current password.
+/// Change how `person` signs in, the one way (decision
+/// `2026-11-23-credential-changes-end-other-sessions.md`): the current
+/// password from `b` first, then `change`, then every other session of
+/// theirs ends on the record; the one making the change stays. The
+/// password's own change does the same in one transaction
+/// (`Accounts::change_password`).
+async fn credential_change<F>(k: &Kernel, person: &str, peer: SocketAddr, h: &HeaderMap, b: &Value, change: F) -> Response
+where
+    F: std::future::Future<Output = Result<Value, Response>>,
+{
+    if let Err(r) = current_password(k, person, peer, h, b).await {
+        return *r;
+    }
+    let mut v = match change.await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let ended = match k.accounts.end_others(person, credential(h).unwrap_or_default()).await {
+        Ok(ended) => ended,
+        Err(e) => return internal(e),
+    };
+    let actor = format!("person:{person}");
+    let evs: Vec<(&str, Ev)> = ended.iter().map(|session| (actor.as_str(), Ev::SignedOut { person: person.to_string(), session: session.clone() })).collect();
+    if !evs.is_empty() {
+        if let Err(e) = k.emit_all(evs).await {
+            return internal(e);
+        }
+    }
+    v["signed_out"] = json!(ended.len());
+    Json(v).into_response()
+}
+
+/// Confirm the authenticator app with a 6-digit code from it, and the
+/// current password: the first one too.
 async fn totp_confirm(State(k): K, Caller(p): Caller, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
     let code = b["code"].as_str().unwrap_or_default().trim();
     if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
         return err(StatusCode::BAD_REQUEST, "Enter the 6-digit code from your authenticator app.");
     }
-    if k.accounts.has_totp(&p.id).await {
-        if let Err(r) = current_password(&k, &p.id, peer, &h, &b).await {
-            return *r;
+    let change = async {
+        match k.accounts.confirm_totp(&p.id, code).await {
+            Ok(true) => Ok(json!({ "ok": true, "enrolled": true })),
+            Ok(false) => Err(err(StatusCode::BAD_REQUEST, "That 6-digit code did not match. Check the time on your device and try again.")),
+            Err(e) => Err(internal(e)),
         }
-    }
-    match k.accounts.confirm_totp(&p.id, code).await {
-        Ok(true) => Json(json!({ "ok": true, "enrolled": true })).into_response(),
-        Ok(false) => err(StatusCode::BAD_REQUEST, "That 6-digit code did not match. Check the time on your device and try again."),
-        Err(e) => internal(e),
-    }
+    };
+    credential_change(&k, &p.id, peer, &h, &b, change).await
 }
 
 /// Remove the signed-in person's authenticator app when the server policy does not require one.
@@ -102,13 +133,13 @@ async fn totp_remove(State(k): K, Caller(p): Caller, ConnectInfo(peer): ConnectI
         return err(StatusCode::CONFLICT, "This server requires an authenticator code for everyone. Enrolling a new app replaces the current one.");
     }
     let b: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    if let Err(r) = current_password(&k, &p.id, peer, &h, &b).await {
-        return *r;
-    }
-    match k.accounts.remove_totp(&p.id).await {
-        Ok(_) => Json(json!({ "ok": true, "enrolled": false })).into_response(),
-        Err(e) => internal(e),
-    }
+    let change = async {
+        match k.accounts.remove_totp(&p.id).await {
+            Ok(_) => Ok(json!({ "ok": true, "enrolled": false })),
+            Err(e) => Err(internal(e)),
+        }
+    };
+    credential_change(&k, &p.id, peer, &h, &b, change).await
 }
 
 /// Change the signed-in person's password with their current one. A wrong
@@ -248,3 +279,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "credential_change_tests.rs"]
+mod credential_change_tests;

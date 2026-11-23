@@ -33,6 +33,14 @@ impl Accounts {
             .await?;
         self.refresh_local(c).await
     }
+
+    /// Everyone whose account is recorded as turned off.
+    pub async fn disabled(&self) -> Result<Vec<String>> {
+        let mut g = self.client().await?;
+        let Some(c) = g.as_mut() else { return Ok(vec![]) };
+        let rows = c.query("SELECT person FROM public.account_statuses WHERE status = 'disabled' ORDER BY person", &[]).await?;
+        Ok(rows.into_iter().map(|r| r.get(0)).collect())
+    }
 }
 
 #[cfg(test)]

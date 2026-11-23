@@ -195,8 +195,12 @@ impl Kernel {
     /// Delete a person's data, as `actor`. Their runs stop, their schedules
     /// end, their computer is deleted, their sessions and their own sign-ins to apps are revoked, their
     /// content leaves the store and the backups, and their records leave
-    /// the appliance's state. What it did, counted.
+    /// the appliance's state. What it did, counted. Only as the account rule
+    /// lets `actor` (`Kernel::may_change_account`).
     pub async fn erase_person(&self, actor: &str, person: &str) -> Result<Value, Refusal> {
+        // The account rule: an admin erases no owner, and no one but an
+        // admin erases anyone but themselves.
+        self.may_change_account(actor, person).await.map_err(|(code, _, m)| (code, m))?;
         // Runs still going stop first, so nothing writes for them after.
         let going: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.person == person && !r.status.terminal()).map(|r| r.id.clone()).collect());
         for run in &going {
@@ -216,7 +220,8 @@ impl Kernel {
             tracing::error!("erasing {person}: their computer could not be deleted: {e:?}");
             (StatusCode::BAD_GATEWAY, "their computer could not be deleted, so the erasure stopped there; try again".to_string())
         })?;
-        // Every device signed in as them.
+        // Every device signed in as them, and every device paired as them.
+        self.revoke_devices_of(actor, person).await;
         let ended = self.accounts.end_all(person).await.map_err(failed)?;
         let sessions = ended.len();
         let evs: Vec<(&str, Ev)> = ended.into_iter().map(|session| (actor, Ev::SignedOut { person: person.to_string(), session })).collect();

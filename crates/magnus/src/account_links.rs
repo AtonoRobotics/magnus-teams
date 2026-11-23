@@ -125,12 +125,12 @@ fn live(k: &Kernel, code: &str) -> Option<Link> {
 }
 
 /// The form behind a link, or why there is none.
-pub fn page(k: &Kernel, from: std::net::IpAddr, code: &str) -> Response {
+pub async fn page(k: &Kernel, from: std::net::IpAddr, code: &str) -> Response {
     if let Some(until) = k.accounts.guesses_locked(from) {
         return too_many(until);
     }
     if live(k, code).is_none() {
-        k.accounts.guessed_wrong(from);
+        k.accounts.guessed_wrong(from).await;
         return ended();
     }
     form(code, None)
@@ -146,13 +146,13 @@ pub async fn create(k: &Arc<Kernel>, t: Transport, from: std::net::IpAddr, f: &H
         Ok(who) => who,
         Err(why) if live(k, &code).is_some() => return form(&code, Some(&why)),
         Err(_) => {
-            k.accounts.guessed_wrong(from);
+            k.accounts.guessed_wrong(from).await;
             return ended();
         }
     };
     let spending = SPENDING.lock().await;
     let Some(link) = live(k, &code) else {
-        k.accounts.guessed_wrong(from);
+        k.accounts.guessed_wrong(from).await;
         return ended();
     };
     let wrong = || form(&code, Some("Something went wrong. Try again in a minute."));
@@ -165,7 +165,7 @@ pub async fn create(k: &Arc<Kernel>, t: Transport, from: std::net::IpAddr, f: &H
             return wrong();
         }
     };
-    if let Err((_, _, m)) = k.set_server_role(&format!("person:{}", link.by), &id, &link.role).await {
+    if let Err((_, _, m)) = k.new_account_role(&format!("person:{}", link.by), &id, &link.role).await {
         tracing::error!("an account from an invite link, its role: {m}");
         if let Err(e) = k.accounts.remove_person(&id).await {
             tracing::error!("taking back {id}'s account: {e:#}");

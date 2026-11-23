@@ -65,9 +65,8 @@ async fn roles_are_owner_admin_member_or_guest() {
         assert_eq!(role(&s, &ana, id).await, want, "{id}");
     }
     assert_eq!(patch(&s, &ana, "/v1/admin/people/mo", json!({ "role": "visitor" })).await.0, 400, "a fifth role was taken");
-    // lee is the directory's only admin, which it still guards.
-    let (st, v) = patch(&s, &ana, "/v1/admin/people/lee", json!({ "role": "member" })).await;
-    assert_eq!((st, v["error"].as_str()), (409, Some("last_admin")), "{v}");
+    // lee is the directory's only admin, but sam and ana administer too:
+    // the guard counts every place a role is kept.
     assert_eq!(patch(&s, &ana, "/v1/admin/people/mo", json!({ "role": "admin" })).await.0, 204);
     assert_eq!(patch(&s, &ana, "/v1/admin/people/lee", json!({ "role": "member" })).await.0, 204);
     // The audit says what lee was: an admin by the directory, not a member.

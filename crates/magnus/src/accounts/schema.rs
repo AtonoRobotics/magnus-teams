@@ -22,6 +22,7 @@ pub const TABLES: &[&str] = &[
     "account_sessions",
     "account_machine_codes",
     "account_sign_in_policy",
+    "account_lockouts",
     "account_json_import",
 ];
 
@@ -94,11 +95,17 @@ pub fn migrate_sql(role: &str) -> String {
              lockout_max_wait_minutes bigint NOT NULL,
              lockout_permanent      bool NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS public.account_lockouts (
+             counter  text PRIMARY KEY,
+             failures bigint NOT NULL,
+             first    timestamptz NOT NULL,
+             until    timestamptz
+         );
          CREATE TABLE IF NOT EXISTS public.account_json_import (
              imported_at timestamptz PRIMARY KEY
          );
-         REVOKE ALL ON public.account_people, public.account_passwords, public.account_totp, public.account_totp_steps, public.account_statuses, public.account_roles, public.account_invites, public.account_reset_tokens, public.account_sessions, public.account_machine_codes, public.account_sign_in_policy, public.account_json_import FROM PUBLIC;
-         GRANT SELECT, INSERT, UPDATE, DELETE ON public.account_people, public.account_passwords, public.account_totp, public.account_totp_steps, public.account_statuses, public.account_roles, public.account_invites, public.account_reset_tokens, public.account_sessions, public.account_machine_codes, public.account_sign_in_policy, public.account_json_import TO {role};"
+         REVOKE ALL ON public.account_people, public.account_passwords, public.account_totp, public.account_totp_steps, public.account_statuses, public.account_roles, public.account_invites, public.account_reset_tokens, public.account_sessions, public.account_machine_codes, public.account_sign_in_policy, public.account_lockouts, public.account_json_import FROM PUBLIC;
+         GRANT SELECT, INSERT, UPDATE, DELETE ON public.account_people, public.account_passwords, public.account_totp, public.account_totp_steps, public.account_statuses, public.account_roles, public.account_invites, public.account_reset_tokens, public.account_sessions, public.account_machine_codes, public.account_sign_in_policy, public.account_lockouts, public.account_json_import TO {role};"
     )
 }
 

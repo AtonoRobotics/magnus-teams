@@ -44,6 +44,11 @@ impl Authority {
         self >= Authority::Admin
     }
 
+    /// The one of the four `role` names, if it names one.
+    pub fn named(role: &str) -> Option<Authority> {
+        [Authority::Owner, Authority::Admin, Authority::Member, Authority::Guest].into_iter().find(|a| a.as_str() == role)
+    }
+
     /// Its name, as the People screen shows it.
     pub fn as_str(self) -> &'static str {
         match self {

@@ -5,7 +5,9 @@
 //! Everything outside the kernel talks to it through `api`, the adapter
 //! contract (`adapters`), MCP (`apps`), or vsock (`sandbox`).
 
+pub mod account_change;
 pub mod account_links;
+pub mod account_removal;
 pub mod accounts;
 pub mod adapters;
 pub mod admin_app;
@@ -159,6 +161,7 @@ pub mod tools_ui;
 pub mod totp;
 pub mod transport;
 pub mod trash;
+pub mod turned_off;
 pub mod typed_secrets;
 pub mod ui;
 pub mod ui_actions;

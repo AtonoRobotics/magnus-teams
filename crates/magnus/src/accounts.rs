@@ -29,6 +29,7 @@ mod check;
 mod credentials;
 mod directory;
 mod lockout;
+mod lockout_store;
 mod password;
 mod phc;
 mod reads;
@@ -118,8 +119,18 @@ pub enum Role {
     Member,
 }
 
+/// Who makes sure a change leaves the organisation an enabled admin: the
+/// store, which counts only its own rows (the command line's way), or the
+/// kernel, which counts every place an admin is kept, under its lock,
+/// before anything changes (`Kernel::would_strand`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Guard {
+    Store,
+    Kernel,
+}
+
 impl Role {
-    fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Role::Admin => "admin",
             Role::Member => "member",
@@ -253,11 +264,16 @@ impl Accounts {
             .await
             .context("seed the sign-in rules")?;
         let policy = Self::read_policy(&client).await?.unwrap_or(seed);
+        let mut lockout = lockout::Lockout::default();
+        match Self::read_counters(&client).await {
+            Ok(kept) => kept.into_iter().for_each(|(counter, f)| lockout.restore(counter, f)),
+            Err(e) => tracing::warn!("the lockout counters could not be read, so none hold until they are counted again: {e:#}"),
+        }
         Ok(Accounts {
             cfg,
             url: db_url.into(),
             client: tokio::sync::Mutex::new(Some(client)),
-            failures: Mutex::new(lockout::Lockout::default()),
+            failures: Mutex::new(lockout),
             local: Mutex::new((Instant::now(), local)),
             policy: Mutex::new((Instant::now(), policy)),
             pending_totp: Mutex::new(BTreeMap::new()),
@@ -403,12 +419,17 @@ impl Accounts {
     /// and returns the ids of those ended, for the caller to record.
     /// Refuses to disable the organisation's last enabled admin.
     pub async fn set_status(&self, person: &str, status: Status) -> Result<Vec<String>> {
+        self.set_status_as(person, status, Guard::Store).await
+    }
+
+    /// `set_status`, with the last-admin guard `guard`'s.
+    pub async fn set_status_as(&self, person: &str, status: Status, guard: Guard) -> Result<Vec<String>> {
         let person = key(person);
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let tx = c.transaction().await?;
         tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('magnus-accounts'))").await?;
-        if status == Status::Disabled && Self::sole_enabled_admin_tx(&tx, &person).await? {
+        if guard == Guard::Store && status == Status::Disabled && Self::sole_enabled_admin_tx(&tx, &person).await? {
             anyhow::bail!("This is the organisation's last admin: make someone else an admin first.");
         }
         tx.execute(
@@ -424,7 +445,9 @@ impl Accounts {
         }
         tx.commit().await?;
         self.refresh_local(c).await?;
+        drop(g);
         self.clear_counters(&person);
+        self.keep_counters().await;
         Ok(ended)
     }
 
@@ -499,6 +522,11 @@ impl Accounts {
     /// them (#469); the recovery token dies too, so a link mailed before
     /// the removal cannot take over a recreated id (#541).
     pub async fn remove_person(&self, person: &str) -> Result<Vec<String>> {
+        self.remove_person_as(person, Guard::Store).await
+    }
+
+    /// `remove_person`, with the last-admin guard `guard`'s.
+    pub async fn remove_person_as(&self, person: &str, guard: Guard) -> Result<Vec<String>> {
         let person = key(person);
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
@@ -506,7 +534,7 @@ impl Accounts {
         tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('magnus-accounts'))").await?;
         let n = tx.execute("DELETE FROM public.account_people WHERE person = $1", &[&person]).await?;
         anyhow::ensure!(n == 1, "{person} is not a person here");
-        if Self::sole_enabled_admin_tx(&tx, &person).await? {
+        if guard == Guard::Store && Self::sole_enabled_admin_tx(&tx, &person).await? {
             anyhow::bail!("This is the organisation's last admin: make someone else an admin first.");
         }
         for table in ["account_passwords", "account_totp", "account_totp_steps", "account_statuses", "account_roles", "account_reset_tokens", "account_invites"] {
@@ -519,18 +547,25 @@ impl Accounts {
         tx.commit().await?;
         self.clear_counters(&person);
         self.refresh_local(c).await?;
+        drop(g);
+        self.keep_counters().await;
         Ok(ended)
     }
 
     /// Set a person's role. Refuses to demote the organisation's last
     /// enabled admin.
     pub async fn set_role(&self, person: &str, role: Role) -> Result<()> {
+        self.set_role_as(person, role, Guard::Store).await
+    }
+
+    /// `set_role`, with the last-admin guard `guard`'s.
+    pub async fn set_role_as(&self, person: &str, role: Role, guard: Guard) -> Result<()> {
         let person = key(person);
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let tx = c.transaction().await?;
         tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('magnus-accounts'))").await?;
-        if role == Role::Member && Self::sole_enabled_admin_tx(&tx, &person).await? {
+        if guard == Guard::Store && role == Role::Member && Self::sole_enabled_admin_tx(&tx, &person).await? {
             anyhow::bail!("This is the organisation's last admin: make someone else an admin first.");
         }
         tx.execute("INSERT INTO public.account_roles (person, role) VALUES ($1, $2) ON CONFLICT (person) DO UPDATE SET role = EXCLUDED.role", &[&person, &role.as_str()]).await?;
@@ -584,6 +619,12 @@ impl Accounts {
     /// the new one, together. A wrong temp counts on the counter for `via`,
     /// like a wrong password; choosing activates, as accepting does.
     pub async fn choose_password(&self, person: &str, temp: &str, password: &str, via: Via) -> Result<std::result::Result<(), SignInError>> {
+        let r = self.choose_password_counted(person, temp, password, via).await;
+        self.keep_counters().await;
+        r
+    }
+
+    async fn choose_password_counted(&self, person: &str, temp: &str, password: &str, via: Via) -> Result<std::result::Result<(), SignInError>> {
         let person = key(person);
         let counter = key(&check::counter_of(via, &person));
         let mut g = self.client().await?;

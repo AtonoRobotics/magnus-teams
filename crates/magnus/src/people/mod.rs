@@ -13,14 +13,18 @@ mod authority;
 mod guard_tests;
 #[cfg(test)]
 mod kernel_tests;
+mod may_change;
 mod rights;
 #[cfg(test)]
 mod rights_tests;
+mod strand;
 #[cfg(test)]
 mod tests;
 
 pub use authority::Authority;
+pub use may_change::{asker, Refusal};
 pub use rights::{may_use_password, rights, Rights};
+pub use strand::After;
 
 use crate::accounts::{Accounts, LocalPerson};
 use crate::config::Person;
@@ -131,7 +135,16 @@ impl Kernel {
     /// What `p` may administer on the server: their roles here and the
     /// server's own directory, read fresh. See [`Authority`].
     pub async fn authority(&self, p: &Person) -> Authority {
-        Authority::of(p, self.accounts.role(&p.id).await)
+        self.authority_with(p, self.accounts.role(&p.id).await)
+    }
+
+    /// What `p` may administer with `directory` as the server's own
+    /// directory's role for them. Where the identity provider names their
+    /// roles, it alone says whether they are an admin: a role row written
+    /// here before does not outlast a demotion there.
+    pub fn authority_with(&self, p: &Person, directory: crate::accounts::Role) -> Authority {
+        let provider = self.read(|s| s.identity.provider_set_roles(&p.id));
+        Authority::of(p, if provider { crate::accounts::Role::Member } else { directory })
     }
 }
 

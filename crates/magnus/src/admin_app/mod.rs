@@ -41,6 +41,8 @@
 //! its own target or before and after, call [`mount::control`] and
 //! [`mount::audited`] from a handler, as [`kill`] does.
 
+#[cfg(test)]
+mod account_rule_tests;
 pub mod agents;
 pub mod connectors;
 pub mod guard;
@@ -63,6 +65,8 @@ mod sections_tests;
 pub mod security;
 pub mod server_channel;
 #[cfg(test)]
+mod server_roles_tests;
+#[cfg(test)]
 mod session_fault_tests;
 pub mod settings;
 pub mod settings_gate;
@@ -70,6 +74,8 @@ pub mod settings_gate;
 mod spec_tests;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod turned_off_tests;
 pub mod workspaces;
 #[cfg(test)]
 mod workspaces_tests;

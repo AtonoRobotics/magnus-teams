@@ -113,8 +113,14 @@ function harness() {
   assert.match(totpBox.html, /Set up authenticator app/);
   await h.$("[data-totp-begin]").onclick();
   assert.match(totpBox.html, /JBSWY3DPEHPK3PXP/);
+  assert.match(totpBox.html, /data-totp-password/, "turning on an authenticator asks for the current password");
   h.$("[data-totp-code]").value = "123456";
+  const before = h.calls.length;
   await h.$("[data-totp-confirm]").onclick();
+  assert.ok(!h.calls.slice(before).some(c => c[1] === "/v1/account/totp/confirm"), "an authenticator was turned on without the current password");
+  h.$("[data-totp-password]").value = "old-password-1";
+  await h.$("[data-totp-confirm]").onclick();
+  assert.ok(h.calls.some(c => c[0] === "POST" && c[1] === "/v1/account/totp/confirm" && c[2]?.code === "123456" && c[2]?.current_password === "old-password-1"), "the confirm did not carry the current password");
   assert.match(totpBox.html, /Enrolled/);
 
   const tzBox = { set innerHTML(v) { this.html = v; }, get innerHTML() { return this.html; } };

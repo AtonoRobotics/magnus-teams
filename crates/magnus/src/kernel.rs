@@ -18,8 +18,6 @@ use std::time::{Duration, Instant};
 
 /// How long startup waits for the log's database.
 const LOG_WAIT: Duration = Duration::from_secs(15);
-/// How often people's sign-in sessions are checked with the identity provider.
-const SESSIONS_EVERY: Duration = Duration::from_secs(300);
 /// The sweep's pause between passes.
 const SWEEP_TICK: Duration = Duration::from_millis(500);
 
@@ -32,6 +30,10 @@ pub struct Kernel {
     /// Held while a person's decision is checked and recorded, so an inbox item or a chat card is decided once
     /// however many answers race in, and a change of roles keeps an owner however many race in.
     pub(crate) decide: tokio::sync::Mutex<()>,
+    /// Held while a change to someone's account is checked and made, so two
+    /// changes at once never leave the server without an enabled owner or
+    /// admin (`Kernel::would_strand`).
+    pub(crate) account_changes: tokio::sync::Mutex<()>,
     /// Held while a person's relationship notes are read and a new version written, so two changes at once never lose one.
     pub(crate) notes: tokio::sync::Mutex<()>,
     pub vault: Arc<Vault>,
@@ -158,6 +160,7 @@ impl Kernel {
             log: writer.log.clone(),
             writer,
             decide: tokio::sync::Mutex::new(()),
+            account_changes: tokio::sync::Mutex::new(()),
             notes: tokio::sync::Mutex::new(()),
             drivers: Mutex::new(HashSet::new()),
             leases: Mutex::new(HashMap::new()),
@@ -301,78 +304,6 @@ impl Kernel {
 
     pub fn read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
         f(&self.writer.state.lock().unwrap_or_else(|e| e.into_inner()))
-    }
-
-    /// End the sessions, and pause the schedules, of people the identity provider has turned off or no longer knows: once now, then
-    /// every five minutes. Everyone signed in or with a schedule is asked about; a provider that cannot be asked changes nothing (owner's ruling 12).
-    pub fn watch_sessions(self: &Arc<Self>) {
-        let k = self.clone();
-        tokio::spawn(async move {
-            let mut t = tokio::time::interval(SESSIONS_EVERY);
-            loop {
-                t.tick().await;
-                k.end_turned_off().await;
-            }
-        });
-    }
-
-    pub async fn end_turned_off(&self) -> usize {
-        let Some(id) = self.identity() else { return 0 };
-        let mut people = self.accounts.signed_in().await;
-        people.extend(self.read(|s| s.arrangements.schedules().values().filter(|x| x.next_due().is_some()).map(|x| x.person.clone()).collect::<Vec<_>>()));
-        let mut ended = 0;
-        for person in people {
-            let sub = self.read(|s| s.identity.subject(&person).map(str::to_string));
-            match id.active(&person, sub.as_deref()).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    let label = id.label();
-                    ended += self.turn_off(&person, &format!("{label} has turned {person} off or no longer knows them"), &format!("{label} has turned your account off")).await;
-                }
-                Err(e) => tracing::debug!("cannot ask whether {person} is still on: {e:#}"),
-            }
-        }
-        ended
-    }
-
-    /// A person is turned off (at the provider, or by an admin in the
-    /// console): their sessions here end, and their schedules stop acting
-    /// for them until they are turned back on and resume them. `why` is for
-    /// the log, `told` for the person. How many sessions ended.
-    pub async fn turn_off(&self, person: &str, why: &str, told: &str) -> usize {
-        let mut ended = 0;
-        // Their apps answer no calls for them from now; the sign-ins stay in
-        // the vault, unused, for when they are back (connectors spec, Isolation).
-        if !self.read(|s| s.identity.is_turned_off(person)) {
-            self.tell(vec![("kernel", Ev::PersonTurnedOff { person: person.to_string(), why: why.to_string() })]).await;
-        }
-        match self.accounts.end_all(person).await {
-            Ok(sessions) => {
-                if !sessions.is_empty() {
-                    tracing::warn!("{why}: their {} sessions here are ended", sessions.len());
-                }
-                ended = sessions.len();
-                let evs: Vec<(&str, Ev)> = sessions.into_iter().map(|session| ("kernel", Ev::SignedOut { person: person.to_string(), session })).collect();
-                if !evs.is_empty() {
-                    self.tell(evs).await;
-                }
-            }
-            Err(e) => tracing::error!("ending {person}'s sessions: {e:#}"),
-        }
-        let schedules: Vec<crate::state::Schedule> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person && x.next_due().is_some()).cloned().collect());
-        for sc in schedules {
-            let title = self.schedule_title_for_notice(&sc).await;
-            let notice = self.notice_to(
-                None,
-                None,
-                person.to_string(),
-                format!("A schedule paused: {title}"),
-                serde_json::json!({ "reason": "schedule_paused", "evidence": { "schedule": sc.id, "why": told } }),
-            );
-            self.tell(vec![("kernel", Ev::SchedulePaused { id: sc.id.clone(), reason: told.to_string(), task: None, admin: false, source: None, turn: None }), ("kernel", notice)])
-                .await;
-        }
-        ended
     }
 
     pub fn identity(&self) -> Option<Arc<dyn crate::identity::Identity>> {

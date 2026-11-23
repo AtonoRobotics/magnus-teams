@@ -165,22 +165,19 @@ async fn resend(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Pa
     Json(v).into_response()
 }
 
-/// A role, a recovery address or a status, each the way its own route does it.
+/// A role, a recovery address or a status, each the way its own route does
+/// it. Each is the kernel's own operation, which asks the account rule.
 async fn change(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>, Json(mut b): Json<Value>) -> Response {
     let id = id_of(&id);
-    let Some(target) = k.person(&id) else { return refuse(StatusCode::NOT_FOUND, "not_found", "No such person.") };
+    if k.person(&id).is_none() {
+        return refuse(StatusCode::NOT_FOUND, "not_found", "No such person.");
+    }
     if let Some(role) = b.as_object_mut().and_then(|o| o.remove("role")) {
         let Some(role) = role.as_str() else { return refuse(StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.") };
-        if let Some(r) = owner_only(&a, role, crate::people::rights(&target).is_server_owner()) {
-            return r;
-        }
         let r = set_role(&k, &a, &id, role).await;
         if !r.status().is_success() {
             return r;
         }
-    }
-    if b["status"] == "disabled" && k.last_owner(&id).await {
-        return last_owner();
     }
     if b.as_object().is_some_and(|o| o.contains_key("email") || o.contains_key("status")) {
         let audit = Audit { action: "user_updated".into(), target: Some(format!("people/{id}")), before: None, after: Some(b.clone()) };
@@ -189,19 +186,10 @@ async fn change(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Pa
     StatusCode::NO_CONTENT.into_response()
 }
 
-pub(super) fn last_owner() -> Response {
-    refuse(StatusCode::CONFLICT, "last_owner", "This is the last owner: make someone else an owner first.")
-}
-
-/// Turn someone off: never the last owner, and an owner only by an owner.
+/// Turn someone off: never the last owner, and an owner only by an owner,
+/// both of which the kernel's own operation checks.
 async fn disable(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>) -> Response {
     let id = id_of(&id);
-    if k.last_owner(&id).await {
-        return last_owner();
-    }
-    if let Some(r) = owner_only(&a, "", k.person(&id).is_some_and(|p| crate::people::rights(&p).is_server_owner())) {
-        return r;
-    }
     let audit = Audit { action: "user_disabled".into(), target: Some(format!("people/{id}")), ..Default::default() };
     audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/admin/people/{}/disable", seg(&id)), None)).await
 }
