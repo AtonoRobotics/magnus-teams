@@ -209,6 +209,29 @@ fn is_card(digits: &str) -> bool {
     sum.is_multiple_of(10)
 }
 
+/// Text a person typed, masked when it is made: whatever event, log line
+/// or model call it reaches, it reaches masked. An answer to the agent's
+/// question, a reason for not allowing an action, a review's or an
+/// endorsement's note are each one of these from the moment they arrive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Typed(String);
+
+impl Typed {
+    pub fn new(raw: &str) -> Typed {
+        Typed(mask(raw).text)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<Typed> for String {
+    fn from(t: Typed) -> String {
+        t.0
+    }
+}
+
 /// Mask what a person typed in an event about to be written: a task or
 /// chat message, a schedule's task, a workspace channel message. Returns
 /// what was hidden.

@@ -119,7 +119,10 @@ impl Kernel {
             return Ok(Answer::Conflict("already decided"));
         }
         let decision = body["decision"].as_str().unwrap_or_default().to_string();
-        let text = body["text"].as_str().map(String::from);
+        // Masked as it arrives: an answer, a reason or a note may hold a
+        // secret the person typed (spec, Typed secrets).
+        let typed = body["text"].as_str().map(crate::typed_secrets::Typed::new);
+        let text: Option<String> = typed.map(String::from);
         let actor = format!("person:{}", p.id);
         let run = item.run.clone().unwrap_or_default();
         let call_id = item.details["call_id"].as_str().unwrap_or_default().to_string();
