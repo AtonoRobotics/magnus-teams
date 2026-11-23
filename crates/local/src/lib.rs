@@ -195,10 +195,20 @@ pub async fn serve(cfg: Config) -> Result<()> {
     let id = reply["id"].as_str().context("the server gave no id")?.to_string();
     loop {
         if let Err(e) = next(&http, &cfg, &id).await {
+            // A refused session never comes back: sign-out ended it, or the
+            // server did. The agent stops instead of asking for ever.
+            if signed_out(&e) {
+                return Err(e.context("the session ended, so this computer stopped working for it"));
+            }
             eprintln!("magnus-local: {e:#}");
             tokio::time::sleep(RETRY_DELAY).await;
         }
     }
+}
+
+/// Whether the server refused the session itself (401), not just this request.
+fn signed_out(e: &anyhow::Error) -> bool {
+    e.chain().filter_map(|c| c.downcast_ref::<reqwest::Error>()).any(|r| r.status() == Some(reqwest::StatusCode::UNAUTHORIZED))
 }
 
 async fn next(http: &reqwest::Client, cfg: &Config, id: &str) -> Result<()> {
@@ -288,6 +298,59 @@ mod tests {
         let again = json!({ "op": "write", "path": target, "content": "two" });
         assert!(!run_job(&again, &f, Path::new("bwrap")).await.0);
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "one");
+    }
+
+    /// A server that registers the computer, then refuses its session.
+    async fn refusing_server() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut s, _)) = l.accept().await else { return };
+                tokio::spawn(async move {
+                    let (mut buf, mut chunk) = (vec![], [0u8; 4096]);
+                    loop {
+                        let k = s.read(&mut chunk).await.unwrap_or(0);
+                        if k == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..k]);
+                        let text = String::from_utf8_lossy(&buf).to_string();
+                        let Some(end) = text.find("\r\n\r\n") else { continue };
+                        let len = text[..end].lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())).unwrap_or(0);
+                        if buf.len() < end + 4 + len {
+                            continue;
+                        }
+                        let (status, body) =
+                            if text.starts_with("POST /v1/local/computers ") { ("200 OK", r#"{"id":"c1"}"#) } else { ("401 Unauthorized", r#"{"error":"signed out"}"#) };
+                        let reply = format!("HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                        let _ = s.write_all(reply.as_bytes()).await;
+                        return;
+                    }
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// Signed out (sign-out, or the server ended the session): the agent
+    /// stops, instead of asking every two seconds for ever.
+    #[tokio::test]
+    async fn a_refused_session_stops_the_agent() {
+        let (_d, _granted, _o, folders) = setup();
+        let cfg = Config {
+            server: refusing_server().await,
+            token: "t".into(),
+            name: "desk".into(),
+            mode: "ask".into(),
+            folders,
+            bwrap: "bwrap".into(),
+            pause_file: None,
+            trust: Trust::PublicRoots,
+        };
+        let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(10), serve(cfg)).await else { panic!("the agent kept asking after its session was refused") };
+        assert!(signed_out(&e), "it stopped for another reason: {e:#}");
     }
 
     #[test]
