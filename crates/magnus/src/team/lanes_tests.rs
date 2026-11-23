@@ -113,7 +113,15 @@ async fn an_open_web_release_is_its_requesters() {
     s.k.emit("kernel", Ev::Completed { run: web, summary: "The launch is on the 3rd.".into(), view: None, spoken: None }).await.unwrap();
     let l = ended(&s.k, "m1", "web").await;
     assert_eq!((l.status, l.released_by.as_deref()), (LaneStatus::Released, Some("sam")), "the open-web release was not its requester's");
-    let posted = s.k.read(|st| st.team.workspace(&ws).unwrap().channels[&channel].messages.clone());
+    // The release is written before its room post: wait for the post.
+    let messages = || s.k.read(|st| st.team.workspace(&ws).unwrap().channels[&channel].messages.clone());
+    for _ in 0..WAIT_TICKS {
+        if !messages().is_empty() {
+            break;
+        }
+        tokio::time::sleep(WAIT_TICK).await;
+    }
+    let posted = messages();
     assert_eq!(posted.iter().map(|m| m.sender.as_str()).collect::<Vec<_>>(), vec!["agent:sam"]);
     let erased = s.k.log.person_content_seqs("sam").await.unwrap();
     let released = s.k.log.of_kinds(&["team_mission"], 50).await.unwrap().into_iter().find(|(_, _, _, b)| b["change"] == "lane_released").unwrap().0;
