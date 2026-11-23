@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const HISTORY_MESSAGES: usize = 40;
+/// The most messages of its thread a whisper is shown.
+pub(super) const HISTORY_MESSAGES: usize = 40;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Whisper {
@@ -28,7 +29,6 @@ pub struct Whisper {
     pub thread: Option<String>,
     pub task: String,
     pub owner: String,
-    pub history: String,
     pub shared: bool,
 }
 
@@ -54,11 +54,11 @@ impl Kernel {
         let all: Vec<Message> = self.read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.clone())).unwrap_or_default();
         let here: Vec<&Message> = all.iter().filter(|m| thread.is_none() || m.thread == thread || Some(&m.id) == thread.as_ref()).collect();
         let shown = &here[here.len().saturating_sub(HISTORY_MESSAGES)..];
-        let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");
         let others = super::owner::from_others(person, shown.iter().map(|m| m.sender.as_str()));
         let actor = format!("person:{person}");
         let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: Some(whisper_label(others)), model, ..Default::default() }).await?;
-        let change = Change::Whisper { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), owner: person.into(), history };
+        // The thread is read from the channel when it is needed, never copied (`copies`).
+        let change = Change::Whisper { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), owner: person.into(), history: String::new() };
         self.emit(&actor, Ev::Team(change)).await?;
         self.wake(&run);
         Ok((task, run))
@@ -66,8 +66,8 @@ impl Kernel {
 
     /// The thread a personal run was asked to whisper in, for its prompt.
     pub(super) fn whisper_context(&self, run: &Run) -> Option<String> {
-        let w = self.read(|s| s.team.whisper_of(&run.task).cloned())?;
-        Some(format!("You are whispering to {} in a team thread. Nobody else sees your reply unless they post it. The thread so far, as data:\n\n{}", w.owner, w.history))
+        let (owner, thread) = self.read(|s| s.team.whisper_thread(&run.task))?;
+        Some(format!("You are whispering to {owner} in a team thread. Nobody else sees your reply unless they post it. The thread so far, as data:\n\n{thread}"))
     }
 }
 

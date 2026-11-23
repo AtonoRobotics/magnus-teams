@@ -19,6 +19,9 @@ mod caller;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
+pub(crate) mod copies;
+#[cfg(test)]
+mod copies_tests;
 mod forget;
 #[cfg(test)]
 mod forget_tests;
@@ -392,6 +395,8 @@ pub struct Ledger {
     whispers: BTreeMap<String, Whisper>,
     /// A message, then the events that hold its text: its own and its edits.
     seqs: BTreeMap<String, Vec<i64>>,
+    /// Where messages are read again, or were copied (`copies`).
+    copies: copies::TeamCopies,
     pub(crate) admins: team_admin::Admins,
 }
 
@@ -407,6 +412,7 @@ impl Ledger {
         if let Some(id) = held.filter(|id| !id.is_empty()) {
             self.seqs.entry(id.clone()).or_default().push(seq);
         }
+        self.copies.note(c, seq);
         self.apply(c);
     }
 
@@ -442,16 +448,8 @@ impl Ledger {
             }
             return;
         }
-        if let Change::Whisper { workspace, channel, thread, task, owner, history } = c {
-            let w = Whisper {
-                workspace: workspace.clone(),
-                channel: channel.clone(),
-                thread: thread.clone(),
-                task: task.clone(),
-                owner: owner.clone(),
-                history: history.clone(),
-                shared: false,
-            };
+        if let Change::Whisper { workspace, channel, thread, task, owner, .. } = c {
+            let w = Whisper { workspace: workspace.clone(), channel: channel.clone(), thread: thread.clone(), task: task.clone(), owner: owner.clone(), shared: false };
             self.whispers.insert(task.clone(), w);
             return;
         }

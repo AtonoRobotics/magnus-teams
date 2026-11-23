@@ -82,37 +82,6 @@ ALTER TABLE public.memory_access_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.memory_access_stats FORCE ROW LEVEL SECURITY;
 "#;
 
-/// Tenant scope for the unified hybrid memory index (Phase 2 Teams Redesign).
-/// Strictly separates private per-person memory (`person:<id>`) from shared
-/// workspace memory (`workspace:<id>`), enforced via Postgres RLS.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
-#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
-pub enum MemoryScope {
-    Person(String),
-    Workspace(String),
-}
-
-impl MemoryScope {
-    pub fn key(&self) -> String {
-        match self {
-            MemoryScope::Person(id) => format!("person:{id}"),
-            MemoryScope::Workspace(id) => format!("workspace:{id}"),
-        }
-    }
-
-    pub fn is_workspace(&self) -> bool {
-        matches!(self, MemoryScope::Workspace(_))
-    }
-}
-
-/// Additive Postgres DDL extending `public.memory_index` with `scope` for
-/// unified `person:<id>` + `workspace:<id>` RLS isolation.
-pub const WORKSPACE_MEMORY_MIGRATION_SQL: &str = r#"
-ALTER TABLE public.memory_index ADD COLUMN IF NOT EXISTS scope TEXT;
-UPDATE public.memory_index SET scope = 'person:' || person WHERE scope IS NULL;
-CREATE INDEX IF NOT EXISTS memory_index_scope_created_idx ON public.memory_index (scope, created_at DESC);
-"#;
-
 /// Input candidate for deterministic hybrid RRF + decay + trust ranking.
 #[derive(Clone, Debug)]
 pub struct RankedCandidate {

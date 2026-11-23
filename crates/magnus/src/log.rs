@@ -144,11 +144,11 @@ pub async fn migrate(admin_url: &str, kernel_url: &str, root_url: Option<&str>) 
 /// delete it, leaving the record with the content's hash as `split` does for
 /// every event now. Each event moves in one statement, so a crash leaves it
 /// either whole or moved; events already moved, or without content, are left.
-async fn move_inline_content(admin: &Client) -> Result<()> {
+pub(crate) async fn move_inline_content(admin: &Client) -> Result<()> {
     // Only kinds that carry content, and only records without the hash a
     // split leaves: a record with it was split when written or moved
     // before, and its content, if gone, was deleted on purpose.
-    let kinds: Vec<&str> = crate::events::CONTENT.iter().map(|(k, _)| *k).collect();
+    let kinds: Vec<&str> = crate::events::CONTENT.iter().map(|(k, _)| *k).chain(crate::events::OLD_LANE_KINDS).collect();
     let mut after = 0i64;
     loop {
         let rows = admin
@@ -250,7 +250,7 @@ pub const CONTENT_OWNERS: &str = "UPDATE public.content c SET person = o.person 
                 AND mc.body->'message'->>'id' = w.body->'chat'->>'id' ORDER BY m.seq LIMIT 1) ELSE w.body->'chat'->>'person' END
             ELSE e.body->>'person' END, '')
         -- `MissionLedger::content_owner`: a draft its owner's, a release its releaser's, the rest the requester's.
-        WHEN e.kind = 'team_mission' THEN COALESCE(e.body->>'requester', e.body->>'owner', e.body->>'released_by', (SELECT s.body->>'requester'
+        WHEN e.kind IN ('team_mission', 'member_agent', 'open_web', 'peer_agent') THEN COALESCE(e.body->>'requester', e.body->>'owner', e.body->>'released_by', (SELECT s.body->>'requester'
             FROM public.events s WHERE s.kind = 'team_mission' AND s.body->>'change' = 'started' AND s.body->>'mission' = e.body->>'mission' ORDER BY s.seq LIMIT 1))
         ELSE COALESCE(e.body->>'person', (SELECT t.body->>'person' FROM public.events t
             WHERE t.kind = 'task_created' AND t.run_id = e.run_id ORDER BY t.seq LIMIT 1))
