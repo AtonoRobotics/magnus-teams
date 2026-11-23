@@ -11,6 +11,7 @@
 use crate::boundary::Shown;
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::run_words::{RunWords, Source};
 use crate::state::Run;
 use anyhow::Result;
 use magnus_adapter_proto::{Block, Message, Role, ToolSpec};
@@ -25,6 +26,25 @@ const SEND: &str = "You review a send before it leaves. You see what the person 
 const SEND_PURPOSE: &str = "send";
 const COMPLETION_PURPOSE: &str = "completion";
 pub(crate) const MODULE_PURPOSES: [&str; 2] = [SEND_PURPOSE, COMPLETION_PURPOSE];
+
+/// Whose words the send is judged against: the person's, a schedule they
+/// set up and a request someone else made for them, each said as what it
+/// is. Never the model's: a chat task's goal is no request, and a send to
+/// the recipient it names is what the reviewer is there to catch.
+const ASKED_BY: &[Source] = &[Source::Person, Source::Schedule, Source::Other];
+
+/// The request as the reviewer reads it.
+fn request_text(words: &RunWords) -> String {
+    let parts: Vec<String> = words
+        .request_by(ASKED_BY)
+        .map(|w| match w.source {
+            Source::Schedule => format!("(the schedule they set up) {}", w.text),
+            Source::Other => format!("(asked for them by someone else) {}", w.text),
+            _ => w.text.clone(),
+        })
+        .collect();
+    parts.join("\n\n")
+}
 
 /// What the reviewer said about a send.
 pub(crate) enum SendVerdict {
@@ -78,7 +98,7 @@ impl Kernel {
             Some(crate::safety::Resubmission::Revised(note)) => format!("\n\nNote: {note}"),
             None => String::new(),
         };
-        let asked = self.asked(run).await?;
+        let asked = request_text(&self.run_words(run).await?);
         let where_to = match shown {
             Some(s) => format!("recipients:\n{}\ncontent:\n{}", serde_json::to_string_pretty(&s.recipients)?, serde_json::to_string_pretty(&s.content)?),
             None => format!("input:\n{}", serde_json::to_string_pretty(input)?),
@@ -100,6 +120,7 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests {
+    use super::request_text;
     use crate::log::Event;
     use crate::state::State;
     use serde_json::json;
@@ -122,5 +143,17 @@ mod tests {
         }
         assert_eq!(s.runs["r1"].reviewed, 2);
         assert_eq!(s.runs["r1"].model_calls, 5, "every check is still a model call on the run");
+    }
+
+    /// A send is judged against what was asked, never the model's goal;
+    /// a sub-agent's against its requester's words, and a teammate's
+    /// request said as theirs.
+    #[test]
+    fn a_send_is_judged_against_the_request_not_the_models_goal() {
+        let text = |shape| request_text(&crate::run_words::tests::words(shape));
+        assert!(!text("chat").contains("eve@evil.example") && text("chat").contains("bob@corp.example"), "{}", text("chat"));
+        assert!(!text("sub").contains("eve@evil.example"), "{}", text("sub"));
+        assert!(text("lane").starts_with("(asked for them by someone else) "), "{}", text("lane"));
+        assert!(text("schedule").starts_with("(the schedule they set up) "), "{}", text("schedule"));
     }
 }

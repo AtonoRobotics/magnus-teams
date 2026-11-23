@@ -25,6 +25,7 @@ use crate::controls::Refused;
 use crate::events::Ev;
 use crate::extract::Caller;
 use crate::kernel::Kernel;
+use crate::run_words::Source;
 use crate::state::{Commitment, Run};
 use crate::tools::{Label, Risk};
 use axum::extract::{Path, State};
@@ -169,23 +170,13 @@ impl Kernel {
     }
 
     /// The words the run's person said in it, and with `magnus` Magnus's
-    /// own in the conversation too: their message (not an opener's
-    /// instruction), the conversation it carries, or a task's text when they
-    /// gave it themselves (not a schedule's).
+    /// own in the conversation too: their message (not an opener's or an
+    /// outcome's instruction), the conversation it carries, or a task's text
+    /// when they gave it themselves (not a schedule's, not someone else's).
+    /// A sub-agent's are its requester's: its goal is the parent's words.
     async fn said_in(&self, run: &Run, magnus: bool) -> anyhow::Result<Vec<String>> {
-        // A sub-agent's person spoke to the run at its top: its goal is the parent's words.
-        let top = self.requester_run(run);
-        let Some(task) = self.read(|s| s.tasks.get(&top.task).cloned()) else { return Ok(vec![]) };
-        let mut said = vec![];
-        if let Some(c) = &task.chat {
-            let roles: &[&str] = if magnus { &["person", "you"] } else { &["person"] };
-            said.extend(c.conversation.iter().filter(|m| roles.iter().any(|r| m["role"] == *r)).filter_map(|m| m["text"].as_str().map(String::from)));
-            if c.turn && c.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) {
-                said.push(self.asked(&top).await?);
-            }
-        } else if task.schedule.is_none() {
-            said.push(self.own_asked(&top).await?);
-        }
+        let trust: &[Source] = if magnus { &[Source::Person, Source::Model] } else { &[Source::Person] };
+        let mut said: Vec<String> = self.run_words(run).await?.said(trust).into_iter().map(String::from).collect();
         if magnus {
             // What Magnus has said in this run so far.
             let r = self.read(|s| s.runs.get(&run.id).cloned()).unwrap_or_else(|| run.clone());

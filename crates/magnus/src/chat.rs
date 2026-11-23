@@ -264,8 +264,8 @@ impl Kernel {
         let Some(chat) = task.chat.clone() else { anyhow::bail!("task {} is not from chat", task.task_id) };
         let (task_id, run_id) = (derived("task", key), derived("run", key));
         if !self.read(|s| s.tasks.contains_key(&task_id)) {
-            // An opener's text is the appliance's instruction, not something the person asked.
-            let asked = if chat.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) { Some(self.asked(run).await?) } else { None };
+            // Only the person's own message: an opener's or an outcome's text is the server's instruction.
+            let asked = self.run_words(run).await?.text(&[crate::run_words::Source::Person]).map(String::from);
             let said: Vec<String> = run.replies.iter().map(|r| r.text()).filter(|t| !t.is_empty()).collect();
             let conversation = crate::task_goal::carried(chat.conversation.clone(), asked, &said.join("\n\n"));
             let o = NewRun {

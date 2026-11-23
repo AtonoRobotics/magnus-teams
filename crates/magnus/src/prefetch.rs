@@ -4,7 +4,7 @@
 //!   `public.content` and recalled via `Recall` RLS so replay is deterministic
 //!   for C1 prompt caching and `forget_person` erases it).
 //! - Rendered with its own distinct context block prefix—NEVER as a
-//!   `role == "person"` user message—so `named_by_person` (`boundary/call.rs:85`)
+//!   `role == "person"` user message—so `RunWords::named_by_person` (`run_words.rs`)
 //!   can never admit prefetched addresses into the write `Envelope`.
 
 use crate::events::Ev;

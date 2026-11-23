@@ -8,6 +8,7 @@
 use super::{Change, Destination, Envelope};
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::run_words::{RunWords, Source};
 use crate::state::Run;
 use anyhow::Result;
 use magnus_adapter_proto::{Block, Message, Role, ToolSpec};
@@ -16,6 +17,11 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Whose words compile an envelope: the person's own, and a schedule they
+/// set up, which "authorizes the work it describes" (spec rev 140). Never
+/// the model's (a chat task's goal) nor anyone else's (2026-11-20: "only the
+/// user's own messages, never tool results or assistant turns").
+const TRUSTS: &[Source] = &[Source::Person, Source::Schedule];
 const EXTRACT_SYSTEM: &str = "You extract explicit write destinations (email addresses, person names, Slack channel IDs, GitHub owner/repo pairs, or hostnames) and apps mentioned in the user's request. Only include destinations the user explicitly asked to send to or write to. Call the extract_targets tool.";
 
 fn extract_tool() -> ToolSpec {
@@ -123,6 +129,20 @@ fn parsed_from_model(blocks: &[Block]) -> Option<(Vec<String>, Vec<String>)> {
     Some((dests, apps))
 }
 
+/// The prompt an envelope compiles from, and the destinations written in
+/// it: only the words of the sources it trusts, never a chat task's goal.
+fn literal_from(words: &RunWords) -> (String, Vec<String>, BTreeSet<Destination>) {
+    let prompt = words.asked_text(TRUSTS);
+    let (mut user_named, mut allowed) = extract_literal_destinations(&prompt);
+    for addr in words.named_by_person() {
+        if let Some(d) = Destination::parse_email(&addr) {
+            user_named.push(addr);
+            allowed.insert(d);
+        }
+    }
+    (prompt, user_named, allowed)
+}
+
 impl Kernel {
     fn is_registered_app(&self, app: &str) -> bool {
         if crate::tools::BUILTINS.iter().any(|b| b.app.eq_ignore_ascii_case(app)) || self.cfg.connectors.iter().any(|c| c.name.eq_ignore_ascii_case(app)) {
@@ -142,16 +162,8 @@ impl Kernel {
             return Ok(existing);
         }
 
-        let prompt = if requester.task.is_empty() { String::new() } else { self.own_asked(&requester).await.unwrap_or_default() };
-        let (mut user_named, mut allowed_destinations) = extract_literal_destinations(&prompt);
-        if let Ok(person_addrs) = self.named_by_person(run).await {
-            for addr in person_addrs {
-                if let Some(d) = Destination::parse_email(&addr) {
-                    user_named.push(addr);
-                    allowed_destinations.insert(d);
-                }
-            }
-        }
+        let words = self.run_words(run).await.unwrap_or_default();
+        let (prompt, mut user_named, mut allowed_destinations) = literal_from(&words);
         let mut allowed_write_apps = BTreeSet::new();
 
         // Model-assisted extraction on user-only prompt text (never tool results),
@@ -228,6 +240,27 @@ mod tests {
         assert!(dests.contains(&Destination::parse_slack_channel("default", "C0123456789").unwrap()));
         assert!(dests.contains(&Destination::parse_host("docs.example.org").unwrap()));
         assert!(!dests.contains(&Destination::parse_email("attacker@evil.com").unwrap()));
+    }
+
+    /// 2026-11-20: an envelope compiles "from only the user's own messages
+    /// (never tool results or assistant turns)". A chat task's text is the
+    /// goal the model wrote when it started the task: an address there is
+    /// not one the person named. Before, the envelope read it as theirs.
+    #[test]
+    fn a_chat_tasks_goal_allows_no_destination_the_person_did_not_write() {
+        let (prompt, named, allowed) = literal_from(&crate::run_words::tests::words("chat"));
+        let eve = Destination::parse_email("eve@evil.example").unwrap();
+        assert!(!allowed.contains(&eve), "the model's goal allowed {eve:?}: {prompt}");
+        assert!(!named.iter().any(|n| n.contains("eve@")), "{named:?}");
+        assert!(allowed.contains(&Destination::parse_email("bob@corp.example").unwrap()), "the person's own words in the conversation were lost");
+        // A sub-agent's goal, a teammate's lane and the server's text name nothing either.
+        for shape in ["sub", "lane", "opener", "review"] {
+            let (_, _, allowed) = literal_from(&crate::run_words::tests::words(shape));
+            assert!(!allowed.iter().any(|d| d.display().contains("evil") || d.display().contains("server")), "{shape}: {allowed:?}");
+        }
+        // A schedule the person set up still authorizes what it names (spec rev 140).
+        let (_, _, allowed) = literal_from(&crate::run_words::tests::words("schedule"));
+        assert!(allowed.contains(&Destination::parse_email("cat@corp.example").unwrap()));
     }
 
     #[test]

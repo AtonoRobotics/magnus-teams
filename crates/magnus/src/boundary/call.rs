@@ -7,7 +7,7 @@ use crate::halts;
 use crate::kernel::Kernel;
 use crate::policy::{self, ToolFacts};
 use crate::state::{Run, Status};
-use crate::tools::{self, Label, Risk};
+use crate::tools::{Label, Risk};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -70,23 +70,6 @@ impl Kernel {
                 None
             }
         }
-    }
-
-    /// The addresses the person wrote themselves for this run: in what they
-    /// asked (a task they started, or their chat message), or in their own
-    /// messages of the conversation a task started from chat carries. Never
-    /// a tool's result, the model's words (a chat task's text is the
-    /// model's) or a schedule's text.
-    pub(crate) async fn named_by_person(&self, run: &Run) -> Result<std::collections::BTreeSet<String>> {
-        // A sub-agent's: its requester's, never its goal (the parent's words).
-        let run = &self.requester_run(run);
-        let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(Default::default()) };
-        let said: Vec<String> = match &task.chat {
-            Some(c) if !c.turn => c.conversation.iter().filter(|m| m["role"] == "person").filter_map(|m| m["text"].as_str().map(String::from)).collect(),
-            _ if task.schedule.is_none() => vec![self.own_asked(run).await?],
-            _ => vec![],
-        };
-        Ok(said.iter().flat_map(|t| tools::addresses_in(t)).collect())
     }
 
     /// Call a read tool of a connector through the person's own sign-in, as

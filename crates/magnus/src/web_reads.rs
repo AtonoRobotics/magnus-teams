@@ -18,6 +18,10 @@ use crate::tool_registry::{navigates, web_read, WebRead};
 use crate::tools::Risk;
 use anyhow::Result;
 
+/// Whose words an address may come from: the person's own and a schedule
+/// they set up; never the model's (a chat task's goal).
+const WEB_SOURCES_TRUST: &[crate::run_words::Source] = &[crate::run_words::Source::Person, crate::run_words::Source::Schedule];
+
 /// Whether this read's results are where an address may be found: the
 /// public web, never a page read through the person's own sign-in.
 fn is_source(tool: &str) -> bool {
@@ -93,8 +97,8 @@ impl Kernel {
     /// Where an address may come from without carrying anything the model
     /// added: the person's own words and what the web returned to the work.
     pub(crate) async fn web_sources(&self, run: &Run) -> Result<Vec<String>> {
-        let requester = self.requester_run(run);
-        let mut texts = if requester.task.is_empty() { vec![] } else { vec![self.own_asked(&requester).await?] };
+        let words = self.run_words(run).await?;
+        let mut texts: Vec<String> = words.asked(WEB_SOURCES_TRUST).into_iter().map(String::from).collect();
         texts.extend(self.read(|s| returned(s, &run.id)));
         Ok(texts)
     }
@@ -113,6 +117,17 @@ mod tests {
 
     fn action(tool: &str, input: serde_json::Value) -> Action {
         Action { run: "r".into(), call_id: "c".into(), step_id: "s".into(), tool: tool.into(), input, issuer: Issuer::Model }
+    }
+
+    /// A chat task's goal is the model's words: an address in it carries
+    /// what the model added, so it is no source; the person's lines are.
+    #[test]
+    fn a_chat_tasks_goal_is_not_a_source_of_addresses() {
+        let w = crate::run_words::tests::words("chat");
+        let sources = w.asked(WEB_SOURCES_TRUST);
+        assert!(!sources.iter().any(|t| t.contains("eve@evil.example")), "{sources:?}");
+        assert!(sources.iter().any(|t| t.contains("bob@corp.example")), "{sources:?}");
+        assert!(crate::run_words::tests::words("lane").asked(WEB_SOURCES_TRUST).is_empty());
     }
 
     #[test]
