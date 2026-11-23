@@ -8,8 +8,8 @@
 
 mod call;
 
-pub use call::{computer_command, media_type_for};
 pub(crate) use call::memory_result;
+pub use call::{computer_command, media_type_for};
 use call::{memory_taint, CallFailure};
 
 use crate::config::{Connector, Person};

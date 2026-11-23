@@ -232,7 +232,7 @@ impl Kernel {
         let mut failed: Option<anyhow::Error> = None;
         if todo.everything {
             if let Err(e) = self.sync_knowledge().await {
-                (left.everything, failed) = (true, Some(e));
+                (left.everything, left.strays, failed) = (true, todo.strays, Some(e));
             }
         } else if todo.strays {
             if let Err(e) = self.drop_strays().await {
