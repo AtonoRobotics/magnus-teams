@@ -118,19 +118,13 @@ async fn set_roles(State(k): K, Owner(me): Owner, Path(id): Path<String>, Json(b
     if k.cfg.person(&id).is_none() {
         return refuse(StatusCode::NOT_FOUND, "no such person");
     }
-    if k.read(|s| s.identity.provider_set_roles(&id)) {
-        return refuse(StatusCode::CONFLICT, "the identity provider names this person's roles; change them there");
-    }
-    // Checked and recorded under the decision lock: two owners taking the
-    // role from each other at once must leave one.
-    let _decide = k.decide.lock().await;
-    let still_owned = k.people().owners().iter().any(|p| p.id != id) || roles.iter().any(|r| r == "owner");
-    if !still_owned {
-        return refuse(StatusCode::CONFLICT, "someone must keep the owner role");
-    }
-    Ok(match k.emit(&format!("person:{}", me.id), Ev::RolesSet { person: id, roles }).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => internal(e),
+    // Checked and recorded under the account lock: two owners taking the
+    // role from each other at once must leave one enabled.
+    Ok(match k.set_roles_of(&format!("person:{}", me.id), &id, roles).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err((code, "provider", _)) => err(code, "the identity provider names this person's roles; change them there"),
+        Err((code, "last_owner", _)) => err(code, "someone must keep the owner role"),
+        Err((code, _, m)) => err(code, m),
     })
 }
 
@@ -272,35 +266,19 @@ async fn delete_own_account(State(k): K, Caller(p): Caller, Json(b): Json<Value>
     if b["confirm"].as_str().map(str::trim) != Some("DELETE") {
         return refuse(StatusCode::BAD_REQUEST, "Type DELETE to confirm erasing your account and data.");
     }
-    if k.last_owner(&p.id).await {
-        return refuse(StatusCode::CONFLICT, "You are the last owner of this server: make someone else an owner first.");
-    }
+    // One removal: refused with nothing erased when it would leave the
+    // server without an enabled owner or admin, else everything goes,
+    // their account with it (decision `2026-11-23-one-reader-for-server-roles.md`).
     let actor = format!("person:{}", p.id);
-    let sole = k.read(|s| crate::admin_app::remove::sole_workspaces(&s.team, &p.id));
-    for ws in &sole {
-        if let Err(e) = k.delete_workspace(&actor, ws).await {
-            return Ok(internal(e));
-        }
-    }
-    let evs = k.read(|s| {
-        let h = crate::admin_app::remove::held(&s.team, &p.id);
-        crate::admin_app::remove::changes(&s.team, &p.id, &h, None)
-    });
-    if !evs.is_empty() {
-        let team_evs: Vec<(&str, Ev)> = evs.into_iter().map(|c| (actor.as_str(), Ev::Team(c))).collect();
-        if let Err(e) = k.emit_all(team_evs).await {
-            return Ok(internal(e));
-        }
-    }
-    match k.erase_person(&actor, &p.id).await {
-        Ok(mut summary) => {
-            if k.accounts.is_local(&p.id) {
-                let _ = k.accounts.remove_person(&p.id).await;
-            }
+    match k.remove_account(&actor, &p.id, crate::account_removal::TeamWork::Delete).await {
+        Ok(v) => {
+            let mut summary = v["erased"].clone();
             summary["deleted"] = json!(true);
             Ok(Json(summary).into_response())
         }
-        Err((st, m)) => Ok(err(st, m)),
+        Err((code, "last_owner", _)) => refuse(code, "You are the last owner of this server: make someone else an owner first."),
+        Err((code, "last_admin", _)) => refuse(code, "You are the last admin of this server: make someone else an admin first."),
+        Err((code, _, m)) => Ok(err(code, m)),
     }
 }
 

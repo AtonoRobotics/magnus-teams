@@ -65,6 +65,8 @@ mod sections_tests;
 pub mod security;
 pub mod server_channel;
 #[cfg(test)]
+mod server_roles_tests;
+#[cfg(test)]
 mod session_fault_tests;
 pub mod settings;
 pub mod settings_gate;

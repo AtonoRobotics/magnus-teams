@@ -7,6 +7,7 @@
 
 pub mod account_change;
 pub mod account_links;
+pub mod account_removal;
 pub mod accounts;
 pub mod adapters;
 pub mod admin_app;

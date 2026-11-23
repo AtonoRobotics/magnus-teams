@@ -186,10 +186,6 @@ async fn change(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Pa
     StatusCode::NO_CONTENT.into_response()
 }
 
-pub(super) fn last_owner() -> Response {
-    refuse(StatusCode::CONFLICT, "last_owner", "This is the last owner: make someone else an owner first.")
-}
-
 /// Turn someone off: never the last owner, and an owner only by an owner,
 /// both of which the kernel's own operation checks.
 async fn disable(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>) -> Response {

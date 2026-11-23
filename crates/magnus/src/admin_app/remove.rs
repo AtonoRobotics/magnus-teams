@@ -14,9 +14,8 @@
 //! - They leave every workspace.
 
 use super::mount::{audited, body_json, control, seg, Audit};
-use super::people::{last_owner, refuse};
+use super::people::refuse;
 use super::Admin;
-use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::team::{Change, Role};
 use axum::extract::{Path, State};
@@ -133,12 +132,6 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
     if id == a.person.id {
         return refuse(StatusCode::CONFLICT, "self", "You cannot remove yourself: another admin can.");
     }
-    if k.last_owner(&id).await {
-        return last_owner();
-    }
-    if let Err((code, error, message)) = k.may_change_account(&a.actor(), &id).await {
-        return refuse(code, error, &message);
-    }
     let to = b["to"].as_str().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty());
     let transfer = match b["projects"].as_str() {
         Some("transfer") => true,
@@ -162,25 +155,9 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
         before: None,
         after: Some(json!({ "projects": if transfer { "transfer" } else { "delete" }, "to": to, "held": counts })),
     };
-    let actor = a.actor();
+    let body = json!({ "projects": if transfer { "transfer" } else { "delete" }, "to": given });
     let change = async {
-        let sole = k.read(|s| sole_workspaces(&s.team, &id));
-        for ws in &sole {
-            if let Err(e) = k.delete_workspace(&actor, ws).await {
-                return refuse(StatusCode::INTERNAL_SERVER_ERROR, "failed", &format!("{e:#}"));
-            }
-        }
-        let evs = k.read(|s| {
-            let h = held(&s.team, &id);
-            changes(&s.team, &id, &h, given)
-        });
-        let team: Vec<(&str, Ev)> = evs.into_iter().map(|c| (actor.as_str(), Ev::Team(c))).collect();
-        if !team.is_empty() {
-            if let Err(e) = k.emit_all(team).await {
-                return refuse(StatusCode::INTERNAL_SERVER_ERROR, "failed", &format!("{e:#}"));
-            }
-        }
-        let r = control(&k, &a, Method::DELETE, &format!("/v1/admin/people/{}", seg(&id)), None).await;
+        let r = control(&k, &a, Method::DELETE, &format!("/v1/admin/people/{}", seg(&id)), Some(body)).await;
         if !r.status().is_success() {
             return r;
         }

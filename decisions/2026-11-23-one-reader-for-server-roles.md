@@ -1,0 +1,11 @@
+# One reader for server roles, one last-owner-and-admin guard
+
+**Choice.**
+- Server roles stay kept where they are (roles here: the config, `RolesSet`, the identity provider; the server's own directory row), and are read one way: `Kernel::authority`, through `authority_with`. Where the identity provider names a person's roles, it alone says whether they are an admin: a directory row written here before is not read. Moving every role into one table would change the log's history and the command line for no gain over one reader.
+- One guard, `Kernel::would_strand(person, After::{Role, Off, Gone})` (`people/strand.rs`), counts enabled owners and enabled admins through that reader, before and after the change, and refuses a change that would take the last of either. Enabled is an account that is on and has accepted its invitation.
+- Every change to a role, a status or a removal takes the kernel's `account_changes` lock, asks `would_strand` and then makes the change: `set_server_role`, `set_directory_role`, the owner's roles route (`set_roles_of`), `turn_off_account` and removal. The store's own directory-only guard is skipped for these (`accounts::Guard::Kernel`); the command line, which writes the store alone, keeps it.
+- Removal is one operation, `Kernel::remove_account` (`account_removal.rs`), for the Admin section, the console and a person deleting their own account. It asks the guard and the account rule first; only then are the person's workspaces deleted or passed on, their data erased, and their account removed. Someone the config names cannot be removed, so they stay listed and turned off, now on self-deletion too.
+- Self-deletion answers `deleted: true` only when the removal finished; a refusal is the answer, with nothing erased.
+- The Admin section's test that guarded the directory's only admin against an owner and a config admin now expects the change to go through.
+
+**Reason.** Admin was read from two stores and the guard counted one, so a config owner could not turn off, demote or remove the directory's one admin, and the owner's roles route counted a turned-off owner as keeping the server owned. Removal changed team work before its refusal, and self-deletion swallowed it, leaving the account with its password and role. A provider demotion did not take while a role row remained here.

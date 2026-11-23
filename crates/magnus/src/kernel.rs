@@ -30,6 +30,10 @@ pub struct Kernel {
     /// Held while a person's decision is checked and recorded, so an inbox item or a chat card is decided once
     /// however many answers race in, and a change of roles keeps an owner however many race in.
     pub(crate) decide: tokio::sync::Mutex<()>,
+    /// Held while a change to someone's account is checked and made, so two
+    /// changes at once never leave the server without an enabled owner or
+    /// admin (`Kernel::would_strand`).
+    pub(crate) account_changes: tokio::sync::Mutex<()>,
     /// Held while a person's relationship notes are read and a new version written, so two changes at once never lose one.
     pub(crate) notes: tokio::sync::Mutex<()>,
     pub vault: Arc<Vault>,
@@ -156,6 +160,7 @@ impl Kernel {
             log: writer.log.clone(),
             writer,
             decide: tokio::sync::Mutex::new(()),
+            account_changes: tokio::sync::Mutex::new(()),
             notes: tokio::sync::Mutex::new(()),
             drivers: Mutex::new(HashSet::new()),
             leases: Mutex::new(HashMap::new()),

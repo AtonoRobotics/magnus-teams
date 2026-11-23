@@ -3,7 +3,8 @@
 //! invitation. Each calls the kernel's own operation (`account_change`),
 //! which asks the account rule itself; a route only reads the request.
 
-use super::{actor, person_refused};
+use super::actor;
+use crate::account_removal::TeamWork;
 use crate::accounts::{Role, Status};
 use crate::extract::Body;
 use crate::kernel::Kernel;
@@ -98,51 +99,21 @@ pub(super) async fn enable(State(k): State<Arc<Kernel>>, Path(id): Path<String>,
 
 /// Delete them: their content erased, then their local account where the
 /// server keeps one. A config person cannot be unmade here, so they are
-/// turned off instead and stay listed, disabled.
+/// turned off instead and stay listed, disabled. With `projects`
+/// ("transfer" to `to`, or "delete"), their team work is passed on or
+/// deleted first; without, it is left as it is.
 pub(super) async fn delete(State(k): State<Arc<Kernel>>, Path(id): Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who deletes them" }))).into_response() };
-    let id = id_of(&id);
-    if k.person(&id).is_none() {
-        return refused(crate::account_change::not_found());
-    }
-    if let Err(r) = k.may_change_account(&actor, &id).await {
-        return refused(r);
-    }
-    // Disable first: it holds the last-admin guard, so a refused
-    // deletion erases nothing — and a failed erasure leaves a listed,
-    // disabled account whose deletion retries cleanly, instead of a
-    // vanished person with orphaned content (#529).
-    let local = k.accounts.is_local(&id);
-    let ended = match k.accounts.set_status(&id, Status::Disabled).await {
-        Ok(ended) => ended,
-        Err(e) => return refused(crate::account_change::store_refusal(e)),
+    let team = match (b["projects"].as_str(), b["to"].as_str().map(id_of).filter(|t| !t.is_empty())) {
+        (None, _) => TeamWork::Untouched,
+        (Some("transfer"), Some(to)) => TeamWork::Transfer(to),
+        (Some("delete"), _) => TeamWork::Delete,
+        _ => return invalid("Say whether their projects and agents are transferred, and to whom, or deleted."),
     };
-    // Sessions the disabling ended are signed out on the record, as a
-    // disable signs its own.
-    if !ended.is_empty() {
-        let evs: Vec<(&str, crate::events::Ev)> =
-            ended.iter().map(|session| (actor.as_str(), crate::events::Ev::SignedOut { person: id.clone(), session: session.clone() })).collect();
-        if let Err(e) = k.emit_all(evs).await {
-            return refused(crate::account_change::store_refusal(e));
-        }
+    match k.remove_account(&actor, &id_of(&id), team).await {
+        Ok(v) => Json(v).into_response(),
+        Err(r) => refused(r),
     }
-    let mut erased = match k.erase_person(&actor, &id).await {
-        Ok(v) => v,
-        Err(r) => return person_refused(r),
-    };
-    // The disabling already ended their sessions; the erasure counts
-    // its own. The answer counts every session the deletion ended.
-    erased["sessions_ended"] = json!(ended.len() as u64 + erased["sessions_ended"].as_u64().unwrap_or(0));
-    // Then the local directory entry goes, its content already erased. A
-    // disabled account is never the last enabled admin, so this only
-    // fails the store itself — leaving a listed, disabled shell whose
-    // deletion retries (the erasure finds nothing new) and removes.
-    if local {
-        if let Err(e) = k.remove_local_person(&id).await {
-            return refused(crate::account_change::store_refusal(e));
-        }
-    }
-    Json(json!({ "erased": erased, "account_removed": local })).into_response()
 }
 
 /// Withdraw an invitation sent from here: the local account goes, never

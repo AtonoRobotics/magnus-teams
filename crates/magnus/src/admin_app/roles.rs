@@ -36,16 +36,9 @@ impl Kernel {
         out
     }
 
-    /// Whether `id` is the last owner who is turned on: they cannot be
-    /// removed, turned off or given another role.
-    pub async fn last_owner(&self, id: &str) -> bool {
-        let owners = self.active_owners().await;
-        owners.len() == 1 && owners[0] == id
-    }
-
     /// Give `id` one of the four roles, as `actor`, if the account rule
-    /// lets them (`may_give_role`). Held under the decision lock, so two
-    /// owners demoting each other at once leave one.
+    /// lets them (`may_give_role`). Checked and made under the account
+    /// lock, so two owners demoting each other at once leave one.
     pub async fn set_server_role(&self, actor: &str, id: &str, role: &str) -> Result<(), Refusal> {
         if !ROLES.contains(&role) {
             return Err((StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.".into()));
@@ -66,20 +59,14 @@ impl Kernel {
         if self.read(|s| s.identity.provider_set_roles(id)) {
             return Err((StatusCode::CONFLICT, "provider", "The identity provider names this person's roles: change them there.".into()));
         }
-        let _decide = self.decide.lock().await;
-        if crate::people::rights(&p).is_server_owner() && role != "owner" && self.last_owner(id).await {
-            return Err((StatusCode::CONFLICT, "last_owner", "This is the last owner: make someone else an owner first.".into()));
-        }
+        let _one = self.account_changes.lock().await;
+        let then = crate::people::Authority::named(role).unwrap_or(crate::people::Authority::Guest);
+        self.would_strand(id, crate::people::After::Role(then)).await?;
         let admin = matches!(role, "owner" | "admin");
         let now = self.accounts.role(id).await;
         if admin != (now == Directory::Admin) {
-            if let Err(e) = self.accounts.set_role(id, if admin { Directory::Admin } else { Directory::Member }).await {
-                let m = format!("{e:#}");
-                if m.contains("last admin") {
-                    return Err((StatusCode::CONFLICT, "last_admin", "This is the last admin: make someone else an admin first.".into()));
-                }
-                return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed", m));
-            }
+            let directory = if admin { Directory::Admin } else { Directory::Member };
+            self.accounts.set_role_as(id, directory, crate::accounts::Guard::Kernel).await.map_err(crate::account_change::store_refusal)?;
         }
         let roles = with_role(&p.roles, role);
         self.emit(actor, Ev::RolesSet { person: id.to_string(), roles }).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, "failed", format!("{e:#}")))?;

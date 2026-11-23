@@ -4,10 +4,10 @@
 //! the console call these, never the account store directly, so no route
 //! can change an account the rule would refuse.
 
-use crate::accounts::{Role, Status};
+use crate::accounts::{Guard, Role, Status};
 use crate::events::Ev;
 use crate::kernel::Kernel;
-use crate::people::Refusal;
+use crate::people::{After, Refusal};
 use axum::http::StatusCode;
 
 /// A failure of the account store, as a refusal: the last admin's own, or
@@ -22,10 +22,6 @@ pub(crate) fn store_refusal(e: anyhow::Error) -> Refusal {
 
 pub(crate) fn not_found() -> Refusal {
     (StatusCode::NOT_FOUND, "not_found", "No such person.".into())
-}
-
-pub(crate) fn last_owner() -> Refusal {
-    (StatusCode::CONFLICT, "last_owner", "This is the last owner: make someone else an owner first.".into())
 }
 
 fn not_invited() -> Refusal {
@@ -55,23 +51,43 @@ impl Kernel {
         self.accounts.set_email(id, &name, email).await.map_err(store_refusal)
     }
 
-    /// Make `id` an admin or a member in the server's own directory.
+    /// Make `id` an admin or a member in the server's own directory: never
+    /// the last enabled owner's or admin's role taken.
     pub async fn set_directory_role(&self, actor: &str, id: &str, role: Role) -> Result<(), Refusal> {
-        self.known(id)?;
+        let Some(p) = self.person(id) else { return Err(not_found()) };
         self.may_give_role(actor, id, role.as_str()).await?;
-        self.accounts.set_role(id, role).await.map_err(store_refusal)
+        let _one = self.account_changes.lock().await;
+        self.would_strand(id, After::Role(self.authority_with(&p, role))).await?;
+        self.accounts.set_role_as(id, role, Guard::Kernel).await.map_err(store_refusal)
     }
 
-    /// Turn `id` off, as `actor`: never the last owner or admin. Their
-    /// sessions end on the record and their schedules pause.
+    /// Set `id`'s roles here to `roles`, as `actor` (the owner's Settings):
+    /// never while the identity provider names them, and never the last
+    /// enabled owner's or admin's role taken.
+    pub async fn set_roles_of(&self, actor: &str, id: &str, roles: Vec<String>) -> Result<(), Refusal> {
+        let Some(mut p) = self.person(id) else { return Err(not_found()) };
+        self.may_change_account(actor, id).await?;
+        if self.read(|s| s.identity.provider_set_roles(id)) {
+            return Err((StatusCode::CONFLICT, "provider", "The identity provider names this person's roles: change them there.".into()));
+        }
+        let _one = self.account_changes.lock().await;
+        p.roles = roles.clone();
+        let then = self.authority_with(&p, self.accounts.role(id).await);
+        self.would_strand(id, After::Role(then)).await?;
+        self.emit(actor, Ev::RolesSet { person: id.to_string(), roles }).await.map(|_| ()).map_err(store_refusal)
+    }
+
+    /// Turn `id` off, as `actor`: never the last enabled owner or admin.
+    /// Their sessions end on the record, and everything turning off does
+    /// follows (`Kernel::turn_off`).
     pub async fn turn_off_account(&self, actor: &str, id: &str) -> Result<TurnedOff, Refusal> {
         self.known(id)?;
-        if self.last_owner(id).await {
-            return Err(last_owner());
-        }
+        let one = self.account_changes.lock().await;
+        self.would_strand(id, After::Off).await?;
         self.may_change_account(actor, id).await?;
         let schedules = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == id && x.next_due().is_some()).count());
-        let ended = self.accounts.set_status(id, Status::Disabled).await.map_err(store_refusal)?;
+        let ended = self.accounts.set_status_as(id, Status::Disabled, Guard::Kernel).await.map_err(store_refusal)?;
+        drop(one);
         let sessions = ended.len();
         let evs: Vec<(&str, Ev)> = ended.into_iter().map(|session| (actor, Ev::SignedOut { person: id.to_string(), session })).collect();
         if !evs.is_empty() {
