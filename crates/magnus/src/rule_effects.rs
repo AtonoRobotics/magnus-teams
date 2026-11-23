@@ -50,11 +50,15 @@ fn strongest(rules: Vec<Rule>, person: &crate::config::Person, facts: &ToolFacts
 }
 
 impl Kernel {
-    /// The person's own block or ask-first rule that takes in this action.
+    /// The person's own block or ask-first rule that takes in this action,
+    /// where it goes read as its card reads it (`destinations_of`), a site
+    /// taking in the sites below it. It holds wherever the action runs, an
+    /// `OpenWeb` worker's web reads included.
     pub(crate) fn stopping_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<Rule> {
         let person = self.person(&run.person)?;
         let facts = ToolFacts::from(f);
-        strongest(self.rules_for(&run.person), &person, &facts, &crate::rules::destinations_of(a, shown))
+        let destinations = crate::asks::with_parent_sites(&self.destinations_of(a, f, shown));
+        strongest(self.rules_for(&run.person), &person, &facts, &destinations)
     }
 
     /// The kernel's own ask, after the person's rules: a block denies, and
@@ -84,6 +88,17 @@ impl Kernel {
             return Ok(Ok(ask));
         }
         if let Some(r) = found {
+            // A web research worker puts no card to anyone (2026-11-22): there
+            // the person's ask first stops the action, and the model is told why.
+            if self.read(|s| s.compartments.of(&run.id).is_open_web()) {
+                let why = format!(
+                    "{} is stopped: {}{} says to ask the person first, and a web research worker asks no one. Leave it out, or say in your answer that the person's rule stopped it",
+                    a.tool,
+                    whose(&r, "the person's own rule"),
+                    quoted_words(&r)
+                );
+                return Ok(Err(self.deny(a, "policy", &why, false, Some(format!("{PERSON_RULE}{}", r.id))).await?));
+            }
             return Ok(Ok(Some((format!("{} says to ask first{}", whose(&r, "your rule"), quoted_words(&r)), Some(format!("{PERSON_RULE}{}", r.id))))));
         }
         Ok(Ok(ask))
@@ -123,7 +138,17 @@ mod tests {
             input: serde_json::json!({ "host": "Data.Example" }),
             issuer: crate::boundary::Issuer::Model,
         };
-        assert_eq!(crate::rules::destinations_of(&a, None), vec!["data.example".to_string()]);
+        let f = crate::boundary::Facts {
+            name: SOURCE_TOOL.into(),
+            app: "computer".into(),
+            risk: crate::tools::Risk::ReversibleWrite,
+            label: crate::tools::Label::PRINCIPAL,
+            audience: crate::tools::Audience::Public,
+            connector: None,
+            remote: SOURCE_TOOL.into(),
+            reaches_self: false,
+        };
+        assert_eq!(crate::asks::destinations(&a, &f, None), vec!["data.example".to_string()]);
         let alice: crate::config::Person = serde_json::from_value(serde_json::json!({ "id": "alice", "groups": [] })).unwrap();
         let facts = ToolFacts { name: SOURCE_TOOL, app: "computer", risk: crate::tools::Risk::ReversibleWrite, audience: crate::tools::Audience::Public };
         let allow = crate::rules::compile("alice", "computer", SOURCE_TOOL, &["data.example".into()], false, Effect::Allow).unwrap();
@@ -174,5 +199,51 @@ mod tests {
         let for_bob = workspace_rule("bob", "w", &WorkspaceRule { effect: Effect::Block, connector: "slack".into(), ..Default::default() });
         assert!(strongest(vec![for_bob], &bob, &post, &to).is_some(), "a workspace rule did not reach everyone");
         assert_eq!(whose(&own, "your rule"), "your rule");
+    }
+
+    /// A person's block on a site stops a web fetch there wherever it runs:
+    /// in their own run and in an `OpenWeb` research worker. Their ask first
+    /// on a site asks in their own run, and stops the fetch in the worker,
+    /// which asks no one, telling the model why. Before, a rule read only
+    /// email-style fields, so a rule on a site never fired (2026-11-23).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_rule_on_a_site_holds_in_a_private_run_and_an_openweb_worker() {
+        use crate::compartment::{Change as Started, Compartment};
+        use crate::events::Ev;
+        use serde_json::json;
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        for (id, effect, site) in [("block", Effect::Block, "https://evil.example"), ("ask", Effect::Ask, "ask.example")] {
+            let compiled = Some(crate::rules::compile("mo", "web", "", &[site.into()], false, effect).unwrap());
+            s.k.emit("person:mo", Ev::Rule(crate::rules::Change::Proposed { id: id.into(), person: "mo".into(), compiled, words: None })).await.unwrap();
+            s.k.emit("person:mo", Ev::Rule(crate::rules::Change::Accepted { id: id.into() })).await.unwrap();
+        }
+        let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 9, "max_actions": 9, "max_usd": 4.0 }, "verifier": false, "instructions": "", "harness": "" });
+        let created =
+            |t: &str| serde_json::from_value(json!({ "kind": "task_created", "task": format!("t_{t}"), "run": format!("r_{t}"), "person": "mo", "config": config })).unwrap();
+        s.k.emit("person:mo", created("own")).await.unwrap();
+        let worker = Compartment::OpenWeb { link_following_only: false };
+        s.k.emit("kernel", Ev::Compartment(Started::Started { run: "r_web".into(), parent: Some("r_own".into()), compartment: worker })).await.unwrap();
+        s.k.emit("kernel", Ev::SubAgent(crate::sub_agents::SubAgent { child: "r_web".into(), parent: "r_own".into(), tools: vec![] })).await.unwrap();
+        s.k.emit("run:r_own", created("web")).await.unwrap();
+        let fetch = |run: &str, n: usize, url: &str| Action {
+            run: run.into(),
+            call_id: format!("c{n}"),
+            step_id: format!("s{n}.0"),
+            tool: "web_fetch".into(),
+            input: json!({ "url": url }),
+            issuer: crate::boundary::Issuer::Model,
+        };
+        for (n, run) in [(1, "r_own"), (2, "r_web")] {
+            match s.k.execute(fetch(run, n, "https://www.evil.example/page")).await.unwrap() {
+                crate::boundary::Verdict::Done { text, is_error: true, .. } => assert!(text.contains("blocked by the person's own rule"), "{run}: {text}"),
+                _ => panic!("{run}: the block on evil.example did not stop the fetch"),
+            }
+        }
+        match s.k.execute(fetch("r_web", 3, "https://ask.example/")).await.unwrap() {
+            crate::boundary::Verdict::Done { text, is_error: true, .. } => assert!(text.contains("asks no one"), "{text}"),
+            _ => panic!("the worker did not stop at the person's ask first"),
+        }
+        assert!(matches!(s.k.execute(fetch("r_own", 4, "https://ask.example/")).await.unwrap(), crate::boundary::Verdict::Suspended), "the person's own run did not ask");
+        s.done().await;
     }
 }

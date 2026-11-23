@@ -123,16 +123,57 @@ fn host_of(url: &str) -> Option<String> {
     url::Url::parse(url).ok()?.host_str().map(str::to_lowercase)
 }
 
-/// Where an action goes, as a card, an approval and a rule name it: the
-/// recipients the gate read, a web lookup's host, a source's host.
+/// The fields a call names where it goes in, read when the gate read no
+/// recipients (an app with no destinations set up): its addresses, and a
+/// chat app's channel.
+const NAMED_FIELDS: [&str; 7] = ["to", "cc", "bcc", "recipient", "recipients", "channel", "channel_id"];
+
+/// Where an action goes: the one reading of it (2026-11-23), which cards,
+/// approvals, the person's rules and the envelope all take, through
+/// `Kernel::destinations_of`. A new source goes to its host; a public web
+/// or browser call to its address's host; anything else to the recipients
+/// the gate read, or, where it read none, to the addresses and channel the
+/// call itself names. Each is named as a rule names it (`rules::normalized`).
 pub(crate) fn destinations(a: &Action, f: &Facts, shown: Option<&Shown>) -> Vec<String> {
-    if shown.is_none() && f.connector.is_none() && matches!(f.app.as_str(), "web" | "browser") {
-        return a.input["url"].as_str().and_then(host_of).into_iter().collect();
-    }
-    let mut d = crate::rules::destinations_of(a, shown);
+    let mut d: Vec<String> = if a.tool == crate::rule_effects::SOURCE_TOOL {
+        a.input["host"].as_str().map(crate::rules::normalized).into_iter().collect()
+    } else if shown.is_none() && f.connector.is_none() && matches!(f.app.as_str(), "web" | "browser") {
+        a.input["url"].as_str().and_then(host_of).into_iter().collect()
+    } else {
+        match shown {
+            Some(s) if s.recipients.values().any(|r| !r.is_empty()) => s.recipients.values().flatten().map(|r| crate::rules::normalized(r)).collect(),
+            _ => NAMED_FIELDS
+                .iter()
+                .filter_map(|k| a.input.get(*k))
+                .flat_map(crate::tools::addresses)
+                .chain(crate::tools::addresses(&a.input))
+                .map(|r| crate::rules::normalized(&r))
+                .collect(),
+        }
+    };
+    d.retain(|x| !x.is_empty());
     d.sort();
     d.dedup();
     d
+}
+
+/// The sites a stopping rule on a site takes in: each web host and the
+/// sites above it, so a rule naming `evil.example` stops
+/// `www.evil.example` too. Widening a block or an ask only makes the agent
+/// do less (2026-11-09).
+pub(crate) fn with_parent_sites(dests: &[String]) -> Vec<String> {
+    let mut out = dests.to_vec();
+    for d in dests.iter().filter(|d| !d.contains(['@', '/', ':', '#']) && d.contains('.')) {
+        let mut rest = d.as_str();
+        while let Some((_, up)) = rest.split_once('.') {
+            if !up.contains('.') {
+                break;
+            }
+            out.push(up.to_string());
+            rest = up;
+        }
+    }
+    out
 }
 
 /// Whether an Allow given for `approved` covers an action going to `now`:
@@ -178,14 +219,6 @@ pub fn covers(ap: &Approval, q: &Query) -> bool {
         "standing" => wide,
         _ => false,
     }
-}
-
-/// Whether the person already allowed private data to go to this
-/// destination after untrusted input: an approved destination is remembered.
-pub fn remembered(approvals: &[Approval], person: &str, destination: &str) -> bool {
-    approvals.iter().any(|ap| {
-        ap.person == person && Reason::of(ap.reason.as_deref()) == Some(Reason::NewDestination) && ap.destinations.iter().flatten().any(|d| d.eq_ignore_ascii_case(destination))
-    })
 }
 
 /// The narrow rule Allow always saves: this person, this app and tool, these
@@ -306,14 +339,11 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     }
     offers.push("dont_allow");
     let thread = i.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| t.chat.as_ref()).map(|c| c.thread.clone());
-    // Allowing a site is remembered for it (`remembered`): the card says so.
-    let site = reason == Some(Reason::NewDestination) && !dests.is_empty() && matches!(d["app"].as_str(), Some("web" | "browser"));
     json!({
         "sentence": say,
         "destinations": dests,
         "offers": offers,
         "allow_scope": if task_wide { "task" } else { "once" },
-        "allow_covers": if site { Some("site") } else { None },
         "conversation": thread,
     })
 }

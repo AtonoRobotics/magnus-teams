@@ -9,8 +9,10 @@
 //! - opening an address that appears, exactly, in what the person wrote or
 //!   in what a search or a page returned carries nothing the model added.
 //!
-//! Only an address the model made up itself still asks. That ask names the
-//! site, and the person's Allow covers the site from then on (`asks::remembered`).
+//! An address the model made up itself is not opened from such a run: it
+//! is sent to `research_web`, an `OpenWeb` worker that holds nothing
+//! private (decisions/2026-11-22-no-webpage-approval-cards.md). No card
+//! asks about a webpage; only the person's own rule naming a site does.
 use crate::boundary::{Action, Facts};
 use crate::kernel::Kernel;
 use crate::state::{Run, State};
@@ -83,9 +85,10 @@ impl Kernel {
         Ok(sends_nothing_new(a, f, |u| appears_in(u, &sources)))
     }
 
-    /// Where an action goes (`asks::destinations`), and for a browser
-    /// action with no address of its own, the site of the page it acts on:
-    /// so its ask names the site and the Allow is remembered for it.
+    /// Where an action goes: the one reading that cards, approvals, the
+    /// person's rules and the envelope all use (`asks::destinations`), and
+    /// for a browser action with no address of its own, the site of the
+    /// page it acts on, so a rule naming that site takes it in.
     pub(crate) fn destinations_of(&self, a: &Action, f: &Facts, shown: Option<&crate::boundary::Shown>) -> Vec<String> {
         let d = crate::asks::destinations(a, f, shown);
         if !d.is_empty() || f.app != "browser" || f.connector.is_some() {
