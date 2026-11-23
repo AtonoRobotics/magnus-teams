@@ -157,6 +157,7 @@ pub mod tools_ui;
 pub mod totp;
 pub mod transport;
 pub mod trash;
+pub mod turned_off;
 pub mod typed_secrets;
 pub mod ui;
 pub mod ui_actions;

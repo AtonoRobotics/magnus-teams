@@ -220,7 +220,8 @@ impl Kernel {
             tracing::error!("erasing {person}: their computer could not be deleted: {e:?}");
             (StatusCode::BAD_GATEWAY, "their computer could not be deleted, so the erasure stopped there; try again".to_string())
         })?;
-        // Every device signed in as them.
+        // Every device signed in as them, and every device paired as them.
+        self.revoke_devices_of(actor, person).await;
         let ended = self.accounts.end_all(person).await.map_err(failed)?;
         let sessions = ended.len();
         let evs: Vec<(&str, Ev)> = ended.into_iter().map(|session| (actor, Ev::SignedOut { person: person.to_string(), session })).collect();

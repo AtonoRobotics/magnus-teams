@@ -30,6 +30,9 @@ pub(crate) async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool
     if let Err(e) = k.accounts.refresh_people().await {
         return internal(e);
     }
+    if let Some(r) = turned_off(k, person).await {
+        return r;
+    }
     let Some(p) = k.person(person) else { return err(StatusCode::FORBIDDEN, format!("{person} is not a person on this server.")) };
     let client = if app { "app" } else { "browser" };
     let (session, token) = match k.accounts.open_session(person, client, device).await {
@@ -57,6 +60,13 @@ pub(crate) async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool
         r.headers_mut().insert("set-cookie", v);
     }
     r
+}
+
+/// A refusal for someone whose account here is turned off, whoever vouches
+/// for them: nothing of the sign-in is recorded, so their work stays held
+/// (decision `2026-11-23-one-person-is-turned-off.md`).
+async fn turned_off(k: &Kernel, person: &str) -> Option<Response> {
+    (k.accounts.status(person).await == crate::accounts::Status::Disabled).then(|| err(StatusCode::FORBIDDEN, "Your account here is turned off. Ask an admin to turn it back on."))
 }
 
 /// How people sign in here: through the identity provider when one is
@@ -353,6 +363,10 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
                 tracing::warn!("identity: {person} signed in at {label} but is not a person on this server");
                 return err(StatusCode::FORBIDDEN, format!("You signed in as {person}, who is not a person on this server. Ask the owner to add you."));
             }
+            if let Some(r) = turned_off(k, &person).await {
+                tracing::warn!("identity: {person} signed in at {label} but is turned off here; refused");
+                return r;
+            }
             // A person is the provider's account that first signed in as
             // them (its `sub`), not a username: an account made again, or
             // renamed, under the same name is someone else (owner's
@@ -542,3 +556,7 @@ pub(super) async fn sign_out(State(k): K, h: HeaderMap) -> ApiResult {
     }
     Ok(r)
 }
+
+#[cfg(test)]
+#[path = "sign_in_off_tests.rs"]
+mod off_tests;

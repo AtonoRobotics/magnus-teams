@@ -72,6 +72,8 @@ pub mod settings_gate;
 mod spec_tests;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod turned_off_tests;
 pub mod workspaces;
 #[cfg(test)]
 mod workspaces_tests;

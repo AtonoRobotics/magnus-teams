@@ -1,6 +1,6 @@
 //! One answer to "may this work proceed now": the server's switch, the
-//! switches below it, a pause and a person turned off at the
-//! organisation's sign-in, folded into one `Hold` that carries its own
+//! switches below it, a pause and a person turned off (here or at the
+//! organisation's sign-in), folded into one `Hold` that carries its own
 //! words (decisions/2026-11-13-one-hold.md). Each caller names whose work
 //! it is (`Subject`) and how far along it is (`Phase`); the wider reading
 //! of a switch is always the one taken, since stopping is always safe
@@ -62,7 +62,7 @@ pub enum Hold {
     Switch(Scope),
     /// The agent is paused: nothing new starts for it.
     Paused { agent: String, person: String },
-    /// The person is turned off at the organisation's sign-in.
+    /// The person is turned off, here or at the organisation's sign-in.
     TurnedOff(String),
 }
 
@@ -83,7 +83,7 @@ impl Hold {
             Hold::Server => "the kill switch is engaged".into(),
             Hold::Switch(x) => format!("{} is on", x.said()),
             Hold::Paused { agent, person } => format!("{} is paused", paused_who(agent, person)),
-            Hold::TurnedOff(p) => format!("{p}'s account is turned off at the organisation's sign-in"),
+            Hold::TurnedOff(p) => format!("{p}'s account is turned off"),
         }
     }
 
@@ -94,7 +94,7 @@ impl Hold {
             Hold::Switch(x) => format!("{} is on: nothing new starts until an admin releases it.", capital(&x.said())),
             Hold::Paused { agent, .. } if agent == TEAM_AGENT => "The team agent is paused: nothing new starts until an admin resumes it.".into(),
             Hold::Paused { person, .. } => format!("{person}'s agent is paused: nothing new starts until an admin resumes it."),
-            Hold::TurnedOff(p) => format!("{p}'s account is turned off at the organisation's sign-in: nothing new starts for them until they are back."),
+            Hold::TurnedOff(p) => format!("{p}'s account is turned off: nothing new starts for them until they are back."),
         }
     }
 
