@@ -204,8 +204,17 @@ async fn a_restart_follows_the_lanes_it_left_working() {
     assert_eq!(lane(&k, "m1", "live").status, LaneStatus::Working);
     k.emit("kernel", Ev::Completed { run: live, summary: "Done after the restart.".into(), view: None, spoken: None }).await.unwrap();
     assert_eq!(ended(&k, "m1", "live").await.status, LaneStatus::Released, "a lane still running at the restart was not followed");
-    let posted = k.read(|st| st.team.workspace(&ws).unwrap().channels[&channel].messages.clone());
-    assert!(posted.iter().any(|m| m.text == "Done after the restart." && m.thread.as_deref() == Some("msg_root")), "the result was not posted in its thread: {posted:?}");
+    // The release is written before its room post: wait for the post.
+    let messages = || k.read(|st| st.team.workspace(&ws).unwrap().channels[&channel].messages.clone());
+    let in_thread = |m: &super::Message| m.text == "Done after the restart." && m.thread.as_deref() == Some("msg_root");
+    for _ in 0..WAIT_TICKS {
+        if messages().iter().any(in_thread) {
+            break;
+        }
+        tokio::time::sleep(WAIT_TICK).await;
+    }
+    let posted = messages();
+    assert!(posted.iter().any(in_thread), "the result was not posted in its thread: {posted:?}");
     assert!(!posted.iter().any(|m| m.text == "Old news."), "a result from before the restart was posted late");
 
     crate::log::connect(&pg()).await.unwrap().batch_execute(&format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")).await.unwrap();
