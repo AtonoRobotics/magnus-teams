@@ -24,18 +24,25 @@ const Notices = {
   /** The server's time of the last look; none until the first. */
   after: /** @type {?string} */ (null),
   seen: new Set(),
+  polling: false,
 
-  reset() { this.after = null; this.seen = new Set(); $("#notices")?.remove(); },
+  reset() { this.after = null; this.seen = new Set(); this.polling = false; $("#notices")?.remove(); },
 
   /** One look for new team messages to tell about. */
   async poll() {
-    const after = this.after ? new Date(Date.parse(this.after) - NOTICE_OVERLAP_MS).toISOString() : null;
-    const r = await Server.notices(after).catch(() => null);
-    if (!r) return;
-    const first = this.after === null;
-    this.after = r.now;
-    if (first) return;
-    for (const n of r.notices || []) this.show(noticeWords(n, r.names || {}));
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      const after = this.after ? new Date(Date.parse(this.after) - NOTICE_OVERLAP_MS).toISOString() : null;
+      const r = await Server.notices(after).catch(() => null);
+      if (!r) return;
+      const first = this.after === null;
+      this.after = r.now;
+      if (first) return;
+      for (const n of r.notices || []) this.show(noticeWords(n, r.names || {}));
+    } finally {
+      this.polling = false;
+    }
   },
 
   /** Tell the person, unless they are already looking at it. @param {Shown} s */

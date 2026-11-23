@@ -348,7 +348,7 @@ const TeamPanel = {
     if (s.tab === "members") {
       const owner = d.project.owner === Team.home.me, inIt = new Set(d.members.map(m => m.id));
       const others = Team.home.members.filter(m => !inIt.has(m.id));
-      body = `<ul class="team-people">${d.members.map(m => `<li>${avatar(m.name)}<span>${esc(m.name)}</span>${m.id === d.project.owner ? `<span class="small faint">owner</span>` : owner ? `<button class="link" data-project-drop="${esc(m.id)}">Remove</button>` : ""}</li>`).join("")}<li>${avatar(Team.home.agent.name, true)}<span>${esc(Team.home.agent.name)}</span><span class="small faint">team agent</span></li></ul>
+      body = `<ul class="team-people">${d.members.map(m => `<li>${avatar(m.name)}<span>${esc(m.name)}</span>${m.id === d.project.owner ? `<span class="small faint">owner</span>` : owner ? `<button class="link" data-project-drop="${esc(m.id)}">Remove</button>` : ""}</li>`).join("")}<li>${avatar(Team.home.agent.name, true)}<span>${esc(Team.home.agent.name)}</span><span class="small faint">personal agent</span></li></ul>
         ${owner && others.length ? `<form class="row" data-project-add><select aria-label="Add a member of the workspace">${others.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("")}</select><button class="primary">Add to the project</button></form>` : ""}
         ${isTeamAdmin(Team.home) ? `<h3>Invite someone new to the workspace</h3>${inviteForm()}<p class="small"><a href="${teamHref(ws, { kind: "people" })}" data-members-manage>Add or remove people in ${esc(Team.home.name)}</a></p>` : ""}`;
     }

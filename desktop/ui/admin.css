@@ -16,7 +16,7 @@
 .admin-sub a.on { background: var(--seg-on); color: var(--fg); }
 @media (any-pointer: coarse) { .admin-sub a { min-height: 44px; } }
 .admin-section { min-height: 200px; }
-#stop-banner { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 60; width: min(720px, calc(100vw - 32px)); }
+#stop-banner { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: var(--z-banner); width: min(720px, calc(100vw - 32px)); }
 #stop-banner .banner { margin: 0 0 6px; box-shadow: var(--shadow); }
 dialog.step-up form { gap: 12px; }
 dialog.step-up h2 { margin: 0; }

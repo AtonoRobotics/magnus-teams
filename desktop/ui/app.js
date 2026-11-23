@@ -207,11 +207,17 @@ function reportOpenedSoon() {
 function ask(msg, yes = "Approve", danger = false) {
   return new Promise(done => {
     const d = document.createElement("dialog");
+    const msgId = `ask-msg-${Math.random().toString(36).slice(2, 8)}`;
     d.className = "ask";
-    d.innerHTML = `<p></p><div class="row"><button data-ask="no">Back</button><button class="${danger ? "danger" : "primary"}" data-ask="yes"></button></div>`;
+    d.setAttribute("aria-describedby", msgId);
+    d.innerHTML = `<p id="${msgId}"></p><div class="row"><button data-ask="no">Back</button><button class="${danger ? "danger" : "primary"}" data-ask="yes"></button></div>`;
     $("p", d).textContent = msg;
     $("[data-ask=yes]", d).textContent = yes;
-    d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
+    d.addEventListener("click", e => {
+      if (e.target === d) { d.close("no"); return; }
+      const b = e.target.closest("[data-ask]");
+      if (b) d.close(b.dataset.ask);
+    });
     d.addEventListener("close", () => { d.remove(); done(d.returnValue === "yes"); });
     document.body.append(d);
     d.showModal();
@@ -225,14 +231,17 @@ function askText(msg, placeholder = "", yes = "Submit", danger = false) {
     : { title: "", body: String(msg ?? ""), placeholder, yes, danger };
   return new Promise(done => {
     const d = document.createElement("dialog");
+    const uid = Math.random().toString(36).slice(2, 8);
     d.className = "ask";
-    d.innerHTML = `<form>${opts.title ? `<h3></h3>` : ""}<p></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="${opts.danger ? "danger" : "primary"}" data-ask="yes"></button></div></form>`;
+    if (opts.title) d.setAttribute("aria-labelledby", `ask-t-${uid}`);
+    d.setAttribute("aria-describedby", `ask-b-${uid}`);
+    d.innerHTML = `<form>${opts.title ? `<h3 id="ask-t-${uid}"></h3>` : ""}<p id="ask-b-${uid}"></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="${opts.danger ? "danger" : "primary"}" data-ask="yes"></button></div></form>`;
     if (opts.title) $("h3", d).textContent = opts.title;
     $("p", d).textContent = opts.body;
     const inp = $("[data-ask-input]", d);
     inp.placeholder = opts.placeholder;
     $("[data-ask=yes]", d).textContent = opts.yes;
-    d.addEventListener("click", e => { if (e.target.closest("[data-ask=no]")) d.close("no"); });
+    d.addEventListener("click", e => { if (e.target === d || e.target.closest("[data-ask=no]")) d.close("no"); });
     $("form", d).addEventListener("submit", e => { e.preventDefault(); d.close("yes"); });
     d.addEventListener("close", () => { const v = d.returnValue === "yes" ? inp.value.trim() : null; d.remove(); done(v || null); });
     document.body.append(d);
@@ -249,19 +258,28 @@ function toast(msg, ms = 3200, action = null) {
   const text = document.createElement("span");
   text.textContent = msg;
   t.append(text);
+  let timer = 0, remaining = ms, started = Date.now();
+  const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+  const arm = delay => { clear(); started = Date.now(); timer = setTimeout(() => t.remove(), Math.max(0, delay)); };
+  const pause = () => { if (!timer) return; remaining = Math.max(1200, remaining - (Date.now() - started)); clear(); };
+  const resume = () => { if (!timer && t.isConnected) arm(remaining); };
   if (action && action.label && typeof action.onClick === "function") {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "toast-act";
     btn.textContent = action.label;
-    btn.onclick = () => { t.remove(); action.onClick(); };
+    btn.onclick = () => { clear(); t.remove(); action.onClick(); };
     t.append(btn);
+    t.addEventListener("mouseenter", pause);
+    t.addEventListener("mouseleave", resume);
+    t.addEventListener("focusin", pause);
+    t.addEventListener("focusout", resume);
   }
   // Toasts stack, newest at the bottom, rather than covering each other.
   let box = $("#toasts");
   if (!box) { box = document.createElement("div"); box.id = "toasts"; document.body.append(box); }
   box.append(t);
-  setTimeout(() => t.remove(), ms);
+  arm(ms);
 }
 
 function when(t) {
@@ -529,6 +547,31 @@ const Workspace = (() => {
   function closeDrawer(restore=true) {const d=$("#navigation-drawer");if(!d?.open)return;restoreDrawer=restore;d.close();}
   function closeTree(restore=true) {const fly=$("#navigation-flyout");if(!fly)return;fly.hidden=true;const b=$("[data-nav-tree]");b?.setAttribute("aria-expanded","false");if(restore)b?.focus({preventScroll:true});}
   function resize(value) {const m=update();Theme.set({panelWidthPx:Math.max(m.min,Math.min(m.max,value))});update();}
+  function openShortcutsModal() {
+    let d = $("#shortcuts-modal");
+    if (d?.open) { d.close(); return; }
+    if (!d) {
+      d = document.createElement("dialog");
+      d.id = "shortcuts-modal";
+      d.className = "shortcuts-dialog";
+      d.setAttribute("aria-label", "Keyboard shortcuts");
+      d.innerHTML = `<div class="shortcuts-head"><h2>Keyboard shortcuts</h2><button type="button" class="icon-btn" data-close-shortcuts aria-label="Close shortcuts">${icon("close")}</button></div>
+        <ul class="shortcuts-list">
+          <li><span>Quick jump &amp; search</span><kbd class="shortcut-kbd">⌘ / Ctrl + K</kbd></li>
+          <li><span>Toggle sidebar</span><kbd class="shortcut-kbd">⌘ / Ctrl + B</kbd></li>
+          <li><span>Send message</span><kbd class="shortcut-kbd">Enter</kbd></li>
+          <li><span>New line in message</span><kbd class="shortcut-kbd">Shift + Enter</kbd></li>
+          <li><span>Stop active work (empty composer)</span><kbd class="shortcut-kbd">Esc</kbd></li>
+          <li><span>Navigate @mentions or palette</span><kbd class="shortcut-kbd">↑ / ↓</kbd></li>
+          <li><span>Keyboard shortcuts</span><kbd class="shortcut-kbd">⌘ / Ctrl + / or ?</kbd></li>
+        </ul>`;
+      d.addEventListener("click", e => { if (e.target === d || e.target.closest("[data-close-shortcuts]")) d.close(); });
+      d.addEventListener("close", () => d.remove());
+      document.body.append(d);
+    }
+    d.showModal();
+    $("[data-close-shortcuts]", d)?.focus();
+  }
   function paletteItems(raw) {
     const q = (raw || "").trim().toLowerCase();
     const homes = (typeof Team !== "undefined" && Team.homes) || {};
@@ -547,7 +590,11 @@ const Workspace = (() => {
         } });
       }
     }
+    const workspaceActions = (App.shared && typeof Team !== "undefined" && Team.home && typeof commandsFor === "function" && typeof TeamCommand !== "undefined")
+      ? commandsFor(Team.home, Team.place || { kind: "home" }, raw || "").filter(c => c.group === "Create" || c.group === "Actions").slice(0, 6).map(c => ({ label: c.label, kind: c.group, run: () => TeamCommand.run(c.run) }))
+      : [];
     const list = [
+      ...workspaceActions,
       { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
       { label: "Explore playbooks", kind: "Page", run: () => { location.hash = "#/explore"; } },
       { label: "Apps & connectors", kind: "Page", run: () => { location.hash = "#/library"; } },
@@ -555,6 +602,7 @@ const Workspace = (() => {
       { label: "Trash", kind: "Page", run: () => { location.hash = "#/trash"; } },
       { label: "Settings", kind: "Page", run: () => { location.hash = "#/settings"; } },
       ...(administers() ? [{ label: "Admin & Operations", kind: "Page", run: () => { location.hash = "#/admin/operations"; } }] : []),
+      { label: "Keyboard shortcuts", kind: "Action", run: () => openShortcutsModal() },
       { label: "Check for updates", kind: "Action", run: () => { refreshUpdate(true); toast("Checking for updates…"); } },
       ...(App.threads || []).slice(0, 20).map(t => ({ label: displayTitle(t.title), kind: "Chat", run: () => { location.hash = `#/chat/${enc(t.thread)}`; } })),
       ...(App.projects || []).map(p => ({ label: p.name, kind: "Project", run: () => { location.hash = `#/project/${enc(p.id)}`; } })),
@@ -562,7 +610,7 @@ const Workspace = (() => {
       ...sharedChats,
       ...people,
     ];
-    return (q ? list.filter(x => `${x.label} ${x.kind}`.toLowerCase().includes(q)) : list).slice(0, 10);
+    return (q ? list.filter(x => `${x.label} ${x.kind}`.toLowerCase().includes(q)) : list).slice(0, 12);
   }
   function openPalette() {
     const dialog = $("#workspace-search"); if (!dialog || dialog.open) return;
@@ -573,12 +621,31 @@ const Workspace = (() => {
     inp.focus();
   }
   let paletteList = [], paletteIdx = -1;
+  function syncPaletteActive() {
+    const box = $("#workspace-search .palette-list"), inp = $("#workspace-query");
+    if (!box || !inp) return;
+    const items = [...box.querySelectorAll(".palette-item")];
+    items.forEach((el, i) => {
+      const on = i === paletteIdx;
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    const cur = items[paletteIdx];
+    if (cur) {
+      inp.setAttribute("aria-activedescendant", cur.id);
+      cur.scrollIntoView?.({ block: "nearest" });
+    } else {
+      inp.removeAttribute("aria-activedescendant");
+    }
+  }
   function drawPalette() {
     const box = $("#workspace-search .palette-list"), inp = $("#workspace-query");
     if (!box || !inp) return;
     paletteList = paletteItems(inp.value);
     paletteIdx = paletteList.length ? 0 : -1;
-    box.innerHTML = paletteList.map((it, i) => `<button type="button" role="option" class="palette-item${i === paletteIdx ? " on" : ""}" data-pal="${i}"><span>${esc(it.label)}</span><span class="palette-kind">${esc(it.kind)}</span></button>`).join("");
+    inp.setAttribute("aria-expanded", paletteList.length ? "true" : "false");
+    box.innerHTML = paletteList.map((it, i) => `<button type="button" role="option" id="pal-opt-${i}" aria-selected="${i === paletteIdx}" class="palette-item${i === paletteIdx ? " on" : ""}" data-pal="${i}"><span>${esc(it.label)}</span><span class="palette-kind">${esc(it.kind)}</span></button>`).join("");
+    syncPaletteActive();
   }
   function install() {
     expanded=false;region="conversation";forceExpanded=false;
@@ -588,6 +655,7 @@ const Workspace = (() => {
     $("[data-close-drawer]").onclick=()=>closeDrawer();
     $("[data-rail-search]").onclick=()=>openPalette();
     const wsDialog=$("#workspace-search"), wsInput=$("#workspace-query",wsDialog), wsList=$(".palette-list",wsDialog);
+    wsDialog.addEventListener("click",e=>{if(e.target===wsDialog)wsDialog.close();});
     wsInput.oninput=drawPalette;
     wsInput.onkeydown=e=>{
       if(e.key==="Escape"){e.preventDefault();wsDialog.close();return;}
@@ -595,7 +663,7 @@ const Workspace = (() => {
       if(e.key==="ArrowDown"||e.key==="ArrowUp"){
         e.preventDefault();
         paletteIdx=(paletteIdx+(e.key==="ArrowDown"?1:-1)+paletteList.length)%paletteList.length;
-        wsList.querySelectorAll(".palette-item").forEach((el,i)=>el.classList.toggle("on",i===paletteIdx));
+        syncPaletteActive();
       } else if(e.key==="Enter" && paletteIdx>=0 && !e.shiftKey){
         e.preventDefault();const item=paletteList[paletteIdx];wsDialog.close();item?.run();
       }
@@ -618,12 +686,20 @@ const Workspace = (() => {
       });
       document.addEventListener("keydown",e=>{
         if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}
-        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){e.preventDefault();if(document.body.dataset.navigation==="expanded" && !(typeof Theme !== "undefined" && Theme.stage?.(document.documentElement.dataset.style)))$("#q")?.focus();else openPalette();}
+        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){e.preventDefault();openPalette();return;}
+        if((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==="b"){
+          const stage = typeof Theme !== "undefined" && Theme.stage?.(document.documentElement.dataset.style);
+          if(!stage && !document.querySelector("dialog[open]")){e.preventDefault();$("[data-nav-toggle]")?.click();}
+          return;
+        }
+        if(((e.metaKey || e.ctrlKey) && e.key === "/") || (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === "?" && !e.target?.closest?.("input, textarea, select, [contenteditable]"))){
+          if(!document.querySelector("dialog[open]")){e.preventDefault();openShortcutsModal();}
+        }
       });
     }
     update();
   }
-  return {fit,update,install,opened,closed,choose};
+  return {fit,update,install,opened,closed,choose,openDrawer,openPalette,openShortcutsModal};
 })();
 
 function shell() {
@@ -633,7 +709,7 @@ function shell() {
     <header id="workspace-bar" class="workspace-bar"><button class="icon-btn" data-open-drawer aria-label="Open navigation">${icon("tasks")}</button><span class="workspace-heading">Conversation</span><div class="workspace-selectors" aria-label="Workspace region"><button data-region="work" aria-pressed="false">Work</button><button data-region="conversation" aria-pressed="true">Conversation</button></div><span class="grow"></span><button class="icon-btn" data-expand-work aria-label="Expand work">${icon("grid")}</button><button class="icon-btn" data-close-work data-act="close-panel" aria-label="Close work">${icon("close")}</button></header>
     <main id="main" tabindex="-1"></main><div id="workspace-splitter" role="separator" tabindex="0" aria-label="Conversation width" aria-orientation="vertical" hidden></div><aside id="detail" class="detail" aria-label="Work" hidden><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div></aside></div>
     <dialog id="navigation-drawer" class="navigation-drawer" aria-label="Navigation"></dialog><div id="navigation-flyout" class="navigation-flyout" role="dialog" aria-label="Projects and conversations" hidden></div>
-    <dialog id="workspace-search" class="workspace-search" aria-label="Search conversations, tasks and files"><form><label for="workspace-query">Jump or search conversations, tasks and files</label><input id="workspace-query" type="search" placeholder="Jump to a page, chat, or search everything…" autocomplete="off"><div class="palette-list" role="listbox" aria-label="Quick jump"></div><div class="row"><button type="submit">Search all</button><button type="button" data-close-search>Close search</button></div></form></dialog>`;
+    <dialog id="workspace-search" class="workspace-search" aria-label="Search conversations, tasks and files"><form><label for="workspace-query">Jump or search conversations, tasks and files</label><input id="workspace-query" type="search" role="combobox" aria-autocomplete="list" aria-controls="workspace-palette-list" aria-expanded="false" placeholder="Jump to a page, chat, or search everything…" autocomplete="off"><div id="workspace-palette-list" class="palette-list" role="listbox" aria-label="Quick jump"></div><div class="row"><button type="submit">Search all</button><button type="button" data-close-search>Close search</button></div></form></dialog>`;
   Workspace.install();
   $("nav.side").addEventListener("click", async e => {
     if (e.target.closest("[data-act=restart-update]")) return restartToUpdate();
@@ -699,7 +775,12 @@ const Menus = (() => {
       if(!anchorPosition || Math.abs(now.left-anchorPosition.left)>1 || Math.abs(now.top-anchorPosition.top)>1)close();
     }, true);
     window.addEventListener("resize", () => close(true));
-    new MutationObserver(() => { if (current && (!current.isConnected || !trigger?.isConnected)) { close(); $("#conv-head h1")?.focus({ preventScroll: true }); } }).observe(document.body, { childList: true, subtree: true });
+  }
+  function prune() {
+    if (current && (!current.isConnected || !trigger?.isConnected)) {
+      close();
+      $("#conv-head h1")?.focus({ preventScroll: true });
+    }
   }
   function capture(root) {
     return current && root.contains(current) ? {id:current.id, action:document.activeElement?.dataset?.msgAct, focused:current.contains(document.activeElement)} : null;
@@ -710,7 +791,7 @@ const Menus = (() => {
     const button = $$("[data-menu]").find(b => b.dataset.menu === state.id);
     if (button) { open(button,state.focused); if (state.focused && state.action) items().find(b => b.dataset.msgAct === state.action)?.focus({preventScroll:true}); }
   }
-  return { install, close, capture, restore };
+  return { install, close, prune, capture, restore };
 })();
 const Tooltips = (() => {
   let trigger = null, tip = null, showTimer, closeTimer, hovered = false, overTip = false, focused = false, suppressed = null, warm = 0;
@@ -773,152 +854,6 @@ const Tooltips = (() => {
   }
   return { install, dismiss };
 })();
-function loadMarkdownImages(root) {
-  drawUiBlocks(root);
-  for (const img of root.querySelectorAll("img[data-prose-image]")) {
-    if (img._loading) continue; img._loading = true;
-    const path = img.dataset.proseImage;
-    if (!/^\/v1\/files\/[^/?#]+$/.test(path)) continue;
-    Magnus.dataUrl(path).then(src => { if (img.isConnected) img.src = src; }).catch(() => { img.alt = `${img.alt || "Image"} (unavailable)`; });
-  }
-}
-// An answer still being written: prose is redrawn, while a block keeps its
-// frame, so what is already drawn stays put as more arrives.
-function patchLive(el, text) {
-  const parts = UiSpec.split(text);
-  [...el.children].slice(parts.length).forEach(c => c.remove());
-  parts.forEach((p, i) => {
-    const html = p.kind === "text";
-    let node = el.children[i];
-    if (!node || node.classList.contains("ui-block") === html) {
-      const made = document.createElement("div");
-      if (node) node.replaceWith(made); else el.append(made);
-      node = made;
-    }
-    if (html) { node.innerHTML = Compose.markdown(p.text); return; }
-    node.className = "ui-block";
-    Object.assign(node.dataset, { uiKind: p.kind, uiBody: p.body, uiClosed: p.closed ? "1" : "0" });
-  });
-}
-// A spec block in the agent's words is drawn in a frame of its own: Compose
-// makes the document, and the frame's scripts stay off. HTML the agent wrote
-// runs in a sandbox with an opaque origin, under a policy set before it.
-function drawUiBlocks(root) {
-  if ((root.ownerDocument || root) !== document) return;
-  root.querySelectorAll(".ui-block").forEach((block, n) => {
-    const body = block.dataset.uiBody, closed = block.dataset.uiClosed === "1", kind = block.dataset.uiKind;
-    if (block._drawn === body + closed) return;
-    block._drawn = body + closed;
-    if (kind === "html") {
-      if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
-      block.innerHTML = `<iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
-      Magnus.sandboxUrl(HtmlFrame.wrap(body, ...look())).then(url => { if (block.firstChild?.matches?.("iframe")) block.firstChild.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
-      return;
-    }
-    let view;
-    try { view = closed ? UiSpec.compile(body) : UiSpec.compilePartial(body); }
-    catch (e) { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; return; }
-    if (!view.length) { block.innerHTML = `<div class="small faint">Drawing…</div>`; return; }
-    if (closed) view.filter(c => c.type === "app").forEach(c => drawAppView(block, c.view));
-    if (view.every(c => c.type === "app")) return;
-    if (!block.firstChild?.matches?.("iframe")) block.innerHTML = `<iframe class="composed" sandbox="allow-same-origin" title="What Magnus showed" data-sized=""></iframe>`;
-    const frame = block.firstChild;
-    const drawn = JSON.stringify(view);
-    if (block._view === drawn) return;
-    block._view = drawn;
-    const files = {};
-    const paint = () => { frame.srcdoc = Compose.documentFor(view, files, fontCss(), undefined, ...look()); };
-    paint();
-    frame.onload = () => { sizeComposedFrame(frame); if (closed) wireBlock(frame, view, block, n); };
-    if (closed) view.filter(c => c.placeholder).forEach(c => waitForImage(c.placeholder, files, block, paint));
-  });
-}
-// What is pressed is read again by the server from what the task holds.
-function wireBlock(frame, view, block, fence) {
-  const task = block.closest("[data-task]")?.dataset.task;
-  if (!task) return;
-  const at = kind => view.flatMap((c, i) => c.type === kind ? [i] : []);
-  const send = (index, values, b) => { b.disabled = true; Server.tasks.action(task, index, { fence, values }).then(() => toast("Started as a new request")).catch(e => { b.disabled = false; toast(e.message); }); };
-  const doc = frame.contentDocument;
-  doc?.querySelectorAll("button.action:not(.form-send)").forEach((b, n) => b.addEventListener("click", () => send(at("action")[n], {}, b)));
-  doc?.querySelectorAll(".deck-present").forEach(b => b.addEventListener("click", () => presentDeck(frame)));
-  doc?.querySelectorAll(".uiform").forEach((form, n) => form.querySelector(".form-send").addEventListener("click", e => {
-    if (![...form.querySelectorAll("input,select,textarea")].every(i => i.reportValidity())) return;
-    send(at("form")[n], Object.fromEntries([...form.querySelectorAll("[name]")].map(i => [i.name, i.value])), e.currentTarget);
-  }));
-}
-// Present mode: the same frame full screen, one slide at a time.
-function presentDeck(frame) {
-  const doc = frame.contentDocument, slides = [...doc.querySelectorAll(".slide")];
-  if (!slides.length) return;
-  let at = 0;
-  const show = () => slides.forEach((s, i) => s.classList.toggle("on", i === at));
-  const end = () => { doc.body.classList.remove("presenting"); doc.removeEventListener("keydown", key); document.removeEventListener("keydown", key); document.removeEventListener("fullscreenchange", left); if (document.fullscreenElement === frame) document.exitFullscreen().catch(() => {}); sizeComposedFrame(frame); };
-  const left = () => { if (document.fullscreenElement !== frame) end(); };
-  const key = e => { if (e.key === "ArrowRight" || e.key === " ") { at = Math.min(at + 1, slides.length - 1); show(); } else if (e.key === "ArrowLeft") { at = Math.max(at - 1, 0); show(); } else if (e.key === "Escape") end(); };
-  doc.body.classList.add("presenting");
-  show();
-  doc.addEventListener("keydown", key); document.addEventListener("keydown", key); document.addEventListener("fullscreenchange", left);
-  frame.requestFullscreen?.().catch(() => {});
-}
-// A connector's view, in the same sandbox as the agent's own HTML. It talks
-// over postMessage; a tool it asks for starts a new request.
-async function drawAppView(block, id) {
-  if (block.querySelector(`iframe[data-view="${CSS.escape(id)}"]`)) return;
-  const frame = document.createElement("iframe");
-  Object.assign(frame, { className: "composed ui-html", title: "A connector's view" });
-  frame.setAttribute("sandbox", "allow-scripts");
-  frame.dataset.view = id;
-  block.append(frame);
-  let v;
-  try { v = await Server.ui.app(id); }
-  catch { frame.replaceWith(Object.assign(document.createElement("div"), { className: "small bad", textContent: "This view is no longer available." })); return; }
-  const send = m => frame.contentWindow?.postMessage({ jsonrpc: "2.0", ...m }, "*");
-  const onMessage = e => {
-    if (!frame.isConnected) return window.removeEventListener("message", onMessage);
-    if (e.source !== frame.contentWindow || !e.data || e.data.jsonrpc !== "2.0") return;
-    const { id: rid, method, params } = e.data;
-    if (method === "ui/initialize") send({ id: rid, result: { protocolVersion: params?.protocolVersion, hostInfo: { name: "Magnus", version: "1" }, hostCapabilities: {}, hostContext: {} } });
-    else if (method === "ui/notifications/initialized") {
-      send({ method: "ui/notifications/tool-input", params: { arguments: v.input } });
-      send({ method: "ui/notifications/tool-result", params: { content: [{ type: "text", text: v.text }], structuredContent: v.structured ?? undefined } });
-    } else if (method === "tools/call") Server.ui.appRequest(id, { tool: String(params?.name), arguments: params?.arguments ?? {} })
-      .then(() => { toast("Started as a new request."); send({ id: rid, result: { content: [{ type: "text", text: "Started as a new request." }] } }); })
-      .catch(err => send({ id: rid, error: { code: -32000, message: err.message || String(err) } }));
-    else if (rid !== undefined) send({ id: rid, error: { code: -32601, message: "Not available here." } });
-  };
-  window.addEventListener("message", onMessage);
-  frame.src = await Magnus.sandboxUrl(`<!doctype html>${v.html}`);
-}
-// An image being made: asked after until it is there, then drawn in place.
-async function waitForImage(id, files, block, paint) {
-  for (let tries = 0; tries < IMAGE_POLLS && block.isConnected; tries++) {
-    try {
-      const src = await Magnus.dataUrl(`/v1/ui/images/${enc(id)}`);
-      if (src && !/^data:[^,]*,$/.test(src)) { files[id] = { image: src }; paint(); return; }
-    } catch { files[id] = { failed: true }; paint(); return; }
-    await new Promise(r => setTimeout(r, IMAGE_POLL_MS));
-  }
-}
-const IMAGE_POLLS = 120, IMAGE_POLL_MS = 3000;
-// Says what this client can draw, so the agent writes only that.
-async function loadUiCatalog() {
-  try {
-    const c = await Server.ui.catalog();
-    UiSpec.setCatalog(c);
-    await Server.ui.setCatalog({ version: c.version, elements: c.elements.map(e => e.name) });
-  } catch {/* Drawn as "could not be drawn" until it loads. */}
-}
-function wireMarkdown(root) {
-  if (root._markdownWired) return; root._markdownWired = true;
-  loadMarkdownImages(root);
-  root.addEventListener("click", async e => {
-    const copy = e.target.closest("[data-code-copy]"), link = e.target.closest("[data-prose-link]");
-    if (copy) { e.preventDefault(); try { await copyText(copy.closest(".code-block").querySelector("code").textContent); toast("Code copied."); } catch (err) { toast(err.message); } }
-    if (link) { e.preventDefault(); const url = Compose.safeUrl(link.getAttribute("href")); if (url) Magnus.openExternal(url).catch(err => toast(err.message)); }
-  });
-}
-
 // What works wherever it is shown, set once for the page.
 function wireDocument() {
   document.addEventListener("toggle",reportOpenedSoon,true);
@@ -929,10 +864,14 @@ function wireDocument() {
   });
   document.addEventListener("click", e => { const b=e.target.closest("[data-attach-open]"); if (b) b.closest(".attachment-picker").querySelector("input").click(); });
   Menus.install(); Tooltips.install(); wireMarkdown(document);
-  new MutationObserver(() => drawUiBlocks(document)).observe(document.body, { childList: true, subtree: true });
   const style = document.createElement("style"); style.textContent = Compose.markdownStyles; document.head.append(style);
   document.addEventListener("load", e => { if (e.target.matches?.("iframe.composed")) { try { wireMarkdown(e.target.contentDocument); sizeComposedFrame(e.target); } catch { /* frame unavailable */ } } }, true);
-  new MutationObserver(()=>{for(const [frame,sizing] of frameSizing)if(!frame.isConnected){sizing.observer.disconnect();frame._frameActions?.dispose();delete frame._frameActions;frameSizing.delete(frame);}}).observe(document.body,{childList:true,subtree:true});
+  let uiBlocksQueued = 0;
+  new MutationObserver(() => {
+    Menus.prune();
+    for (const [frame, sizing] of frameSizing) if (!frame.isConnected) { sizing.observer.disconnect(); frame._frameActions?.dispose(); delete frame._frameActions; frameSizing.delete(frame); }
+    if (!uiBlocksQueued) uiBlocksQueued = requestAnimationFrame(() => { uiBlocksQueued = 0; drawUiBlocks(document); });
+  }).observe(document.body, { childList: true, subtree: true });
   // Anything that names an item opens it beside the conversation, without
   // leaving it.
   document.addEventListener("click", e => {
@@ -1140,148 +1079,6 @@ async function go() {
   location.hash = "#/home";
 }
 
-// ---------- sign-in ----------
-
-async function signInScreen(note) {
-  document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><p class="muted">Sign in to your server.</p><div class="card" id="si"></div></div>`;
-  const box = $("#si");
-  // Signed in. Pair this computer for the public name once, on the private
-  // address; a failure is said and sign-in still stands.
-  async function enter(person, data) {
-    if (data.person) localStorage.setItem("magnus.person", data.person);
-    if (Magnus.pairDevice && data.public_url) {
-      try { await Magnus.pairDevice(data.public_url); }
-      catch (err) { return ask("paired", { ...data, error: err.message || String(err), who: person }); }
-    }
-    App.me = person;
-    App.appliance = data.url || location.origin;
-    boot();
-  }
-  const ask = async (stage, data = {}) => {
-    if (stage === "address") {
-      paint(box, `${note ? `<p class="small" style="color:var(--bad)">${esc(note)}</p>` : ""}
-        <form id="f"><label for="addr">Server address</label>
-        <input id="addr" style="width:100%" placeholder="https://magnus.local:7443" value="${esc(data.url || localStorage.getItem("magnus.address") || "")}" required>
-        <p class="small muted">The owner gives you this address.</p>
-        <div class="row" style="margin-top:14px"><button class="primary">Continue</button></div></form>`);
-      $("#f").onsubmit = async e => {
-        e.preventDefault();
-        const url = $("#addr").value.trim().replace(/\/+$/, "");
-        try {
-          const c = await Magnus.connect(url);
-          localStorage.setItem("magnus.address", url);
-          if (c.status === "trusted") ask("method", { url });
-          else if (c.status === "needs_device") ask("needs_device", { url });
-          else ask("pin", { url, ...c });
-        } catch (err) { note = err.message || String(err); ask("address", { url }); }
-      };
-    } else if (stage === "pin") {
-      const changed = data.status === "changed";
-      paint(box, `<h3>${changed ? "The server's certificate changed" : "Check the server"}</h3>
-        <p class="small">${changed ? "This is not the certificate you trusted before. Continue only if the owner told you it was replaced." : "This is the first connection to this server. Compare this fingerprint with the one the owner sees on the server."}</p>
-        <div class="fp" id="fp">${esc(data.fingerprint)}</div>
-        <div class="row" style="margin-top:14px"><button class="${changed ? "danger" : "primary"}" id="ok">They match</button><button id="no">Cancel</button></div>`);
-      $("#ok").onclick = async () => { await Magnus.trust(data.url, data.fingerprint); ask("method", data); };
-      $("#no").onclick = () => ask("address", data);
-    } else if (stage === "needs_device") {
-      paint(box, `<h3>This computer is not paired</h3>
-        <p class="small">magnus.pyrallon.ai accepts only a computer that was paired with the server. Sign in once on the server's private address, the one on your network or Tailscale. This computer is paired then, and this address works after that, from anywhere.</p>
-        <div class="row" style="margin-top:14px"><button id="back">Use a private address</button></div>`);
-      $("#back").onclick = () => ask("address", {});
-    } else if (stage === "paired") {
-      paint(box, `<h3>This computer was not paired</h3>
-        <p class="small" style="color:var(--bad)" role="alert">${esc(data.error)}</p>
-        <p class="small muted">You are signed in on this network. ${esc(data.public_url || "")} will not accept this computer until pairing works.</p>
-        <div class="row" style="margin-top:14px"><button class="primary" id="go">Continue</button></div>`);
-      $("#go").onclick = () => { App.me = data.who; App.appliance = data.url || location.origin; boot(); };
-    } else if (stage === "method") {
-      paint(box, `<p class="small muted">${esc(data.url || location.origin)}</p><p class="small muted">Connecting…</p>`);
-      try {
-        const m = await Magnus.signInMethod();
-        ask("password", { ...data, public_url: m.public_url, label: m.method === "oidc" ? m.label : undefined });
-      } catch (err) { note = err.message || String(err); ask(Magnus.kind === "app" ? "address" : "password", data); }
-    } else if (stage === "forgot") {
-      forgotPasswordStep(box, data, () => ask("password", { ...data, error: undefined }));
-    } else if (stage === "browser") {
-      // The provider's own page in the person's browser: for a passkey, the
-      // first time, or when their account needs finishing there.
-      const back = () => ask("password", { ...data, message: undefined });
-      if (Magnus.providerSignIn) {
-        paint(box, `<p class="small muted">${esc(data.url || location.origin)}</p>
-          <p>${esc(data.message || `Sign in on the ${data.label} page that just opened in your browser, then come back here.`)}</p>
-          <p class="small muted" id="wait" role="status">Waiting for you to sign in…</p>
-          <div class="row" style="margin-top:14px"><button class="link" id="cancel">Cancel</button></div>`);
-        // A cancelled sign-in stops waiting; one the browser still finishes is not kept.
-        let cancelled = false;
-        $("#cancel").onclick = () => { cancelled = true; Magnus.providerSignInCancel?.().catch(() => {}); back(); };
-        try {
-          const r = await Magnus.providerSignIn(data.person);
-          if (cancelled) return;
-          return enter(r.person, data);
-        } catch (err) { if (!cancelled) ask("password", { ...data, message: undefined, error: err.message || String(err) }); return; }
-      }
-      let s;
-      try { s = await Magnus.deviceStart(); } catch (err) { return ask("password", { ...data, error: err.message || String(err) }); }
-      const link = s.verification_uri_complete || s.verification_uri;
-      let stop = false;
-      paint(box, `<p class="small muted">${esc(data.url || location.origin)}</p>
-        <p>${esc(data.message || `Sign in on the ${s.label} page that just opened.`)}</p>
-        <p class="small">Check that it shows this code:</p><div class="fp" id="code">${esc(s.user_code)}</div>
-        <div class="row" style="margin-top:14px"><button data-url="${esc(link)}" id="open">Open the sign-in page again</button><button class="link" id="cancel">Cancel</button></div>
-        <p class="small muted" id="wait" role="status">Waiting for you to approve…</p>`);
-      $("#open").onclick = () => Magnus.openExternal(link).catch(() => {});
-      $("#cancel").onclick = () => { stop = true; back(); };
-      Magnus.openExternal(link).catch(() => {});
-      const until = Date.now() + s.expires_in * 1000;
-      const every = Math.max(1, s.interval) * 1000;
-      while (!stop && Date.now() < until) {
-        await new Promise(r => setTimeout(r, every));
-        if (stop) return;
-        try {
-          const r = await Magnus.devicePoll(s.flow);
-          if (r.pending) continue;
-          return enter(r.person, data);
-        } catch (err) { return ask("password", { ...data, message: undefined, error: err.message || String(err) }); }
-      }
-      if (!stop) ask("password", { ...data, message: undefined, error: "The sign-in code expired. Start again." });
-    } else {
-      // Username and password, then the code from an authenticator app if
-      // the person uses one. The password stays in this closure only.
-      const coding = stage === "code" || stage === "machine";
-      const machine = stage === "machine";
-      paint(box, `<form id="f"><p class="small muted">${esc(data.url || location.origin)}</p>
-        ${data.error ? `<p class="small" style="color:var(--bad)" role="alert">${esc(data.error)}</p>` : ""}
-        ${machine
-          ? `<label for="otp">Enter the code \`magnus sign-in-code\` printed on the server</label><input id="otp" style="width:100%" autocomplete="one-time-code" maxlength="16" required autofocus>`
-          : coding
-          ? `<label for="otp">Enter the 6-digit code from your authenticator app</label><input id="otp" style="width:100%" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" required autofocus>`
-          : `<label for="who">Username or email</label><input id="who" style="width:100%" autocomplete="username" value="${esc(data.person || localStorage.getItem("magnus.person") || "")}" required>
-        <label for="pw">Password</label><input id="pw" type="password" style="width:100%" autocomplete="current-password" required>`}
-        <div class="row" style="margin-top:16px"><button class="primary" id="go">${coding ? "Continue" : "Sign in"}</button>${coding ? `<button type="button" class="link" id="again">Back</button>` : data.label ? `<button type="button" class="link" id="passkey">Use a passkey instead</button>` : `<button type="button" class="link" id="forgot">Forgot password?</button>`}${Magnus.kind === "app" && !coding ? `<button type="button" class="link" id="back">Other server</button>` : ""}</div></form>`);
-      $("#back")?.addEventListener("click", () => ask("address", data));
-      $("#again")?.addEventListener("click", () => ask("password", { ...data, error: undefined, password: undefined }));
-      $("#passkey")?.addEventListener("click", () => ask("browser", { ...data, person: $("#who").value.trim() || undefined, error: undefined }));
-      $("#forgot")?.addEventListener("click", () => ask("forgot", { ...data, person: $("#who").value.trim() || undefined, error: undefined }));
-      $("#f").onsubmit = async e => {
-        e.preventDefault();
-        const person = coding ? data.person : $("#who").value.trim();
-        const password = coding ? data.password : $("#pw").value;
-        $("#go").disabled = true;
-        try {
-          const typed = coding ? $("#otp").value.trim() : undefined;
-          const r = await Magnus.signIn(person, password, machine ? undefined : typed, machine ? typed : undefined);
-          if (r?.machine_code_needed) return ask("machine", { ...data, person, password, error: r.error });
-          if (r?.code_needed) return ask("code", { ...data, person, password, error: coding ? r.error : undefined });
-          if (r?.browser) return ask("browser", { ...data, person, password: undefined, message: r.error });
-          return enter(r, { ...data, person });
-        } catch (err) { ask("password", { ...data, person, password: undefined, error: err.message || String(err) }); }
-      };
-    }
-  };
-  if (Magnus.kind === "web") ask("method", { url: location.origin });
-  else ask("address");
-}
-
 // ---------- background: inbox, notifications, versions ----------
 
 function seenKey(k) { return `magnus.${k}.${App.appliance}.${App.me?.id}`; }
@@ -1338,37 +1135,50 @@ function describeChange(c) {
 
 // ---------- the workspace's objects ----------
 
+const REFRESH_VISIBLE_MS = 3000, REFRESH_HIDDEN_MS = 30_000, VERSION_POLL_MS = 30_000, NOTICES_VISIBLE_MS = 3000, NOTICES_HIDDEN_MS = 15_000;
+let refreshInFlight = null, lastVersionPollMs = 0, lastRefreshMs = 0, lastNoticesPollMs = 0, visibilityHandler = null;
+
 // Tasks, schedules, conversations and projects, read together with the
 // inbox; then every view that shows them is drawn again from what was read.
 async function refresh() {
-  const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects",connectors:"Apps"})[k],path,k);
-  // The person's computers, for the conversation's head: whether one is in use, and by which agent.
-  const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
-  const workspaces = Server.workspaces.list().then(async r => {
-    if (!Array.isArray(r)) return;
-    App.workspaces = r;
-    if (typeof loadHome === "function" && r.length) {
-      await Promise.all(r.map(w => loadHome(w.id).catch(() => null)));
-    }
-  }, () => {});
-  const version = Server.version({ background: true }).then(v => {
-    if (!v?.version) return;
-    if (App.serverVersion && App.serverVersion !== v.version) refreshUpdate(true);
-    App.serverVersion = v.version;
-  }, () => {});
-  const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version]);
-  if (!App.me) return;
-  // Magnus's own background reviews are plumbing, not the person's tasks
-  // (owner, 2026-11-07): developers see them in the run inspector.
-  if (tasks) App.tasks = tasks.filter(t => !t.review);
-  if (schedules) App.schedules = schedules;
-  if (threads) App.threads = threads;
-  if (projects) App.projects = projects;
-  if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
-  if (health) App.health = health;
-  sidebar();
-  banners();
-  await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects",connectors:"Apps"})[k],path,k);
+    // The person's computers, for the conversation's head: whether one is in use, and by which agent.
+    const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
+    const workspaces = Server.workspaces.list().then(async r => {
+      if (!Array.isArray(r)) return;
+      App.workspaces = r;
+      if (typeof loadHome === "function" && r.length) {
+        await Promise.all(r.map(w => loadHome(w.id).catch(() => null)));
+      }
+    }, () => {});
+    const now = Date.now();
+    const version = (!lastVersionPollMs || now - lastVersionPollMs >= VERSION_POLL_MS)
+      ? Server.version({ background: true }).then(v => {
+          lastVersionPollMs = Date.now();
+          if (!v?.version) return;
+          if (App.serverVersion && App.serverVersion !== v.version) refreshUpdate(true);
+          App.serverVersion = v.version;
+        }, () => {})
+      : Promise.resolve();
+    const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version]);
+    if (!App.me) return;
+    // Magnus's own background reviews are plumbing, not the person's tasks
+    // (owner, 2026-11-07): developers see them in the run inspector.
+    if (tasks) App.tasks = tasks.filter(t => !t.review);
+    if (schedules) App.schedules = schedules;
+    if (threads) App.threads = threads;
+    if (projects) App.projects = projects;
+    if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
+    if (health) App.health = health;
+    lastRefreshMs = Date.now();
+    sidebar();
+    banners();
+    await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
+  })();
+  try { return await refreshInFlight; }
+  finally { refreshInFlight = null; }
 }
 
 // Above the conversation: how the agent changed since the person last
@@ -1400,139 +1210,6 @@ function killSwitch(ks) {
     ${revoked.length ? `<h3>Revoked${ks.engaged ? "" : ": connect these again"}</h3><table class="t" data-revoked><tbody>${revoked.map(([n, r]) => `<tr data-secret="${esc(n)}"><td class="mono small">${esc(r.adapter ? `${r.adapter} sign-in` : n)}</td><td class="small">${esc(state(r))}</td></tr>`).join("")}</tbody></table>
       ${ks.engaged ? "" : `<p class="small"><a href="#/admin/models">Models</a>: sign in or enter keys again.</p>`}` : ""}
   </div>`;
-}
-
-// Where a task stands for the person looking: waiting on them, working,
-// waiting on something else (a set time), done, or failed or cancelled.
-const STATE = t => t.needs_you ? "needs" : t.status === "running" ? "running" : t.status === "suspended" ? "waiting" : t.status === "completed" ? "done" : "failed";
-const SECTIONS = [["needs", "Needs you"], ["running", "Running"], ["waiting", "Waiting"], ["done", "Done"], ["failed", "Failed"]];
-
-// Tasks grouped by the request that started them: a chat message or a
-// schedule; a task started on its own is a group of one. A group sits in the
-// section of its most pressing task.
-function groupTasks(tasks) {
-  const by = new Map();
-  for (const t of tasks) {
-    const key = t.group ? `${t.group.kind}:${t.group.id}` : `task:${t.task_id}`;
-    if (!by.has(key)) by.set(key, { key, group: t.group, tasks: [] });
-    by.get(key).tasks.push(t);
-  }
-  const groups = [...by.values()];
-  for (const g of groups) {
-    g.tasks.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
-    g.count = Object.fromEntries(SECTIONS.map(([s]) => [s, g.tasks.filter(t => STATE(t) === s).length]));
-    g.section = ["needs", "running", "waiting", "failed"].find(s => g.count[s]) || "done";
-    g.latest = g.tasks.map(t => t.ended_at || t.created_at || "").sort().pop();
-  }
-  groups.sort((a, b) => b.latest.localeCompare(a.latest));
-  return SECTIONS.map(([state, label]) => ({ state, label, groups: groups.filter(g => g.section === state) })).filter(x => x.groups.length);
-}
-
-function progress(g) {
-  const c = g.count, cancelled = g.tasks.filter(t => t.status === "cancelled").length;
-  const parts = [`${c.done} of ${g.tasks.length} done`];
-  if (c.needs) parts.push(`${c.needs} need${c.needs === 1 ? "s" : ""} you`);
-  if (c.running) parts.push(`${c.running} running`);
-  if (c.waiting) parts.push(`${c.waiting} waiting`);
-  if (c.failed - cancelled) parts.push(`${c.failed - cancelled} failed`);
-  if (cancelled) parts.push(`${cancelled} cancelled`);
-  return parts.join(" · ");
-}
-
-function taskRow(t) {
-  const why = t.status === "suspended" ? WAITING[t.waiting_on] || (t.needs_you ? "waiting for you" : "") : "";
-  return `<li class="trow" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="ttl" title="${esc(t.text)}">${esc(t.title)}</span>${chip(t.status)}<span class="small muted why">${esc(why)}</span><span class="small faint when">${esc(when(t.ended_at || t.created_at))}</span></a></li>`;
-}
-
-// A group: its request and progress, the tasks that need the person in
-// view, the rest folded away.
-function groupBlock(g, section) {
-  if (!g.group && g.tasks.length === 1) return `<ul class="tlist">${taskRow(g.tasks[0])}</ul>`;
-  const href = g.group.kind === "chat" ? `href="#/chat/${enc(g.group.thread)}"` : `href="#/schedules" data-open="schedule:${esc(g.group.id)}"`;
-  const shown = section === "needs" ? g.tasks.filter(t => t.needs_you) : [];
-  const rest = g.tasks.filter(t => !shown.includes(t));
-  return `<div class="tgroup" data-group="${esc(g.key)}"><div class="ghead"><a class="ttl" ${href} title="${esc(g.group.title)}">${g.group.kind === "schedule" ? "Schedule: " : ""}${esc(g.group.title)}</a><span class="small muted">${esc(progress(g))}</span></div>
-    ${shown.length ? `<ul class="tlist">${shown.map(taskRow).join("")}</ul>` : ""}
-    ${rest.length ? `<details data-key="${esc(g.key)}"><summary class="small muted">${shown.length ? `The other ${rest.length}` : `${rest.length} task${rest.length === 1 ? "" : "s"}`}</summary><ul class="tlist">${rest.map(taskRow).join("")}</ul></details>` : ""}</div>`;
-}
-
-// Tasks, as a view over the same tasks the conversations show: grouped by
-// the request that started them, in sections by where they stand.
-const MORE = new Set();
-function tasksView() {
-  const LIMIT = { done: 15, failed: 15 };
-  const sections = groupTasks(App.tasks);
-  const activeCount = App.tasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended).length;
-  const stopBar = activeCount ? `<div class="spread" style="margin-bottom:8px"><span class="small muted">Active work running or scheduled</span><button type="button" class="danger small" data-stop-all-work>Stop my active work</button></div>` : "";
-  return sections.length ? `${stopBar}${sections.map(sec => {
-    const n = sec.groups.reduce((k, g) => k + g.count[sec.state], 0);
-    const cap = LIMIT[sec.state] && !MORE.has(sec.state) ? LIMIT[sec.state] : Infinity;
-    const left = sec.groups.length - Math.min(cap, sec.groups.length);
-    return `<section class="tsec" data-section="${sec.state}"><h3>${esc(sec.label)} <span class="count">${n}</span></h3>
-      ${sec.groups.slice(0, cap).map(g => groupBlock(g, sec.state)).join("")}
-      ${left ? `<button class="link small" data-more="${sec.state}">Show ${left} more</button>` : ""}</section>`;
-  }).join("")}` : offered("No tasks yet. Ask for something in a conversation.");
-}
-
-// An empty Tasks or Schedules: what Magnus offered to take over (its ideas
-// in Explore's For you, explore-ideas.js) that the person has not answered,
-// each linking there, in Magnus's voice. With none, the plain line.
-function offered(none) {
-  const ideas = ExploreIdeas.open(App.inbox);
-  if (!ideas.length) return `<p class="empty">${esc(none)}</p>`;
-  return `<div class="empty" data-offered><p>Nothing here yet. I had a look around, and these are mine to take off your hands as soon as you say so:</p>
-    <ul class="tlist">${ideas.map(i => `<li class="trow" data-offer="${esc(i.id)}"><a href="#/explore"><span class="ttl">${esc(i.details?.title || i.summary)}</span></a></li>`).join("")}</ul></div>`;
-}
-
-// A schedule's next run and its last result, in one line.
-function scheduleState(sc) {
-  const last = sc.last;
-  return `${(sc.paused || sc.ended) ? "" : `Next run ${esc(until(sc.next))} · `}${sc.last_failed ? `Last firing <span class="chip bad">could not start</span> ${esc(sc.last_failed.error)} <span class="faint">${esc(when(sc.last_failed.at))}</span>`
-    : last ? `Last result: ${chip(last.status)} <a href="#/task/${enc(last.task_id)}" data-open="task:${esc(last.task_id)}">${esc(firstLine(last.summary) || last.title)}</a> <span class="faint">${esc(when(last.ended_at || last.created_at))}</span>` : "No results yet"}`;
-}
-
-// When a schedule ends, what it may spend a run, and why it is paused or
-// skipped a run: the same lines in the list and in the schedule itself.
-function scheduleFacts(sc) {
-  return `${sc.ended ? `<div class="small" data-ended><span class="chip">Ended</span> ${esc(sc.ended)}.</div>` : ""}
-    <div class="small muted" data-ends>${sc.until || sc.max_runs ? `Ends: ${esc(ends(sc))}` : "Runs until you stop it"}${sc.max_runs ? ` · ${esc(sc.started)} of ${esc(sc.max_runs)} runs so far` : ""}${sc.budget ? ` · up to $${esc(sc.budget.max_usd)} a run` : ""}</div>
-    ${sc.paused ? `<div class="small" data-paused><span class="chip bad">Paused</span> ${esc(sc.paused)}. ${sc.paused_on ? `It goes on once you answer that run (<a href="#/task/${enc(sc.paused_on)}" data-open="task:${esc(sc.paused_on)}">open it</a>).` : "Nothing runs until you resume it."}</div>` : ""}
-    ${sc.skipped ? `<div class="small muted" data-skipped>Skipped a run ${esc(when(sc.skipped.at))}: ${esc(sc.skipped.why)} (<a href="#/task/${enc(sc.skipped.task)}" data-open="task:${esc(sc.skipped.task)}">open it</a>)</div>` : ""}`;
-}
-// Resume, for a schedule paused until the person says so (one paused on a
-// run waiting for them goes on once they answer it), and Stop schedule.
-// An ended schedule stays until its person deletes it (#264): Delete
-// schedule is its one control (#452).
-function scheduleButtons(sc, stop = "Stop schedule") {
-  if (sc.ended) return `<button data-act="delete-schedule" data-id="${esc(sc.id)}">Delete schedule</button>`;
-  const toggle = sc.paused ? (!sc.paused_on ? `<button data-act="resume-schedule" data-id="${esc(sc.id)}">Resume</button>` : "") : `<button data-act="pause-schedule" data-id="${esc(sc.id)}">Pause</button>`;
-  return `${toggle}<button data-act="stop-schedule" data-id="${esc(sc.id)}">${stop}</button>`;
-}
-
-// Schedules, soonest first, ended last: each opens beside the conversation.
-function schedulesView() {
-  const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
-  const list = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
-  const hb = list.find(sc => !sc.ended && /heartbeat/i.test(sc.title || sc.text || ""));
-  const hbCard = `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong><div class="small muted">${hb ? `Every 30 min · ${hb.paused ? "Paused" : `Next run ${esc(until(hb.next))}`}` : "Proactive 30-min check-in for urgent emails, conflicts, or stalled threads."}</div></div>${hb ? `<span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
-  const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past schedule${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
-  return header + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
-      <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
-      ${scheduleFacts(sc)}
-      <div class="small muted" data-last>${scheduleState(sc)}</div>
-      ${sc.runs.some(r => r.needs_you) ? `<ul class="tlist">${sc.runs.filter(r => r.needs_you).map(taskRow).join("")}</ul>` : ""}</div>`).join("")
-    : offered("No schedules yet. Ask in a conversation for something done every day or every week."));
-}
-
-// One schedule: what it does, when, how its runs went, and a way to stop it.
-function scheduleView(id) {
-  const sc = App.schedules.find(x => x.id === id);
-  if (!sc) return `<p class="empty">Schedule details are not available.</p>`;
-  return `<h2 class="ptitle">${esc(sc.title)}</h2><p class="small muted">${esc(rule(sc))}</p>
-    <div class="card flat sched" data-schedule="${esc(sc.id)}"><p>${esc(sc.text)}</p>${scheduleFacts(sc)}<div class="small" data-last>${scheduleState(sc)}</div></div>
-    <div class="row">${moveControl(sc.id, sc.project, App.projects)}${scheduleButtons(sc, "Stop this schedule")}</div>
-    <h3>Runs</h3>${sc.runs.length ? `<ul class="tlist">${sc.runs.map(taskRow).join("")}</ul>` : `<p class="empty">None yet.</p>`}
-    ${sc.failures?.length ? `<h3>Firings that could not start</h3><ul class="small">${sc.failures.map(f => `<li>${esc(when(f.at))}: ${esc(f.error)}</li>`).join("")}</ul>` : ""}`;
 }
 
 // ---------- Model choice ----------
@@ -2079,145 +1756,6 @@ function card(i, composed) {
 }
 
 // Draw composed outcomes into their frames, from trusted code only.
-const fontCss = () => {
-  const u = f => new URL(`fonts/${f}`, location.href).href;
-  return `@font-face{font-family:Inter;font-weight:100 900;src:url(${u("inter-latin-wght-normal.woff2")}) format("woff2")}`;
-};
-// A task's delivered files, the latest of each name.
-const latestOutputs = t => Object.values(Object.fromEntries((t?.outputs || []).map(o => [o.name, o])));
-const decodeText = u => new TextDecoder().decode(Uint8Array.from(atob(u.slice(u.indexOf(",") + 1)), c => c.charCodeAt(0)));
-// The delivered files a composition shows, fetched by the app itself:
-// images as data: URLs, text files decoded for drawing.
-async function fileData(view, t) {
-  const out = {};
-  const names = new Set((view || []).filter(c => c.type === "image" || c.type === "file").map(c => c.file));
-  for (const o of latestOutputs(t).filter(o => names.has(o.name))) {
-    const path = `/v1/tasks/${enc(t.task_id)}/outputs/${enc(o.id)}`;
-    try {
-      if (/^image\/(png|jpeg|gif|webp)$/.test(o.media_type)) out[o.name] = { image: await Magnus.dataUrl(path, o.media_type) };
-      else if (Compose.TEXT.test(o.media_type)) out[o.name] = { text: decodeText(await Magnus.dataUrl(path, o.media_type)), media_type: o.media_type };
-    } catch { /* shown as missing */ }
-  }
-  return out;
-}
-// The look in effect, for what a frame draws: its tokens, and light or dark.
-const look = () => { const l = window.Theme?.look; return l ? [Theme.tokens(l), l.mode] : []; };
-
-// The height each composed frame in a conversation last had, by its entry:
-// a redraw of the thread makes the frame anew, and drawn at its known height
-// the thread keeps its layout (and its scroll) while the frame loads again.
-const frameHeights = {};
-// (Set after the thread is drawn, not in its markup, so the markup stays the
-// same and a loaded frame does not make the thread draw itself again.)
-const shownFrame = (id, title) => `<iframe class="composed" sandbox="allow-same-origin" title="${title}" data-shown="${esc(id)}"></iframe>`;
-const keepHeights = el => $$("iframe[data-shown]", el).forEach(f => { if (frameHeights[f.dataset.shown]) f.style.height = frameHeights[f.dataset.shown] + "px"; });
-const frameSizing = new Map();
-// Native WebKit blocks frame event handlers when scripts are sandboxed. Keep
-// actions in the trusted parent, aligned to inert reading-surface markers.
-function alignFrameActions(frame,state) {
-  if(!frame.isConnected || frame.contentDocument!==state.doc)return;
-  const clips=new Map(), geometry=[];
-  for(const control of state.controls) {
-    const marker=control._marker;if(!marker.isConnected)continue;
-    const r=marker.getBoundingClientRect();
-    let left=0,top=0,right=frame.clientWidth,bottom=frame.clientHeight;
-    for(let node=marker.parentElement;node;node=node.parentElement) {
-      let clip=clips.get(node);
-      if(!clip){const style=state.doc.defaultView.getComputedStyle(node),box=node.getBoundingClientRect();clip={x:/auto|scroll|hidden|clip/.test(style.overflowX),y:/auto|scroll|hidden|clip/.test(style.overflowY),left:box.left+node.clientLeft,top:box.top+node.clientTop,right:box.left+node.clientLeft+node.clientWidth,bottom:box.top+node.clientTop+node.clientHeight};clips.set(node,clip);}
-      if(clip.x){left=Math.max(left,clip.left);right=Math.min(right,clip.right);}
-      if(clip.y){top=Math.max(top,clip.top);bottom=Math.min(bottom,clip.bottom);}
-    }
-    // Keep the 2px outline and 2px offset visible inside the scrollport.
-    const visible=Math.min(right,r.right)>Math.max(left,r.left) && Math.min(bottom,r.bottom)>Math.max(top,r.top);
-    geometry.push([control,{left:`${r.left}px`,top:`${r.top}px`,width:`${r.width}px`,height:`${r.height}px`,clipPath:visible?`inset(${Math.max(-4,top-r.top)}px ${Math.max(-4,r.right-right)}px ${Math.max(-4,r.bottom-bottom)}px ${Math.max(-4,left-r.left)}px)`:'inset(50%)'}]);
-  }
-  // Read frame geometry together before writing parent overlay styles.
-  for(const [control,style] of geometry)Object.assign(control.style,style);
-  state.scrollports=new Map([...clips].filter(([,clip])=>clip.x || clip.y).map(([node])=>[node,[node.scrollLeft,node.scrollTop]]));
-  const root=state.doc.scrollingElement;if(root)state.scrollports.set(root,[root.scrollLeft,root.scrollTop]);
-}
-function frameActions(frame,doc) {
-  let wrapper=frame.parentElement;
-  if(!wrapper.classList.contains('composed-wrap')) {
-    wrapper=document.createElement('div');wrapper.className='composed-wrap';frame.before(wrapper);wrapper.append(frame);
-  }
-  let state=frame._frameActions;
-  if(state?.doc!==doc || state?.body!==doc.body) {
-    state?.dispose();wrapper.querySelector('.frame-actions')?.remove();
-    const layer=document.createElement('div');layer.className='frame-actions';wrapper.append(layer);
-    let scheduled=0,poll=0,disposed=false,visible=false,visibility;
-    state={doc,body:doc.body,controls:[],scrollports:new Map()};
-    const align=()=>alignFrameActions(frame,state);
-    const schedule=()=>{if(!disposed && !scheduled)scheduled=requestAnimationFrame(()=>{scheduled=0;align();});};
-    for(const marker of doc.querySelectorAll('[data-code-copy-anchor], [data-prose-url]')) {
-      const copy=marker.hasAttribute('data-code-copy-anchor'),control=document.createElement(copy?'button':'a');
-      control.className=copy?'frame-code-copy':'frame-prose-link';
-      if(copy){control.type='button';control.dataset.codeCopy='';control.textContent='Copy code';control.setAttribute('aria-label','Copy code');control.dataset.tooltip='Copy code';
-        const text=marker.closest('.code-block').querySelector('code').textContent;
-        control.onclick=async e=>{e.preventDefault();e.stopPropagation();Tooltips.dismiss();try{await copyText(text);toast('Code copied.');}catch(err){toast(err.message);}};
-      }else{control.textContent=marker.textContent;control.setAttribute('aria-label',marker.textContent);control.href=marker.dataset.proseUrl;control.rel='noopener noreferrer';control.onclick=e=>{e.preventDefault();Magnus.openExternal(control.href).catch(err=>toast(err.message));};}
-      marker.style.scrollMargin='4px';
-      control.onfocus=()=>{marker.scrollIntoView({block:'nearest',inline:'nearest'});align();};
-      layer.append(control);control._marker=marker;state.controls.push(control);
-    }
-    const pollScroll=()=>{
-      poll=0;if(disposed || !visible || !frame.isConnected)return;
-      // Sandboxed WebKit may omit subdocument scroll events. Checking the
-      // few scrollport offsets is cheap; measure links only after movement.
-      if(!document.hidden && [...state.scrollports].some(([node,at])=>node.scrollLeft!==at[0] || node.scrollTop!==at[1]))align();
-      poll=requestAnimationFrame(pollScroll);
-    };
-    if(state.controls.length){
-      doc.addEventListener('scroll',schedule,true);doc.fonts?.addEventListener('loadingdone',schedule);doc.fonts?.ready.then(schedule);
-      if('IntersectionObserver' in window){visibility=new IntersectionObserver(entries=>{if(disposed)return;visible=entries[0].isIntersecting;if(visible){align();if(!poll)poll=requestAnimationFrame(pollScroll);}else{cancelAnimationFrame(poll);poll=0;}});visibility.observe(frame);}
-      else{visible=true;poll=requestAnimationFrame(pollScroll);}
-    }
-    state.dispose=()=>{disposed=true;cancelAnimationFrame(scheduled);cancelAnimationFrame(poll);visibility?.disconnect();doc.removeEventListener('scroll',schedule,true);doc.fonts?.removeEventListener('loadingdone',schedule);};
-    frame._frameActions=state;
-  }
-  alignFrameActions(frame,state);
-}
-function sizeComposedFrame(frame) {
-  try {
-    const doc=frame.contentDocument;
-    if(!frame.isConnected || !frame.hasAttribute("srcdoc") || !doc?.body || doc.URL==="about:blank")return;
-    let sizing=frameSizing.get(frame);
-    if(sizing?.doc!==doc || sizing?.body!==doc.body) {
-      sizing?.observer.disconnect();
-      const measure=()=>{
-        if(!frame.isConnected){frameSizing.get(frame)?.observer.disconnect();frame._frameActions?.dispose();delete frame._frameActions;frameSizing.delete(frame);return;}
-        if(frame.contentDocument!==doc)return;
-        const height=Math.ceil(Math.max(doc.body.scrollHeight,doc.body.getBoundingClientRect().height))+4;
-        if(frame.style.height!==`${height}px`)frame.style.height=`${height}px`;
-        if(frame.dataset.shown)frameHeights[frame.dataset.shown]=height;
-        frameActions(frame,doc);
-        frame.dataset.sized="1";
-      };
-      const observer=new ResizeObserver(measure);observer.observe(doc.body);
-      sizing={doc,body:doc.body,observer,measure};frameSizing.set(frame,sizing);
-    }
-    sizing.measure();
-  }catch{/* A frame still loading cannot be measured yet. */}
-}
-
-async function fill(frame, view, taskId, task) {
-  if (!frame || frame._drawn) return;
-  frame._drawn = true;
-  const t = task || (view?.some(c => c.type === "image" || c.type === "file") ? await Server.tasks.get(taskId) : null);
-  frame.removeAttribute("data-sized");
-  frame.srcdoc = Compose.documentFor(view, await fileData(view, t), fontCss(), t?.preview, ...look());
-  frame.onload=()=>{wireMarkdown(frame.contentDocument);wireActions(frame,view,taskId);sizeComposedFrame(frame);};
-}
-
-// A button in something the agent made starts a new request and approves nothing.
-function wireActions(frame, view, taskId) {
-  const at = (view || []).flatMap((c, i) => c.type === "action" ? [i] : []);
-  frame.contentDocument?.querySelectorAll("button.action").forEach((b, n) => b.addEventListener("click", async () => {
-    b.disabled = true;
-    try { await Server.tasks.action(taskId, at[n]); toast("Started as a new request"); }
-    catch (e) { b.disabled = false; toast(e.message); }
-  }));
-}
 async function respond(btn, root) {
   // Sent once, however many handlers see the click.
   if (btn.disabled) return;
@@ -2462,41 +2000,6 @@ function needsView(composed) {
   if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
   return `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>
     ${list([...now, ...later])}${guardrails}${historyHtml}`;
-}
-
-// ---------- Task detail ----------
-
-function plan(t) {
-  const units = t.plan?.units || [];
-  if (!units.length) return `<p class="empty">No plan: it is optional, and shows progress when kept.</p>`;
-  const mark = { done: "ok", active: "run", dropped: "", pending: "" };
-  // Once the task has ended nothing is in progress: a unit the agent left
-  // active or pending was simply not marked done.
-  const ended = ["completed", "failed", "cancelled"].includes(t.status);
-  const status = u => (ended && (!u.status || u.status === "active" || u.status === "pending")) ? ["", "not marked done"] : [mark[u.status] || "", u.status || "pending"];
-  return `<p class="small faint">Version ${esc(t.plan_version)}. Statuses are the agent's own account.</p>
-    <table class="t"><tbody>${units.map(u => { const [cls, label] = status(u); return `<tr><td class="mono small">${esc(u.id)}</td><td>${esc(u.goal)}${u.done_when ? `<div class="small muted">Done when ${esc(u.done_when)}</div>` : ""}</td><td><span class="chip ${cls}" data-unit-status="${esc(label)}">${esc(label)}</span></td></tr>`; }).join("")}</tbody></table>`;
-}
-
-function trace(tl) {
-  const steps = tl.steps.map(s => `<div class="step"><div class="small faint">Step ${esc(s.step)}</div>
-    ${s.text ? `<p>${esc(s.text)}</p>` : ""}
-    ${s.calls.map(c => `<div class="call"><div><span class="mono">${esc(c.tool)}</span> <span class="small faint">issued by ${esc(c.issuer)}</span>
-      ${(c.decisions || []).map(d => `<span class="chip ${d.outcome === "allow" || d.outcome === "dedupe" ? "ok" : d.outcome === "ask" ? "warn" : "bad"}">${esc(d.stage)}: ${esc(d.outcome)}</span>`).join(" ")}</div>
-      <details><summary class="small">Input${c.result !== null && c.result !== undefined ? " and result" : ""}</summary>${fieldValue(c.input)}${c.result !== null && c.result !== undefined ? `<div class="small muted" style="margin-top:6px">Result${c.is_error ? " (error)" : ""}</div><pre>${esc(c.result)}</pre>` : ""}</details></div>`).join("")}
-  </div>`).join("");
-  const notices = (tl.notices || []).map(n => `<div class="evidence none small"><span class="muted">Kernel, step ${esc(n.step)}:</span> ${esc(n.text)}</div>`).join("");
-  return (steps || `<p class="empty">No steps yet.</p>`) + (notices ? `<h3>Kernel notices</h3>${notices}` : "");
-}
-
-// What the outcome page draws first: the deliverable the agent composed
-// (the summary when it gave none), then each delivered file it does not
-// show, in full.
-function deliverable(t) {
-  const view = t.outcome_view ? [...t.outcome_view] : t.summary && t.status !== "running" ? [{ type: "text", text: t.summary }] : [];
-  const shown = new Set(view.filter(c => c.type === "file" || c.type === "image").map(c => c.file));
-  for (const o of latestOutputs(t)) if (!shown.has(o.name)) view.push({ type: "file", file: o.name });
-  return view;
 }
 
 // ---------- The panel beside the conversation ----------
@@ -3209,91 +2712,6 @@ route(/^#\/trash$/, async main => {
   await draw();
 });
 
-// ---------- Models ----------
-
-const signins = {};
-/** Connecting the server's model providers: keys and sign-ins to the vault,
- * and the conformance suite. Admin › Models draws it (admin-spend.js) with
- * `connectOnly`, below its own default and rules; every change it makes is
- * an admin change, so the server asks for the password again when due.
- * @param {HTMLElement} main @param {{connectOnly?: boolean}} [opts] */
-async function modelsSection(main, opts = {}) {
-  let pick = null;
-  const catalogs = {};
-  const catalog = async a => {
-    const c=await Resources.read(`Models for ${a}`,`/v1/adapters/${enc(a)}/catalog`,undefined,true);
-    if(c)catalogs[a]=c.models ? {ids:c.models.map(m=>m.id)} : {error:c.message || "the adapter sent no list"};
-    return catalogs[a] || {error:"The provider is unavailable. Retrying when connected."};
-  };
-  const draw = async () => {
-    const [providers, cur] = await Promise.all([Resources.read("Providers", "/v1/adapters",undefined,true), Resources.read("Model", "/v1/model",undefined,true)]);
-    if(!providers || !cur){if(!main._html)paint(main,'<h2>Models</h2><p class="empty">Models are unavailable. Retrying when connected.</p>');return;}
-    const {adapters}=providers;
-    const p = pick || cur.adapter, models = await catalog(p);
-    const chosen = p === cur.adapter ? cur.model : null;
-    paint(main, `${opts.connectOnly ? `<h3>Connect providers</h3>` : `<h2>Models</h2>`}<p class="muted">Connect providers here. Keys and sign-ins go to the server's vault; this app keeps none.</p>
-      ${opts.connectOnly ? "" : `<div class="card"><div class="small muted">New tasks run on</div><div class="mono" style="font-size:16px;margin:2px 0 10px">${esc(cur.adapter)} · ${esc(cur.model)}</div>
-        <div class="row"><select id="madapter" aria-label="Provider" data-draft="model-provider">${adapters.map(a => `<option ${a.id === p ? "selected" : ""}>${esc(a.id)}</option>`).join("")}</select>
-        ${models.ids ? `<select id="mname" aria-label="Model" data-draft="model-choice-${esc(p)}">${chosen && !models.ids.includes(chosen) ? `<option selected>${esc(chosen)}</option>` : ""}${models.ids.map(m => `<option ${m === chosen ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><button class="primary" data-act="use">Use this model</button>` : ""}</div>
-        ${models.error ? `<p class="small muted" style="margin-top:8px">No model list from ${esc(p)} yet: ${esc(models.error)}</p>` : ""}</div>`}
-      ${adapters.map(a => `<div class="card" data-adapter="${esc(a.id)}"><div class="spread"><strong>${esc(a.id)}</strong>
-          <span class="row">${a.conformance ? `<span class="chip ${a.conformance.passed ? "ok" : "bad"}">suite ${a.conformance.passed ? "passed" : "failed"} · ${esc(a.conformance.model)}</span>` : `<span class="chip warn">suite not run</span>`}</span></div>
-        <div class="row" style="margin-top:10px"><button data-act="signin" data-adapter="${esc(a.id)}">Connect</button><button data-act="suite" data-adapter="${esc(a.id)}">Run the conformance suite</button></div>
-        <div id="si-${esc(a.id)}">${signins[a.id] || ""}</div><div id="suite-${esc(a.id)}"></div></div>`).join("")}`);
-    const ma = $("#madapter", main);
-    if (ma) ma.onchange = () => { pick = ma.value; draw(); };
-  };
-  const show = (a, html) => { signins[a] = html; const el = $(`#si-${CSS.escape(a)}`, main); if (el) el.innerHTML = html; };
-  const finish = async (a, step, input) => {
-    try {
-      await Server.models.completeSignIn(a, { flow: step.flow, input });
-      delete catalogs[a];
-      show(a, `<p class="small" style="color:var(--ok)">Connected.</p>`);
-      draw();
-    } catch (e) { show(a, `<p class="small" style="color:var(--bad)">${esc(e.message)}</p>`); }
-  };
-  main.onclick = async e => {
-    const b = e.target.closest("button[data-act]"); if (!b) return;
-    const a = b.dataset.adapter;
-    try {
-      if (b.dataset.act === "use") { await Server.models.choose($("#madapter").value, $("#mname").value); toast("New tasks will use this model."); draw(); }
-      if (b.dataset.act === "signin") {
-        b.disabled = true;
-        const step = await Server.models.signIn(a);
-        b.disabled = false;
-        if (step.event === "error") { show(a, `<p class="small" style="color:var(--bad)">${esc(step.message)}</p>`); return; }
-        const head = `<div style="margin-top:12px"><p class="small">${esc(step.instructions)}</p>`;
-        if (step.flow?.kind === "api_key") {
-          show(a, `${head}<label for="key-${esc(a)}">API key</label><input type="password" id="key-${esc(a)}" data-ephemeral style="width:100%" autocomplete="off">
-            <div class="row" style="margin-top:8px"><button class="primary" data-act="key" data-adapter="${esc(a)}">Save to the vault</button></div></div>`);
-          signins[`${a}:step`] = step;
-        } else {
-          show(a, `${head}${step.user_code ? `<p>Code: <span class="mono" style="font-size:18px">${esc(step.user_code)}</span></p>` : ""}
-            ${step.url ? `<div class="row"><button class="primary" data-act="open" data-url="${esc(step.url)}">Open the sign-in page</button></div>` : ""}
-            <p class="small muted">Waiting for you to approve on the provider's site…</p></div>`);
-          finish(a, step, {});
-        }
-      }
-      if (b.dataset.act === "open") await Magnus.openExternal(b.dataset.url);
-      if (b.dataset.act === "key") {
-        const v = $(`#key-${CSS.escape(a)}`, main).value.trim();
-        if (!v) return toast("Paste the key first.");
-        b.disabled = true;
-        await finish(a, signins[`${a}:step`], { api_key: v });
-      }
-      if (b.dataset.act === "suite") {
-        const el = $(`#suite-${CSS.escape(a)}`, main);
-        b.disabled = true; el.innerHTML = `<p class="small muted">Running the suite against the live provider…</p>`;
-        const r = await Server.models.conformance(a);
-        el.innerHTML = `<table class="t small" style="margin-top:8px"><tbody>${r.checks.map(c => `<tr><td>${c.passed ? `<span class="chip ok">pass</span>` : `<span class="chip bad">fail</span>`}</td><td>${esc(c.name)}${c.simulated ? " <span class='faint'>(simulated)</span>" : ""}</td><td class="muted">${esc(c.detail)}</td></tr>`).join("")}</tbody></table>`;
-        b.disabled = false; main._html = null;
-      }
-    } catch (err) { toast(err.message); b.disabled = false; }
-  };
-  App.redraw=draw;onLeave(()=>{if(App.redraw===draw)App.redraw=null;});
-  await draw();
-}
-
 // The organisation's apps are Admin › Connectors' (admin-connectors.js); an
 // added server's card for new tools that change or send is in the inbox.
 
@@ -3305,7 +2723,7 @@ async function modelsSection(main, opts = {}) {
 // roles, the server's updates and the kill switch moved there.
 const SETTINGS = [
   ["account", "Account", accountSection], ["rules", "Rules", (el) => rulesSection(el)], ["payments", "Payments", (el) => paymentsSection(el)],
-  ["appearance", "Appearance", appearanceSection], ["notifications", "Notifications", notificationsSection], ["updates", "Updates", updatesSection], ["data", "Data and privacy", dataSection],
+  ["appearance", "Appearance", appearanceSection], ["notifications", "Notifications", (el) => notificationsSection(el)], ["updates", "Updates", (el) => updatesSection(el)], ["data", "Data and privacy", (el) => dataSection(el)],
   ["agreements", "Agreements", (el) => agreementsSection(el)],
 ];
 /** Where Settings' administration went: its old addresses open Admin. */
@@ -3317,6 +2735,51 @@ async function openSettingsModal(which) {
   if (typeof AdminState !== "undefined" && !AdminState.standing && typeof Server !== "undefined" && Server.admin?.standing) {
     AdminState.standing = await Server.admin.standing({ background: true }).catch(() => null);
   }
+  const PERSONAL_TABS = [
+    ["account", "Account & Privacy", async el => {
+      el.innerHTML = `<div class="settings-stack"><section data-s="account"></section><section data-s="payments"></section><section data-s="data"></section><section data-s="agreements"></section></div>`;
+      await accountSection($('[data-s="account"]', el));
+      await paymentsSection($('[data-s="payments"]', el));
+      await dataSection($('[data-s="data"]', el));
+      await agreementsSection($('[data-s="agreements"]', el));
+    }, "account privacy password sign out payments billing spend data export delete agreements terms"],
+    ["appearance", "Appearance", appearanceSection, "appearance theme style dark light accent color motion density font sidebar"],
+    ["notifications", "Notifications", notificationsSection, "notifications alerts sounds desktop badges"],
+    ["updates", "Updates", updatesSection, "updates version check restart release"],
+  ];
+  const ADMIN_LABELS = { models: "Models & Providers" };
+  const ADMIN_KEYWORDS = {
+    overview: "overview kill switch safety status health",
+    models: "models providers api keys llm adapters",
+    connectors: "connectors apps integrations oauth",
+    people: "people users roles invites members",
+    agents: "agents workers computers",
+    spend: "spend budget usage cost billing",
+    security: "security audit backups passwords",
+    operations: "operations server updates rollback logs",
+  };
+  const adminTabs = () => {
+    if (!administers() || typeof ADMIN_SECTIONS === "undefined") return [];
+    return ADMIN_SECTIONS.map(([k, label]) => [
+      `admin:${k}`,
+      ADMIN_LABELS[k] || label,
+      async el => {
+        const render = AdminState.sections.get(k);
+        if (render) await render(el);
+        else paint(el, `<h2>${esc(label)}</h2><p class="empty">${esc(label)} is not in the app yet.</p>`);
+      },
+      ADMIN_KEYWORDS[k] || label.toLowerCase(),
+    ]);
+  };
+  const mapKey = k => {
+    if (!k) return "account";
+    if (k.startsWith("admin:")) return k;
+    if (["models", "connectors", "people", "agents", "spend", "security", "operations", "overview"].includes(k)) {
+      return administers() ? `admin:${k}` : "account";
+    }
+    if (k === "safety") return administers() ? "admin:overview" : "account";
+    return ["payments", "data", "agreements"].includes(k) ? "account" : k;
+  };
   let d = $("#settings-modal");
   let navigatingAway = false;
   if (!d) {
@@ -3339,51 +2802,35 @@ async function openSettingsModal(which) {
     d.addEventListener("close", () => {
       window.removeEventListener("hashchange", onHash);
       d.remove();
-      if (!navigatingAway && (location.hash.startsWith("#/settings") || location.hash.startsWith("#/admin"))) {
+      if (!navigatingAway && (location.hash.startsWith("#/settings") || location.hash.startsWith("#/admin") || location.hash === "#/models")) {
         location.hash = App.lastNonSettingsHash || "#/home";
       }
     });
   }
-  const PERSONAL_TABS = [
-    ["account", "Account & Privacy", async el => {
-      el.innerHTML = `<div class="settings-stack"><section data-s="account"></section><section data-s="payments"></section><section data-s="data"></section><section data-s="agreements"></section></div>`;
-      await accountSection($('[data-s="account"]', el));
-      await paymentsSection($('[data-s="payments"]', el));
-      await dataSection($('[data-s="data"]', el));
-      await agreementsSection($('[data-s="agreements"]', el));
-    }],
-    ["appearance", "Appearance", appearanceSection],
-    ["notifications", "Notifications", notificationsSection],
-    ["updates", "Updates", updatesSection],
-  ];
-  const ADMIN_LABELS = { models: "Models & Providers" };
-  const adminTabs = () => {
-    if (!administers() || typeof ADMIN_SECTIONS === "undefined") return [];
-    return ADMIN_SECTIONS.map(([k, label]) => [
-      `admin:${k}`,
-      ADMIN_LABELS[k] || label,
-      async el => {
-        const render = AdminState.sections.get(k);
-        if (render) await render(el);
-        else paint(el, `<h2>${esc(label)}</h2><p class="empty">${esc(label)} is not in the app yet.</p>`);
-      },
-    ]);
-  };
-  const mapKey = k => {
-    if (!k) return "account";
-    if (k.startsWith("admin:")) return k;
-    if (["models", "connectors", "people", "agents", "spend", "security", "operations", "overview"].includes(k)) {
-      return administers() ? `admin:${k}` : "account";
-    }
-    if (k === "safety") return administers() ? "admin:overview" : "account";
-    return ["payments", "data", "agreements"].includes(k) ? "account" : k;
-  };
+  const aTabs = adminTabs();
+  const allTabs = [...PERSONAL_TABS, ...aTabs];
   const renderTab = async key => {
-    const aTabs = adminTabs();
-    const allTabs = [...PERSONAL_TABS, ...aTabs];
     const target = mapKey(key);
     const sec = allTabs.find(x => x[0] === target) || PERSONAL_TABS[0];
-    const btn = ([k, label]) => `<button type="button" data-settings-tab="${esc(k)}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`;
+    d.querySelectorAll("[data-settings-tab]").forEach(el => {
+      const b = /** @type {HTMLElement} */ (el);
+      const on = b.dataset.settingsTab === sec[0];
+      b.classList.toggle("on", on);
+      if (on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    });
+    const host = $("#setting", d);
+    if (host) {
+      host.dataset.section = sec[0];
+      host.innerHTML = "";
+    }
+    if (!d.open) d.showModal();
+    if (host) await sec[2](host);
+  };
+  const adminKey = aTabs.map(x => x[0]).join(",");
+  if (!$(".settings-shell", d) || d.dataset.adminTabs !== adminKey) {
+    d.dataset.adminTabs = adminKey;
+    const btn = ([k, label, , kw]) => `<button type="button" data-settings-tab="${esc(k)}" data-keywords="${esc(kw || "")}">${esc(label)}</button>`;
     d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="icon-btn settings-close" data-settings-done aria-label="Close Settings" title="Close Settings">${icon("close")}</button></div>
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="Settings">
@@ -3391,8 +2838,9 @@ async function openSettingsModal(which) {
           <div class="settings-nav-group" data-settings-group="personal">Personal</div>
           ${PERSONAL_TABS.map(btn).join("")}
           ${aTabs.length ? `<div class="settings-nav-group" data-settings-group="admin">Server &amp; Admin</div>${aTabs.map(btn).join("")}` : ""}
+          <p class="small faint settings-filter-empty" data-settings-empty hidden>No matching settings.</p>
         </nav>
-        <div class="settings-body"><section id="setting" data-section="${esc(sec[0])}"></section></div>
+        <div class="settings-body"><section id="setting"></section></div>
       </div>`;
     $("[data-settings-done]", d).onclick = () => d.close();
     const filterInput = /** @type {?HTMLInputElement} */ ($("[data-settings-filter]", d));
@@ -3401,25 +2849,24 @@ async function openSettingsModal(which) {
         const q = filterInput.value.trim().toLowerCase();
         d.querySelectorAll("[data-settings-tab]").forEach(el => {
           const b = /** @type {HTMLElement} */ (el);
-          b.hidden = !!q && !(b.textContent || "").toLowerCase().includes(q);
+          const hay = `${b.textContent || ""} ${b.dataset.keywords || ""}`.toLowerCase();
+          b.hidden = !!q && !hay.includes(q);
         });
-        const personalVis = [...d.querySelectorAll("[data-settings-tab]")].some(el => !/** @type {HTMLElement} */ (el).hidden && !/** @type {HTMLElement} */ (el).dataset.settingsTab?.startsWith("admin:"));
-        const adminVis = [...d.querySelectorAll("[data-settings-tab]")].some(el => !/** @type {HTMLElement} */ (el).hidden && /** @type {HTMLElement} */ (el).dataset.settingsTab?.startsWith("admin:"));
+        const tabs = [...d.querySelectorAll("[data-settings-tab]")];
+        const personalVis = tabs.some(el => !/** @type {HTMLElement} */ (el).hidden && !/** @type {HTMLElement} */ (el).dataset.settingsTab?.startsWith("admin:"));
+        const adminVis = tabs.some(el => !/** @type {HTMLElement} */ (el).hidden && /** @type {HTMLElement} */ (el).dataset.settingsTab?.startsWith("admin:"));
         const pg = /** @type {?HTMLElement} */ ($('[data-settings-group="personal"]', d));
         const ag = /** @type {?HTMLElement} */ ($('[data-settings-group="admin"]', d));
+        const empty = /** @type {?HTMLElement} */ ($("[data-settings-empty]", d));
         if (pg) pg.hidden = !personalVis;
         if (ag) ag.hidden = !adminVis;
+        if (empty) empty.hidden = personalVis || adminVis;
       };
     }
     d.querySelectorAll("[data-settings-tab]").forEach(b => {
       b.onclick = () => renderTab(b.dataset.settingsTab);
     });
-    d.querySelectorAll('a[href^="#/"]').forEach(a => {
-      a.addEventListener("click", () => { navigatingAway = true; d.close(); });
-    });
-    if (!d.open) d.showModal();
-    await sec[2]($("#setting", d));
-  };
+  }
   await renderTab(which);
 }
 
@@ -3527,209 +2974,6 @@ async function accountSection(el) {
     try {
       if (b.dataset.act === "sign-out") return $("nav.side [data-act=sign-out]")?.click();
       if (b.dataset.act === "end") { b.disabled = true; await Server.sessions.end(b.dataset.id); toast("That device is signed out."); }
-      el._html = null; await draw();
-    } catch (err) { toast(err.message); b.disabled = false; }
-  };
-  await draw();
-}
-
-// Notifications follow the person to every device: the choices live on the appliance.
-const NOTIFY = [["notify_blocking", "A task needs me now", "An approval, a question, or a review a task is waiting on."],
-  ["notify_batched", "Something can wait for me", "Results to look at and proposals: decisions no task is waiting on."],
-  ["notify_agent_changes", "The agent changes", "A new model, instructions, harness or policy."]];
-/** This device's own choice: whether what pops up in the app also goes to
- * the system's notifications while Magnus is in the background. */
-function systemNotificationsCard() {
-  const allowed = Magnus.notifyPermission?.() || "unsupported";
-  const why = allowed === "denied" ? "Your browser blocks notifications from this site. Allow them in its site settings, then turn this on."
-    : allowed === "unsupported" ? "This browser cannot show notifications." : "Who wrote and where, never what a message says. Messages, mentions and what needs you also pop up in the app's lower corner.";
-  return `<h3>On this device</h3><div class="card"><label class="row toggle"><input type="checkbox" data-system-notifications ${Notices.systemOn() ? "checked" : ""}${allowed === "unsupported" ? " disabled" : ""}>
-    <span><span>Show them in ${Magnus.kind === "web" ? "this computer's" : "the system's"} notifications while Magnus is in the background</span><span class="small muted" style="display:block">${esc(why)}</span></span></label></div>`;
-}
-
-async function notificationsSection(el) {
-  const draw = async () => {
-    App.prefs = await Server.preferences.get();
-    const wh = App.prefs.working_hours || { start: "09:00", end: "17:00" };
-    const qh = App.prefs.quiet_hours || { start: "22:00", end: "07:00" };
-    const budget = App.prefs.interruptions_per_day ?? 5;
-    paint(el, `<h2>Notifications</h2><p class="muted">Magnus tells this computer when…</p>
-      <div class="card">${NOTIFY.map(([k, label, hint]) => `<label class="row toggle"><input type="checkbox" data-pref="${k}" ${App.prefs[k] ? "checked" : ""}>
-        <span><span>${esc(label)}</span><span class="small muted" style="display:block">${esc(hint)}</span></span></label>`).join("")}</div>
-      <h3>Hours and interruption budget</h3>
-      <div class="card" data-hours-card>
-        <p class="small muted">Morning briefings run at the start of working hours. During quiet hours, non-urgent proactive notices wait until morning.</p>
-        <div class="row" style="margin-top:8px;flex-wrap:wrap">
-          <label class="small">Working hours <input type="time" data-hours="working_hours" data-edge="start" value="${esc(wh.start || "09:00")}"> to <input type="time" data-hours="working_hours" data-edge="end" value="${esc(wh.end || "17:00")}"></label>
-          <label class="small">Quiet hours <input type="time" data-hours="quiet_hours" data-edge="start" value="${esc(qh.start || "22:00")}"> to <input type="time" data-hours="quiet_hours" data-edge="end" value="${esc(qh.end || "07:00")}"></label>
-          <label class="small">Daily interruption limit <input type="number" min="1" max="50" data-pref-num="interruptions_per_day" value="${esc(String(budget))}" style="width:5em"></label>
-        </div>
-      </div>
-      ${systemNotificationsCard()}`);
-  };
-  el.onchange = async e => {
-    if (e.target.closest("input[data-system-notifications]")) {
-      if (e.target.checked && Magnus.notifyPermission?.() !== "granted") await Notices.turnOn(); else Notices.setSystem(e.target.checked);
-      return draw();
-    }
-    const h = e.target.closest("input[data-hours]");
-    if (h) {
-      const kind = h.dataset.hours;
-      const start = $(`input[data-hours="${kind}"][data-edge="start"]`, el)?.value || "09:00";
-      const end = $(`input[data-hours="${kind}"][data-edge="end"]`, el)?.value || "17:00";
-      try { App.prefs = await Server.preferences.set({ [kind]: { start, end } }); toast("Saved."); } catch (err) { toast(err.message); }
-      return;
-    }
-    const num = e.target.closest("input[data-pref-num]");
-    if (num) {
-      const v = Math.max(1, Number(num.value) || 1);
-      try { App.prefs = await Server.preferences.set({ [num.dataset.prefNum]: v }); toast("Saved."); } catch (err) { toast(err.message); }
-      return;
-    }
-    const c = e.target.closest("input[data-pref]"); if (!c) return;
-    try { App.prefs = await Server.preferences.set({ [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
-  };
-  await draw();
-}
-
-async function updatesSection(el) {
-  const draw = async () => {
-    // The server's own updates (install, roll back, channel) are Admin ›
-    // Operations'; here, only what it runs and what changed.
-    const [st, notes, ver] = await Promise.all([Magnus.updateState().catch(() => null), Magnus.whatsNew(true).catch(() => null), Server.version()]);
-    const para = t => esc(t || "Fixes and improvements.").split(/\n+/).map(l => `<p>${l}</p>`).join("");
-    paint(el, `<h2>Updates</h2>
-      ${st ? `<div class="card" data-app-version><div class="spread"><div><strong>This app</strong> <span class="mono">${esc(st.current)}</span></div>
-          ${st.ready ? `<button class="primary" data-act="restart-update">Restart to update</button>` : `<button data-act="look">Check now</button>`}</div>
-        <div class="small muted">${st.ready ? `Magnus ${esc(st.ready.version)} is downloaded and checked.` : st.error ? `The last look failed: ${esc(st.error)}` : st.can_update ? esc(st.can_update) : "Up to date."}</div>
-        ${st.ready ? `<h3>What's new in ${esc(st.ready.version)}</h3><div class="notes">${para(st.ready.notes)}</div>` : ""}
-        ${notes ? `<h3>What's new in ${esc(notes.version)}</h3><div class="notes">${para(notes.notes)}</div>` : ""}</div>` : ""}
-      <div class="card" data-appliance-version><div class="spread"><div><strong>The server</strong> <span class="mono">${esc(ver.version)}</span></div></div>
-        ${administers() ? `<div class="small muted">Install, roll back and the update channel are in <a href="#/admin/operations">Admin › Operations</a>.</div>` : ""}</div>`);
-  };
-  // A look that ends while this is showing (a download finishing) shows here
-  // too, not only in the sidebar.
-  App.redrawUpdates = () => el.isConnected ? draw() : (App.redrawUpdates = null);
-  el.onclick = async e => {
-    const b = e.target.closest("button[data-act]"); if (!b) return;
-    try {
-      if (b.dataset.act === "restart-update") return restartToUpdate();
-      if (b.dataset.act === "look") { b.disabled = true; await Magnus.updateLook(); await refreshUpdate(); }
-      el._html = null; await draw();
-    } catch (err) { toast(err.message); b.disabled = false; }
-  };
-  await draw();
-}
-
-// One grant in Settings: what it covers, what still asks, its spend this
-// period, the actions taken under it and its policy, with Edit and Revoke.
-function grantRow(g, apps, editing) {
-  const acts = g.actions || [];
-  return `<div class="grant-row" data-grant="${esc(g.id)}" style="margin-top:10px">
-    <div class="spread"><strong>${esc(g.title)}</strong>${g.revoked ? `<span class="chip">Revoked ${esc(when(g.revoked))}</span>` : `<span class="row"><button data-act="grant-edit">Edit</button><button data-act="grant-revoke">Revoke</button></span>`}</div>
-    <p class="small muted">In ${esc(g.apps.join(", "))} · still asks before ${esc(g.still_asks.join(", "))} · <span class="num">$${esc(Number(g.spent).toFixed(2))} of $${esc(g.max_usd)} this ${esc(g.period)}</span></p>
-    ${editing === g.id ? `${grantForm(g.id, g, apps)}<div class="row"><button class="primary" data-act="grant-save">Save</button><button class="link" data-act="grant-cancel">Cancel</button></div>` : ""}
-    ${acts.length ? `<details data-key="grant-actions:${esc(g.id)}"><summary class="small">${acts.length} action${acts.length === 1 ? "" : "s"} taken under it</summary><ul class="small">${acts.slice(0, 20).map(a => `<li><span class="faint">${esc(when(a.at))}</span> ${esc(a.tool)} in <a href="#/task/${enc(a.task)}" data-open="task:${esc(a.task)}">${esc(a.task_title || "a task")}</a></li>`).join("")}</ul></details>` : `<p class="small faint">Nothing done under it yet.</p>`}
-    <details data-key="grant-policy:${esc(g.id)}"><summary class="small">Its policy</summary><pre class="mono small">${esc(g.cedar)}</pre></details>
-  </div>`;
-}
-
-// One commitment in Settings (#236): who said they would do what, for
-// whom, by when, overdue shown, where it was said; Done, Release, Edit and
-// Remove.
-function commitmentRow(c, editing) {
-  const STATE = { done: ["ok", "Done"], released: ["", "Released"] };
-  const who = c.who === "magnus" ? "Magnus" : "You";
-  const from = c.source?.kind === "app" ? `read in ${esc(c.source.app)}` : "said in a conversation";
-  const status = c.status === "open" ? (c.overdue ? `<span class="chip bad">Overdue</span>` : "") : `<span class="chip ${STATE[c.status]?.[0] || ""}">${esc(STATE[c.status]?.[1] || c.status)}</span>`;
-  const acts = c.status === "open" ? `<button data-act="cmt-done">Done</button><button data-act="cmt-release">Release</button>` : `<button data-act="cmt-reopen">Reopen</button>`;
-  return `<div class="cmt-row" data-commitment="${esc(c.id)}" style="margin-top:10px">
-    <div class="spread"><span><strong>${who}:</strong> ${esc(c.what)} ${status}</span><span class="row">${acts}<button data-act="cmt-edit">Edit</button><button data-act="cmt-remove">Remove</button></span></div>
-    <p class="small muted">${c.to ? `For ${esc(c.to)} · ` : ""}${c.by ? `By ${esc(c.by)} · ` : ""}${from}, ${esc(when(c.at))}${c.quote ? ` · <span class="faint">“${esc(c.quote)}”</span>` : ""}</p>
-    ${editing === c.id ? `<div class="row" style="margin-top:6px"><input data-f="what" aria-label="What" value="${esc(c.what)}" style="flex:2"><input data-f="to" aria-label="For whom" placeholder="For whom" value="${esc(c.to || "")}" style="flex:1"><input data-f="by" aria-label="By when" placeholder="YYYY-MM-DD" value="${esc(c.by || "")}" style="flex:1"></div>
-      <div class="row"><button class="primary" data-act="cmt-save">Save</button><button class="link" data-act="cmt-cancel">Cancel</button></div>` : ""}
-  </div>`;
-}
-
-async function dataSection(el) {
-  // The person's relationship notes as last drawn: each row names its note by them.
-  let notes = [];
-  // The grant being edited, if any.
-  let editing = null;
-  // The commitment being edited, if any.
-  let editingC = null;
-  const draw = async () => {
-    const [prefs, { requests }, rel, { disagreements }, granted, { commitments }] = await Promise.all([Server.preferences.get(), Server.memory.deletionRequests(), Server.memory.relationship(), Server.memory.disagreements(), Server.memory.grants(), Server.memory.commitments()]);
-    App.prefs = prefs;
-    notes = rel.notes;
-    const STATE = { done: ["ok", "done"], decline: ["bad", "declined"] };
-    paint(el, `<h2>Data and privacy</h2>
-      <div class="card"><label class="row toggle"><input type="checkbox" data-pref="feedback_consent" ${prefs.feedback_consent ? "checked" : ""}>
-        <span><span>Send problem reports</span><span class="small muted" style="display:block">When you report a problem, what you wrote and the task's record go to the people who build Magnus. Off: nothing leaves the server.</span></span></label></div>
-      <h3>How Magnus works with you</h3>
-      <div class="card" data-relationship><p class="small muted">What you told Magnus about working with you: tone, what you delegated, standing decisions. Every task and chat of yours carries it; no one else sees it.</p>
-        ${notes.map((n, i) => `<div class="row" data-note="${i}" style="margin-top:6px"><input aria-label="Note" value="${esc(n)}" style="flex:1"><button data-act="note-save">Save</button><button data-act="note-remove">Remove</button></div>`).join("") || `<p class="small faint">Nothing yet.</p>`}
-        <div class="row" style="margin-top:8px"><input id="newnote" aria-label="New note" style="flex:1" placeholder="For example: fewer jokes"><button data-act="note-add">Add</button></div></div>
-      <h3>What Magnus may do on its own</h3>
-      <div class="card" data-grants><p class="small muted">Kinds of your work you let Magnus handle without asking, within your organisation's policy, each with what was done under it. They are yours alone; spending money always asks.</p>
-        ${granted.grants.map(g => grantRow(g, granted.apps, editing)).join("") || `<p class="small faint">None yet. Choose "Handle things like this" on a task Magnus proposes, or ask Magnus.</p>`}</div>
-      <h3>What you and Magnus said you'd do</h3>
-      <div class="card" data-commitments><p class="small muted">What you or Magnus said you would do, recognised from your conversations and what Magnus read for you, with for whom and by when. Open ones are in every task and chat of yours; no one else sees them.</p>
-        ${commitments.map(c => commitmentRow(c, editingC)).join("") || `<p class="small faint">None yet.</p>`}</div>
-      <h3>Where you decided otherwise</h3>
-      <div class="card" data-disagreements><p class="small muted">When Magnus advised one thing and you decided another, it notes both, and later how it turned out. Only your own tasks and chats see these.</p>
-        ${disagreements.map(d => `<p class="small"><span class="faint">${esc(when(d.at))}</span> Magnus advised: ${esc(d.position)} You decided: ${esc(d.decision)} ${d.outcome ? `Outcome: ${esc(d.outcome)}` : `<span class="faint">Outcome not known yet.</span>`}</p>`).join("") || `<p class="small faint">None.</p>`}</div>
-      <h3>Delete my data</h3>
-      <div class="card"><p class="small muted">The owner is asked, and has 30 days to act. What is deleted leaves every backup within that time.</p>
-        <label for="delwhat">What to delete</label><input id="delwhat" data-draft="delwhat" style="width:100%" placeholder="all of my data">
-        <div class="row" style="margin-top:8px"><button data-act="delete-request">Ask for deletion</button></div>
-        ${requests.length ? `<table class="t small" data-deletions style="margin-top:10px"><tbody>${requests.map(q => `<tr><td>${esc(q.what)}${isOwner() && q.person !== App.me.id ? ` <span class="faint">(${esc(q.person)})</span>` : ""}</td>
-          <td>${q.decision ? `<span class="chip ${STATE[q.decision]?.[0] || ""}">${esc(STATE[q.decision]?.[1] || q.decision)}</span>${q.note ? ` <span class="muted">${esc(q.note)}</span>` : ""}` : `<span class="chip warn">asked</span> due ${esc(new Date(q.due).toLocaleDateString())}`}</td></tr>`).join("")}</tbody></table>` : ""}</div>
-      ${administers() ? `<p class="small muted" data-backups-moved>Backups and restore checks are in <a href="#/admin/operations">Admin › Operations</a>.</p>` : ""}`);
-  };
-  el.onchange = async e => {
-    const c = e.target.closest("input[data-pref]"); if (!c) return;
-    try { App.prefs = await Server.preferences.set({ [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
-  };
-  el.onclick = async e => {
-    const b = e.target.closest("button[data-act]"); if (!b) return;
-    try {
-      if (b.dataset.act === "delete-request") {
-        const what = $("#delwhat", el).value.trim();
-        if (!await ask(`Ask the owner to delete ${what || "all of your data"}?`, "Ask the owner")) return;
-        b.disabled = true; await Server.memory.askToDelete(what); delete drafts.delwhat; toast("Asked. The owner has 30 days to act.");
-      }
-      const row = b.closest("[data-note]"), note = row && notes[+row.dataset.note];
-      if (b.dataset.act === "note-add") { b.disabled = true; await Server.memory.note({ action: "add", text: $("#newnote", el).value }); toast("Saved."); }
-      if (b.dataset.act === "note-save") { b.disabled = true; await Server.memory.note({ action: "change", note, text: $("input", row).value }); toast("Saved."); }
-      if (b.dataset.act === "note-remove") { b.disabled = true; await Server.memory.note({ action: "remove", note }); toast("Removed."); }
-      const g = b.closest("[data-grant]")?.dataset.grant;
-      if (b.dataset.act === "grant-edit") editing = g;
-      if (b.dataset.act === "grant-cancel") editing = null;
-      if (b.dataset.act === "grant-save") {
-        const f = readGrantForm(b.closest("[data-grant]"));
-        if (!f.apps.length) return toast("Choose at least one app.");
-        b.disabled = true; await Server.memory.setGrant(g, f); editing = null; toast("Saved.");
-        for (const k of Object.keys(drafts)) if (k.startsWith(`g-${g}-`)) delete drafts[k];
-      }
-      if (b.dataset.act === "grant-revoke") {
-        if (!await ask("Revoke this? From now on, what it covered asks you again.", "Revoke")) return;
-        b.disabled = true; await Server.memory.removeGrant(g); toast("Revoked.");
-      }
-      const cr = b.closest("[data-commitment]"), c = cr?.dataset.commitment;
-      if (b.dataset.act === "cmt-edit") editingC = c;
-      if (b.dataset.act === "cmt-cancel") editingC = null;
-      const status = { "cmt-done": "done", "cmt-release": "released", "cmt-reopen": "open" }[b.dataset.act];
-      if (status) { b.disabled = true; await Server.memory.updateCommitment(c, { status }); toast(status === "done" ? "Marked done." : status === "released" ? "Released." : "Reopened."); }
-      if (b.dataset.act === "cmt-save") {
-        const f = k => $(`[data-f="${k}"]`, cr).value.trim();
-        if (!f("what")) return toast("Say what will be done.");
-        b.disabled = true; await Server.memory.updateCommitment(c, { what: f("what"), to: f("to"), by: f("by") }); editingC = null; toast("Saved.");
-      }
-      if (b.dataset.act === "cmt-remove") {
-        if (!await ask("Remove this? It leaves your list and Magnus's context, and its words are deleted.", "Remove")) return;
-        b.disabled = true; await Server.memory.removeCommitment(c); toast("Removed.");
-      }
       el._html = null; await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
   };
@@ -3846,7 +3090,34 @@ async function boot() {
   // not switch the selected region or hide the conversation's composer.
   banners();
   await Notices.poll();
-  background = [setInterval(refresh, 3000), setInterval(pollVersions, 30000), setInterval(() => Notices.poll(), 3000)];
+  lastNoticesPollMs = Date.now();
+  const pollRefreshTick = () => {
+    if (document.hidden && Date.now() - lastRefreshMs < REFRESH_HIDDEN_MS) return;
+    refresh();
+  };
+  const pollVersionsTick = () => {
+    if (document.hidden) return;
+    pollVersions();
+  };
+  const pollNoticesTick = () => {
+    if (document.hidden && Date.now() - lastNoticesPollMs < NOTICES_HIDDEN_MS) return;
+    lastNoticesPollMs = Date.now();
+    Notices.poll();
+  };
+  if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
+  visibilityHandler = () => {
+    if (!document.hidden && App.me) {
+      refresh();
+      lastNoticesPollMs = Date.now();
+      Notices.poll();
+    }
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
+  background = [
+    setInterval(pollRefreshTick, REFRESH_VISIBLE_MS),
+    setInterval(pollVersionsTick, VERSION_POLL_MS),
+    setInterval(pollNoticesTick, NOTICES_VISIBLE_MS),
+  ];
   await guideFirstRun().catch(() => {});
   if (!document._wizardBound) {
     document._wizardBound = true;
@@ -3916,6 +3187,8 @@ function stop() {
   App.sessionGeneration++;
   Resources.reset();
   background.forEach(clearInterval); background = [];
+  if (visibilityHandler) { document.removeEventListener("visibilitychange", visibilityHandler); visibilityHandler = null; }
+  lastVersionPollMs = 0; lastRefreshMs = 0; lastNoticesPollMs = 0;
   Notices.reset();
   App.timers.forEach(clearInterval); App.timers = [];
   App.leave.forEach(f => { try { f(); } catch { /* ignore */ } }); App.leave = [];

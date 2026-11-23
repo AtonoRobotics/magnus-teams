@@ -149,16 +149,7 @@ function controlStrip(c, holding, recording = false) {
  * "" on a server without computers, or before it has made theirs.
  * @param {Array<object>|null|undefined} computers as GET /v1/computers lists them
  */
-function computerChip(computers, targetId = null) {
-  if (targetId) {
-    const c = (computers || []).find(x => x.id === targetId);
-    if (c) {
-      const w = controlWords(c, false), agent = agentName(c);
-      const words = { working: `${agent} is using the shared computer`, mine: "You are in control of the shared computer", held: `${w.pill} of the shared computer`, asks: w.pill, paused: "Shared computer is paused", queued: "Shared computer is waiting for room", waking: "Shared computer is waking", asleep: "Shared computer is asleep" }[w.key] || "Shared computer";
-      return `<button type="button" class="computer-chip" data-pill="${w.key}" data-open="computer:${esc(c.id)}" title="Show shared computer beside the conversation"><svg viewBox="0 0 24 24" aria-hidden="true">${UI.computer}</svg><span class="computer-chip-words">${esc(words)}</span></button>`;
-    }
-    return `<button type="button" class="computer-chip" data-pill="asleep" data-open="computer:${esc(targetId)}" title="Show shared computer beside the conversation"><svg viewBox="0 0 24 24" aria-hidden="true">${UI.computer}</svg><span class="computer-chip-words">Shared computer</span></button>`;
-  }
+function computerChip(computers) {
   const c = (computers || []).find(x => x.owner?.person === App.me?.id);
   if (!c) return "";
   const w = controlWords(c, false), agent = agentName(c);

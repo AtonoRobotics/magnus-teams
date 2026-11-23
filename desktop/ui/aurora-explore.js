@@ -76,13 +76,15 @@ const AuroraExplore = (() => {
   });
 
   // The page drawn again with the change: played before it shows.
-  new MutationObserver(records => {
+  const onMutate = records => {
     if (!before) return;
     for (const r of records) for (const n of r.addedNodes) {
       const grid = n instanceof Element ? (n.matches(".explore-grid") ? n : n.querySelector(".explore-grid")) : null;
       if (grid) return play(grid);
     }
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  };
+  if (typeof AuroraCore !== "undefined") AuroraCore.onDom(onMutate);
+  else new MutationObserver(onMutate).observe(document.documentElement, { childList: true, subtree: true });
 
   return { on, grab, play };
 })();

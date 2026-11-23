@@ -239,17 +239,25 @@ const AuroraAvatar = (() => {
     else location.hash = "#/activity";
   }, true);
 
-  // The avatar leans toward the pointer near it.
+  // The avatar leans toward the pointer near it, coalesced to one layout read per frame.
+  let lookRaf = 0, lastPointerX = 0, lastPointerY = 0;
   document.addEventListener("pointermove", e => {
-    if (!moving()) return;
-    for (const m of mounted) {
-      if (!m.avatar.look) continue;
-      const r = m.button.getBoundingClientRect();
-      if (!r.width) continue;
-      const dx = (e.clientX - (r.left + r.width / 2)) / Math.max(r.width * 4, 120);
-      const dy = (e.clientY - (r.top + r.height / 2)) / Math.max(r.height * 4, 120);
-      m.avatar.look(Math.max(-1, Math.min(1, dx)), Math.max(-1, Math.min(1, dy)));
-    }
+    if (!moving() || !mounted.length) return;
+    lastPointerX = e.clientX;
+    lastPointerY = e.clientY;
+    if (lookRaf) return;
+    lookRaf = requestAnimationFrame(() => {
+      lookRaf = 0;
+      if (!moving()) return;
+      for (const m of mounted) {
+        if (!m.avatar.look) continue;
+        const r = m.button.getBoundingClientRect();
+        if (!r.width) continue;
+        const dx = (lastPointerX - (r.left + r.width / 2)) / Math.max(r.width * 4, 120);
+        const dy = (lastPointerY - (r.top + r.height / 2)) / Math.max(r.height * 4, 120);
+        m.avatar.look(Math.max(-1, Math.min(1, dx)), Math.max(-1, Math.min(1, dy)));
+      }
+    });
   }, { passive: true });
 
   const first = new MutationObserver(() => { if (document.body) { first.disconnect(); run(); } });

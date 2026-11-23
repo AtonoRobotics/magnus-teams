@@ -68,7 +68,7 @@ const ChatView = (() => {
    */
   function layout(o = {}) {
     const id = n => o.side ? "" : ` id="${n}"`;
-    return `<section class="conv${o.side ? " side" : ""}"><header class="conv-head"${id("conv-head")}></header>${o.banners ? `<div id="banners"></div>` : ""}<div${id("thread")} class="thread" aria-live="off"></div><button type="button" class="jump-latest" data-jump-latest hidden>New activity · Jump to latest</button><div class="chat-status small faint" aria-live="polite"></div><div${id("composer")} class="composer-slot"></div></section>`;
+    return `<section class="conv${o.side ? " side" : ""}"><header class="conv-head"${id("conv-head")}></header>${o.banners ? `<div id="banners"></div>` : ""}<div${id("thread")} class="thread" aria-live="off"></div><button type="button" class="jump-latest" data-jump-latest hidden>New activity · Jump to latest</button><div class="chat-status small faint" aria-live="polite"></div><div class="sr" data-chat-announce aria-live="polite" aria-atomic="true"></div><div${id("composer")} class="composer-slot"></div></section>`;
   }
 
   /**
@@ -192,7 +192,9 @@ const ChatView = (() => {
     await conv.prepare?.(entries, view);
     const el = view.list, ui = view.ui;
     const anchor = ui.drawn ? ReadingAnchors.capture(el) : view.record?.anchor || { follow: true };
-    const newActivity = ui.entryIds && entries.some(e => e.id && !ui.entryIds.has(e.id));
+    const newEntries = ui.entryIds ? entries.filter(e => e.id && !ui.entryIds.has(e.id)) : [];
+    const newActivity = newEntries.length > 0;
+    const newAnswer = newEntries.some(e => e.kind === "answer" || (e.sender === "agent" && e.text));
     ui.entryIds = new Set(entries.map(e => e.id)); ui.drawn = true;
     const painted = paint(el, listHtml(entries, view));
     if (painted) {
@@ -201,6 +203,14 @@ const ChatView = (() => {
       if (newActivity && !anchor.follow) $("[data-jump-latest]", view.section).hidden = false;
       motion(el, ui);
       conv.drawn?.(el, entries, view);
+    }
+    if (newAnswer) {
+      const announce = $("[data-chat-announce]", view.section);
+      if (announce) {
+        const who = conv.agentName || "Magnus";
+        announce.textContent = "";
+        announce.textContent = `${who} replied.`;
+      }
     }
     paint($(".chat-status", view.section), conv.status?.(view) || "");
   }

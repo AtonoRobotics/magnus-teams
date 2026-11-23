@@ -165,7 +165,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-menu 
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 30;
+  z-index: var(--z-flyout);
   min-width: 176px;
   padding: 6px;
   border-radius: var(--r-md);

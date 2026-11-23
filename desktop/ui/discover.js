@@ -250,11 +250,11 @@ const Discover = (() => {
   }
 
   const CAT_IMAGE = {
-    ops: "card-inbox.jpg",
-    research: "card-research.jpg",
-    monitor: "card-monitor.jpg",
-    eng: "card-eng.jpg",
-    team: "card-monitor.jpg",
+    ops: "card-inbox.webp",
+    research: "card-research.webp",
+    monitor: "card-monitor.webp",
+    eng: "card-eng.webp",
+    team: "card-monitor.webp",
   };
 
   /** @param {Playbook} p @param {string[]} connectedNames */
@@ -297,7 +297,7 @@ const Discover = (() => {
   function cardHtml(p, expanded = false, ctx = {}) {
     const tools = p.tools.map(t => toolBadge(t, false)).join("");
     const flow = p.tools.map(t => toolBadge(t, true)).join('<span class="flow-arrow" aria-hidden="true">→</span>');
-    const img = CAT_IMAGE[p.cat] || "card-inbox.jpg";
+    const img = CAT_IMAGE[p.cat] || "card-inbox.webp";
     if (!expanded) {
       return `<button type="button" class="hello-card" data-starter-prompt="${esc(p.prompt)}">
         <div class="card-media"><img src="${esc(img)}" alt="" aria-hidden="true" loading="lazy"></div>
@@ -358,8 +358,8 @@ const Discover = (() => {
 
   function bannerHtml() {
     return `<div class="hello-banner" aria-hidden="true">
-      <img class="hero-img-ag" src="hero-antigravity.jpg" alt="">
-      <img class="hero-img-gem" src="hero-gemini.jpg" alt="">
+      <img class="hero-img-ag" src="hero-antigravity.webp" alt="">
+      <img class="hero-img-gem" src="hero-gemini.webp" alt="">
       <div class="hello-banner-overlay"></div>
     </div>`;
   }

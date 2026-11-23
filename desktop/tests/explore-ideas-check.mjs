@@ -16,7 +16,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (/** @type {string} */ f) => readFileSync(join(here, "../ui", f), "utf8");
-const code = read("explore-ideas.js"), app = read("app.js"), discover = read("discover.js"), index = read("index.html");
+const code = read("explore-ideas.js"), app = read("app.js"), tasksSchedules = read("tasks-schedules.js"), discover = read("discover.js"), index = read("index.html");
 
 const ctx = { String };
 vm.createContext(ctx);
@@ -40,8 +40,8 @@ assert.match(app, /const other = App\.inbox\.filter\(i => i\.status === "open" &
 assert.match(app, /if \(ExploreIdeas\.isNotice\(i\)\) \{\s*body = `<p class="small"><a href="#\/explore">Open Explore<\/a>/, "the ideas notice does not link to Explore");
 assert.match(app, /Notices\.show\(\{ key: `inbox:\$\{i\.id\}`, title: "Ideas in Explore", body: i\.summary, system: i\.summary, href: "#\/explore" \}\)/, "the ideas notice is not shown as a notification");
 // An empty Tasks or Schedules offers them, linking to Explore, not to a conversation.
-assert.match(app, /const ideas = ExploreIdeas\.open\(App\.inbox\);[\s\S]{0,400}<a href="#\/explore">/, "the empty lists do not offer the ideas in Explore");
-assert.ok(!/t\.opener\)\.flatMap/.test(app), "the empty lists still read conversations Magnus opened");
+assert.match(tasksSchedules, /const ideas = ExploreIdeas\.open\(App\.inbox\);[\s\S]{0,400}<a href="#\/explore">/, "the empty lists do not offer the ideas in Explore");
+assert.ok(!/t\.opener\)\.flatMap/.test(app) && !/t\.opener\)\.flatMap/.test(tasksSchedules), "the empty lists still read conversations Magnus opened");
 // Explore draws For you above the apps, and redraws once one is answered.
 assert.match(discover, /ExploreIdeas\.html\(App\.inbox, i => card\(i\)\)[\s\S]{0,200}<section class="explore-apps"/, "Explore does not draw For you");
 assert.match(discover, /const redraw = async \(\) => \{ if \(typeof pollInbox === "function"\) await pollInbox\(\); draw\(\); \};/, "Explore does not redraw once an idea is answered");

@@ -307,7 +307,8 @@ dialog.settings-modal::backdrop {
   color: var(--fg2);
   padding: 10px 10px 4px;
 }
-.settings-nav-group[hidden], .settings-nav button[hidden] { display: none; }
+.settings-nav-group[hidden], .settings-nav button[hidden], .settings-filter-empty[hidden] { display: none; }
+.settings-filter-empty { margin: 8px 10px; }
 .settings-nav-group:first-child { padding-top: 2px; }
 .settings-nav button {
   display: flex;
