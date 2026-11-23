@@ -154,6 +154,11 @@ impl Kernel {
             None => query.to_string(),
         };
 
+        // A research worker is a sub-agent: held to the same depth and breadth.
+        if let Err(why) = self.read(|s| s.sub_agents.may_start(&a.run)) {
+            return Ok((why, true, None));
+        }
+
         // Shared query gate (same budget, scrubber, classifier & retry cap as web_search).
         if let Some(why) = self.check_web_query(a, &parent, &combined).await? {
             return Ok((why, true, None));
@@ -167,7 +172,7 @@ impl Kernel {
         let prompt = format!(
             "Research the following public web question using web search, public HTTPS sites, and link-following. Return a concise summary with exact source URLs.\n\nQuery: {combined}"
         );
-        let budget = crate::sub_agents::child_budget_for(&parent.config.budget, parent.spent_usd(), Some(RESEARCH_BUDGET_SHARE));
+        let budget = self.read(|s| crate::sub_agents::child_budget_for(s, &parent, Some(RESEARCH_BUDGET_SHARE)));
         let o = NewRun {
             // Clean OpenWeb compartment: never inherits parent.private or parent history.
             label: None,

@@ -18,6 +18,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(crate) const MAX_DEPTH: usize = 3;
+/// The most sub-agents one run may start, so a tree is bounded in breadth
+/// as in depth (decisions/2026-11-23-a-sub-agent-tree-shares-its-limits.md).
+pub(crate) const MAX_CHILDREN_PER_RUN: usize = 8;
 const MAX_CHILD_SHARE: f64 = 0.5;
 const DEFAULT_CHILD_SHARE: f64 = 0.25;
 const CHILD_WAIT: Duration = Duration::from_secs(30 * 60);
@@ -70,6 +73,19 @@ impl Ledger {
             }
         }
         depth
+    }
+
+    /// Why `run` may start no more sub-agents, if so: it is nested as deep
+    /// as a sub-agent may be, or has started as many as one run may.
+    pub fn may_start(&self, run: &str) -> std::result::Result<(), String> {
+        if self.depth(run) >= MAX_DEPTH {
+            return Err("Sub-agents cannot be nested this deeply.".to_string());
+        }
+        let started = self.children.values().filter(|s| s.parent == run).count();
+        if started >= MAX_CHILDREN_PER_RUN {
+            return Err(format!("This run has started {started} sub-agents, the most one run may start. Finish the work with them or yourself."));
+        }
+        Ok(())
     }
 
     /// The run at the top of a sub-agent's parents; None for a run that is
@@ -144,16 +160,18 @@ fn refused(text: String) -> (String, bool, Option<Value>) {
 }
 
 /// A share of what is left of the parent's budget, however it was asked
-/// for: the child's spend is the parent's too (`Run::spent_usd`).
-pub(crate) fn child_budget_for(parent: &Budget, spent_usd: f64, share: Option<f64>) -> Budget {
-    child_budget(parent, spent_usd, share)
+/// for: of its dollars, actions and model calls, each counted with its
+/// sub-agents' (`spend::tree`), since the child's use is the parent's too.
+pub(crate) fn child_budget_for(s: &State, parent: &Run, share: Option<f64>) -> Budget {
+    child_budget(&parent.config.budget, crate::spend::tree::used(s, &parent.id), parent.spent_usd(), share)
 }
 
-fn child_budget(parent: &Budget, spent_usd: f64, share: Option<f64>) -> Budget {
+fn child_budget(parent: &Budget, used: crate::spend::tree::Used, spent_usd: f64, share: Option<f64>) -> Budget {
     let share = share.unwrap_or(DEFAULT_CHILD_SHARE).clamp(0.0, MAX_CHILD_SHARE);
+    let left = |max: u32, used: u32| f64::from(max.saturating_sub(used)) * share;
     Budget {
-        max_model_calls: ((f64::from(parent.max_model_calls) * share) as u32).max(1),
-        max_actions: ((f64::from(parent.max_actions) * share) as u32).max(1),
+        max_model_calls: (left(parent.max_model_calls, used.steps) as u32).max(1),
+        max_actions: (left(parent.max_actions, used.actions) as u32).max(1),
         max_usd: (parent.max_usd - spent_usd).max(0.0) * share,
     }
 }
@@ -290,8 +308,8 @@ impl Kernel {
     pub(crate) async fn start_sub_agent(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let parent = self.read(|s| s.runs.get(&a.run).cloned()).context("no such run")?;
         let ask: Ask = serde_json::from_value(a.input.clone()).context("goal is required")?;
-        if self.read(|s| s.sub_agents.depth(&a.run)) >= MAX_DEPTH {
-            return Ok(refused("Sub-agents cannot be nested this deeply.".to_string()));
+        if let Err(why) = self.read(|s| s.sub_agents.may_start(&a.run)) {
+            return Ok(refused(why));
         }
         // Never a tool the parent lacks, nor one outside its own limit.
         let held: Vec<String> = self.every_tool_for(&parent).await.into_iter().map(|t| t.name).collect();
@@ -313,7 +331,7 @@ impl Kernel {
         let (task, child) = (crate::kernel::new_id("task"), crate::kernel::new_id("run"));
         let o = NewRun {
             label: (taint.untrusted || taint.private).then_some(taint),
-            budget: Some(child_budget(&parent.config.budget, parent.spent_usd(), ask.budget_share)),
+            budget: Some(self.read(|s| child_budget_for(s, &parent, ask.budget_share))),
             model: Some((parent.config.adapter.clone(), parent.config.model.clone())),
             ids: Some((task.clone(), child.clone())),
             scope,
@@ -494,13 +512,49 @@ mod tests {
 
     #[test]
     fn a_share_of_the_budget_never_exceeds_half() {
-        let b = child_budget(&Budget { max_model_calls: 100, max_actions: 40, max_usd: 2.0 }, 0.0, Some(0.9));
+        use crate::spend::tree::Used;
+        let none = Used::default();
+        let b = child_budget(&Budget { max_model_calls: 100, max_actions: 40, max_usd: 2.0 }, none, 0.0, Some(0.9));
         assert_eq!((b.max_model_calls, b.max_actions), (50, 20));
         assert!((b.max_usd - 1.0).abs() < f64::EPSILON);
         // Of what is left: the parent's spend so far, its sub-agents' too, is gone.
-        let b = child_budget(&Budget { max_model_calls: 100, max_actions: 40, max_usd: 2.0 }, 1.5, Some(0.5));
+        let b = child_budget(&Budget { max_model_calls: 100, max_actions: 40, max_usd: 2.0 }, none, 1.5, Some(0.5));
         assert!((b.max_usd - 0.25).abs() < f64::EPSILON, "a sub-agent got more than its parent has left: {}", b.max_usd);
-        assert!(child_budget(&Budget { max_model_calls: 1, max_actions: 1, max_usd: 2.0 }, 3.0, None).max_usd == 0.0);
+        assert!(child_budget(&Budget { max_model_calls: 1, max_actions: 1, max_usd: 2.0 }, none, 3.0, None).max_usd == 0.0);
+    }
+
+    /// A child's actions and model calls are a share of what its parent's
+    /// tree has left, not of the parent's whole limit: a second child of a
+    /// parent whose first used 20 of 40 actions gets half of the 20 left.
+    #[test]
+    fn a_childs_actions_and_calls_are_a_share_of_what_is_left() {
+        let mut st = State::default();
+        created(&mut st, 1, "person:alice", "top", "rt", json!({}));
+        st.sub_agents.apply(&s("r1", "rt", &[]));
+        created(&mut st, 2, "run:rt", "c1", "r1", json!({}));
+        let rt = st.runs.get_mut("rt").expect("rt");
+        (rt.config.budget.max_actions, rt.config.budget.max_model_calls) = (40, 10);
+        (rt.actions, rt.model_calls) = (1, 1);
+        let r1 = st.runs.get_mut("r1").expect("r1");
+        (r1.actions, r1.model_calls) = (19, 4);
+        let b = child_budget_for(&st, &st.runs["rt"], Some(0.5));
+        assert_eq!((b.max_actions, b.max_model_calls), (10, 2), "a child was given a share of its parent's whole limit");
+    }
+
+    /// No run starts more sub-agents than the cap, and none nests past the
+    /// depth: a tree is bounded both ways.
+    #[test]
+    fn a_run_starts_no_more_children_than_the_cap() {
+        let mut l = Ledger::default();
+        for i in 0..MAX_CHILDREN_PER_RUN {
+            assert!(l.may_start("top").is_ok(), "the run was refused its sub-agent {i}");
+            l.apply(&s(&format!("c{i}"), "top", &[]));
+        }
+        assert!(l.may_start("top").is_err(), "a run started more sub-agents than the cap");
+        assert!(l.may_start("c0").is_ok(), "a child's own children were counted as its parent's");
+        l.apply(&s("g1", "c0", &[]));
+        l.apply(&s("g2", "g1", &[]));
+        assert_eq!(l.may_start("g2"), Err("Sub-agents cannot be nested this deeply.".to_string()));
     }
 
     /// Where a turn's sub-agents are shown: in its conversation.

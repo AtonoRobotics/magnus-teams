@@ -28,6 +28,7 @@ pub mod month;
 pub mod paid;
 pub mod requests;
 pub mod routes;
+pub mod tree;
 
 #[cfg(test)]
 mod tests;

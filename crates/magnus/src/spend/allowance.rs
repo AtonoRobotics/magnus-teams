@@ -5,7 +5,8 @@
 //! the kernel's optional extra calls (reviewer, memory pass, knowledge
 //! extraction, spoken script) before theirs. One place holds every rule:
 //!
-//! - the run's own budget: its model calls, its actions and its dollars;
+//! - the run's own budget: its model calls, its actions and its dollars,
+//!   counted with its sub-agents', and the budget of every run above it;
 //! - its grant's budget for the period (#280, #286);
 //! - the month's limits, the person's and the server's (2026-11-10);
 //! - its team's, the workspace's and the channel's (2026-11-13).
@@ -25,7 +26,7 @@
 
 use super::holds::{held_for, Hold};
 use crate::kernel::Kernel;
-use crate::state::{Run, State};
+use crate::state::State;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
@@ -62,7 +63,7 @@ impl Left {
     }
 
     /// The tighter of this and `usd` left of `of`.
-    fn under(self, usd: Option<f64>, of: &'static str) -> Left {
+    pub(super) fn under(self, usd: Option<f64>, of: &'static str) -> Left {
         match usd {
             Some(u) if u < self.usd => Left { usd: u.max(0.0), of },
             _ => self,
@@ -93,13 +94,6 @@ pub struct Stop {
     pub details: Value,
 }
 
-/// What a run has spent of its action and dollar budget, as a budget stop
-/// tells the person.
-pub fn budget_used(run: &Run) -> String {
-    let b = &run.config.budget;
-    format!("budget used: {} of {} actions, ${:.2} of ${:.2}", run.actions, b.max_actions, run.spent_usd(), b.max_usd)
-}
-
 /// Whether `run` may spend once more for `spender` at `now`, and what it
 /// has left; a run that is not there has nothing.
 pub fn allowance(s: &State, run_id: &str, spender: Spender, now: DateTime<Utc>) -> Result<Left, Box<Stop>> {
@@ -111,24 +105,11 @@ pub fn allowance_held(s: &State, run_id: &str, spender: Spender, now: DateTime<U
     let Some(run) = s.runs.get(run_id) else {
         return Err(Box::new(Stop { reason: "budget", why: "the run is not there".into(), notice: String::new(), details: Value::Null }));
     };
-    let budget = &run.config.budget;
-    let calls = match spender {
-        Spender::Step => Some(run.loop_calls()),
-        Spender::Extra => Some(run.model_calls),
-        Spender::Action | Spender::Check => None,
-    };
-    if let Some(n) = calls.filter(|n| *n >= budget.max_model_calls) {
-        let why = format!("{n} of {} model calls", budget.max_model_calls);
-        let notice = format!("Stopped after {n} model calls, the task's limit.");
-        return Err(Box::new(Stop { reason: "budget", why, notice, details: json!({ "model_calls": n, "limit": budget.max_model_calls, "usd": run.spent_usd() }) }));
-    }
-    // Dollars are spent by model calls, failed ones too: one past the limit
-    // stops the run before the next is paid for.
-    let actions_spent = spender == Spender::Action && run.actions >= budget.max_actions;
-    if actions_spent || run.spent_usd() >= budget.max_usd {
-        let why = budget_used(run);
-        let notice = format!("Stopped: {why}.");
-        return Err(Box::new(Stop { reason: "budget", why, notice, details: json!({ "actions": run.actions, "usd": run.spent_usd() }) }));
+    // The run's own budget, and every run's above it, each counted over
+    // its whole tree of sub-agents (`tree`).
+    let scope = scope_of_run(s, run_id);
+    if let Some(stop) = super::tree::stop(s, spender, &scope.runs) {
+        return Err(stop);
     }
     // A task under a grant stops once the grant's budget for its period is
     // spent, by all its tasks together, until its person resumes it.
@@ -148,9 +129,8 @@ pub fn allowance_held(s: &State, run_id: &str, spender: Spender, now: DateTime<U
     if let Some((why, details)) = crate::team::spend::stop_partway(s, run_id, now) {
         return Err(Box::new(Stop { reason: "spend_limit", notice: format!("Stopped: {why}"), why, details }));
     }
-    let scope = scope_of_run(s, run_id);
     let h = held_for(held, &scope);
-    let left = Left::none().under(Some(budget.max_usd - run.spent_usd() - h.run), "task");
+    let left = super::tree::left(s, &scope.runs, held, Left::none());
     let left = left.under(crate::grants::left_for_run(s, run_id, now).map(|l| l - h.grant), "grant");
     let left = month_left(s, &run.person, now, h.person, h.server, left);
     Ok(team_left(s, scope.workspace.as_deref(), scope.channel.as_deref(), now, h.workspace, h.channel, left))
