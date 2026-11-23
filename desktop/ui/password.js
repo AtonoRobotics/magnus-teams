@@ -182,8 +182,9 @@ async function totpCard(el) {
           <p class="small">Enter this key in your authenticator app or open <a href="${esc(pending.uri)}">the setup link</a>:</p>
           <input readonly class="mono" value="${esc(pending.secret)}" aria-label="Authenticator secret key" data-totp-secret>
           <label for="totp-code">6-digit code from your app</label>
-          ${st.enrolled ? `<label for="totp-password">Current password</label>
-          <input id="totp-password" type="password" autocomplete="current-password" data-totp-password>` : ""}
+          <label for="totp-password">Current password</label>
+          <input id="totp-password" type="password" autocomplete="current-password" data-totp-password>
+          <p class="small muted">Changing it signs you out on your other devices; this one stays signed in.</p>
           <div class="row"><input id="totp-code" data-totp-code inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456"><button type="button" class="primary" data-totp-confirm>Verify and turn on</button></div>
         </div>` : `${st.enrolled && !st.code_required ? `<label for="totp-password">Current password, to remove it</label>
         <input id="totp-password" type="password" autocomplete="current-password" data-totp-password>` : ""}<div class="row">
@@ -200,6 +201,7 @@ async function totpCard(el) {
     if (confirmBtn) confirmBtn.onclick = async () => {
       const code = /** @type {HTMLInputElement} */ ($("[data-totp-code]", el))?.value.trim() || "";
       const password = /** @type {HTMLInputElement} */ ($("[data-totp-password]", el))?.value || "";
+      if (!password) { toast("Enter your current password to turn it on."); return; }
       try {
         await Server.account.confirmTotp(code, password);
         st.enrolled = true;

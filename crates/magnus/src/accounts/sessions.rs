@@ -20,6 +20,20 @@ impl Accounts {
         Ok(ended)
     }
 
+    /// End every session of `person` but the one `keep` belongs to; the ids
+    /// of those ended.
+    pub async fn end_others(&self, person: &str, keep: &str) -> Result<Vec<String>> {
+        let person = key(person);
+        let mut g = self.client().await?;
+        let c = g.as_mut().context("accounts connection")?;
+        let mut ended = vec![];
+        for r in c.query("DELETE FROM public.account_sessions WHERE person = $1 AND hash <> $2 RETURNING id", &[&person, &token_hash(keep)]).await? {
+            ended.push(r.get("id"));
+        }
+        self.refresh_local(c).await?;
+        Ok(ended)
+    }
+
     /// The people with a live session.
     pub async fn signed_in(&self) -> std::collections::BTreeSet<String> {
         let mut g = match self.client().await {

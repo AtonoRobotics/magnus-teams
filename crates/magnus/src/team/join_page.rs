@@ -80,7 +80,7 @@ async fn page(
     match link_invite(&k, &code) {
         Some((_, name, _, _)) => form(&code, &name, None),
         None => {
-            k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h));
+            k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h)).await;
             ended()
         }
     }
@@ -101,7 +101,7 @@ async fn create(
     }
     let code = f.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
     let Some((ws, workspace, inv, role)) = link_invite(&k, &code) else {
-        k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h));
+        k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h)).await;
         return ended();
     };
     let again = |why: &str| form(&code, &workspace, Some(why));

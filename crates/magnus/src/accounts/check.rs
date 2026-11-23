@@ -18,6 +18,8 @@
 //!   rules' longest wait, while waiting it out never does.
 //! - The provider signing in someone other than the person asked about is a
 //!   wrong password, never a yes.
+//! - Every change to a counter is written to the store after the check
+//!   (`lockout_store`), so a restart forgives nothing.
 
 use super::credentials::Credentials;
 use super::lockout::{counters, Lockout};
@@ -105,7 +107,9 @@ impl Accounts {
     /// the `Keeper`.
     pub(crate) async fn check_password(&self, keeper: &Keeper, a: &Attempt<'_>) -> Result<Checked> {
         self.refresh_rules().await;
-        self.checker().check_password(keeper, a).await
+        let r = self.checker().check_password(keeper, a).await;
+        self.keep_counters().await;
+        r
     }
 
     /// The check over this store, its counters and its rules as cached.
@@ -139,8 +143,9 @@ impl Accounts {
     }
 
     /// Count a wrong code guessed from `from`.
-    pub fn guessed_wrong(&self, from: std::net::IpAddr) {
+    pub async fn guessed_wrong(&self, from: std::net::IpAddr) {
         self.failed(&guesses_counter(from));
+        self.keep_counters().await;
     }
 
     /// Until when a counter may not try another password, after too many
@@ -210,7 +215,9 @@ impl Accounts {
     /// Check a password, counting wrong ones on `counter`.
     pub(super) async fn sign_in_counted(&self, person: &str, password: &str, counter: &str) -> Result<std::result::Result<(), SignInError>> {
         self.fresh_rules().await?;
-        self.checker().sign_in_counted(person, password, counter).await
+        let r = self.checker().sign_in_counted(person, password, counter).await;
+        self.keep_counters().await;
+        r
     }
 
     pub(super) fn password_ok(phc: Option<&str>, password: &str) -> bool {
@@ -243,7 +250,9 @@ impl Accounts {
         at: DateTime<Utc>,
     ) -> Result<std::result::Result<(), SignInError>> {
         self.fresh_rules().await?;
-        self.checker().sign_in_counted_with_code_at(person, password, code, counter, at).await
+        let r = self.checker().sign_in_counted_with_code_at(person, password, code, counter, at).await;
+        self.keep_counters().await;
+        r
     }
 }
 

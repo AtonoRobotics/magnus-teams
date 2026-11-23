@@ -55,7 +55,7 @@ async fn page(
         return *r;
     }
     if let Some(code) = q.get("link") {
-        return crate::account_links::page(&k, crate::devices::client_ip(peer, &h), code);
+        return crate::account_links::page(&k, crate::devices::client_ip(peer, &h), code).await;
     }
     let token = q.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
     if token.is_empty() {

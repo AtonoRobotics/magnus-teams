@@ -29,6 +29,7 @@ mod check;
 mod credentials;
 mod directory;
 mod lockout;
+mod lockout_store;
 mod password;
 mod phc;
 mod reads;
@@ -263,11 +264,16 @@ impl Accounts {
             .await
             .context("seed the sign-in rules")?;
         let policy = Self::read_policy(&client).await?.unwrap_or(seed);
+        let mut lockout = lockout::Lockout::default();
+        match Self::read_counters(&client).await {
+            Ok(kept) => kept.into_iter().for_each(|(counter, f)| lockout.restore(counter, f)),
+            Err(e) => tracing::warn!("the lockout counters could not be read, so none hold until they are counted again: {e:#}"),
+        }
         Ok(Accounts {
             cfg,
             url: db_url.into(),
             client: tokio::sync::Mutex::new(Some(client)),
-            failures: Mutex::new(lockout::Lockout::default()),
+            failures: Mutex::new(lockout),
             local: Mutex::new((Instant::now(), local)),
             policy: Mutex::new((Instant::now(), policy)),
             pending_totp: Mutex::new(BTreeMap::new()),
@@ -439,7 +445,9 @@ impl Accounts {
         }
         tx.commit().await?;
         self.refresh_local(c).await?;
+        drop(g);
         self.clear_counters(&person);
+        self.keep_counters().await;
         Ok(ended)
     }
 
@@ -539,6 +547,8 @@ impl Accounts {
         tx.commit().await?;
         self.clear_counters(&person);
         self.refresh_local(c).await?;
+        drop(g);
+        self.keep_counters().await;
         Ok(ended)
     }
 
@@ -609,6 +619,12 @@ impl Accounts {
     /// the new one, together. A wrong temp counts on the counter for `via`,
     /// like a wrong password; choosing activates, as accepting does.
     pub async fn choose_password(&self, person: &str, temp: &str, password: &str, via: Via) -> Result<std::result::Result<(), SignInError>> {
+        let r = self.choose_password_counted(person, temp, password, via).await;
+        self.keep_counters().await;
+        r
+    }
+
+    async fn choose_password_counted(&self, person: &str, temp: &str, password: &str, via: Via) -> Result<std::result::Result<(), SignInError>> {
         let person = key(person);
         let counter = key(&check::counter_of(via, &person));
         let mut g = self.client().await?;

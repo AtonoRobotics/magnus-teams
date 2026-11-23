@@ -1,12 +1,14 @@
 //! The lockout rule, without a clock or a store: wrong passwords per
 //! counter, and until when a counter stays locked. The caller passes the
 //! time and the sign-in rules, so the rule is tested at fixed instants.
-//! The counters live in memory, as before: a restart forgives guesses in
-//! flight. Counters arrive canonical (the caller lowercases them).
+//! The counters live in memory while the server runs, and every change is
+//! written to the store next to the sign-in rules (`lockout_store`), so a
+//! restart or a deploy forgives no lockout. Counters arrive canonical (the
+//! caller lowercases them).
 
 use super::Policy;
 use chrono::{DateTime, Duration, Utc};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// How long a permanent lockout is recorded for: nobody's lock outlives
@@ -29,13 +31,37 @@ pub(super) fn counters(m: &Mutex<Lockout>) -> MutexGuard<'_, Lockout> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Every counter's failures.
+/// Every counter's failures, and which changed since they were last
+/// written to the store.
 #[derive(Default, Debug)]
 pub(super) struct Lockout {
     failures: BTreeMap<String, Failures>,
+    changed: BTreeSet<String>,
 }
 
 impl Lockout {
+    /// A counter as the store kept it, read back at start.
+    pub(super) fn restore(&mut self, counter: String, f: Failures) {
+        self.failures.insert(counter, f);
+    }
+
+    /// Each counter changed since the last call, with its failures now, or
+    /// None when it was forgotten.
+    pub(super) fn take_changed(&mut self) -> Vec<(String, Option<Failures>)> {
+        std::mem::take(&mut self.changed).into_iter().map(|c| (c.clone(), self.failures.get(&c).copied())).collect()
+    }
+
+    /// Mark counters changed again: their write to the store failed.
+    pub(super) fn mark(&mut self, counters: impl IntoIterator<Item = String>) {
+        self.changed.extend(counters);
+    }
+
+    fn remove(&mut self, counter: &str) {
+        if self.failures.remove(counter).is_some() {
+            self.changed.insert(counter.to_string());
+        }
+    }
+
     /// Until when `counter` may not try another password at `now`. A
     /// lapsed lock, or failures gone quiet past the longest wait, forgives
     /// the counter. With the lockout off, nothing is locked.
@@ -49,7 +75,7 @@ impl Lockout {
             return r.until;
         }
         if r.until.is_some() || now - r.first > horizon {
-            self.failures.remove(counter);
+            self.remove(counter);
         }
         None
     }
@@ -63,6 +89,7 @@ impl Lockout {
         if !p.lockout_enabled {
             return;
         }
+        self.changed.insert(counter.to_string());
         let e = self.failures.entry(counter.to_string()).or_insert(Failures { n: 0, first: now, until: None });
         e.n += 1;
         if e.n >= p.lockout_failures.max(1) as u32 {
@@ -76,7 +103,7 @@ impl Lockout {
 
     /// A right password: the counter starts over.
     pub(super) fn succeeded(&mut self, counter: &str) {
-        self.failures.remove(counter);
+        self.remove(counter);
     }
 
     /// Take back one counted attempt, whose answer said nothing about the
@@ -84,12 +111,13 @@ impl Lockout {
     pub(super) fn forgive(&mut self, counter: &str) {
         if let Some(e) = self.failures.get_mut(counter) {
             e.n = e.n.saturating_sub(1);
+            self.changed.insert(counter.to_string());
         }
     }
 
     /// Forget `counter` whole, locked or not.
     pub(super) fn clear(&mut self, counter: &str) {
-        self.failures.remove(counter);
+        self.remove(counter);
     }
 
     /// How many failures `counter` holds.
@@ -101,7 +129,8 @@ impl Lockout {
     /// Forget every counter.
     #[cfg(test)]
     pub(super) fn clear_all(&mut self) {
-        self.failures.clear();
+        let all: Vec<String> = self.failures.keys().cloned().collect();
+        all.iter().for_each(|c| self.remove(c));
     }
 
     /// Move a counter's lock to end at `until`, to test its lapse.
@@ -109,6 +138,7 @@ impl Lockout {
     pub(super) fn set_until(&mut self, counter: &str, until: DateTime<Utc>) {
         if let Some(e) = self.failures.get_mut(counter) {
             e.until = Some(until);
+            self.changed.insert(counter.to_string());
         }
     }
 
