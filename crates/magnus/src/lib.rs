@@ -21,6 +21,7 @@ pub mod apps;
 pub mod asks;
 pub mod attachment;
 pub mod attachment_hold;
+pub mod attachment_ref;
 pub(crate) mod authorised_read;
 pub mod auto_review;
 pub mod background_work;

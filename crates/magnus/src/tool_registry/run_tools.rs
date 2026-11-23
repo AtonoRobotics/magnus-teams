@@ -11,6 +11,12 @@ const SANDBOX: Offer = Offer::Run(Need::Sandbox);
 const BROWSER: Offer = Offer::Run(Need::Browser);
 const COMPUTER: Offer = Offer::Run(Need::Computer);
 
+/// An attachment's `name`: a reference tells apart two that share a name
+/// (`attachment_ref`).
+fn attachment_name() -> Value {
+    json!({ "type": "string", "description": "the attachment's name, or its reference (name#1a2b3c4d) as listed when several share a name" })
+}
+
 /// The person's own: it reaches no one and carries nothing in.
 const fn mine(app: &'static str, risk: Risk) -> Class {
     Class::new(app, risk, Label::PRINCIPAL, Audience::Private)
@@ -206,10 +212,10 @@ pub(super) static DECLS: &[Decl] = &[
     .taint(Taint::Returned),
     Decl::tool("web_search", WEB, Exec::Core(Op::WebSearch), SEARCH, |_| obj(json!({ "query": { "type": "string" } }), &["query"])).doing("Searching the web").web(WebRead::Query).in_team(),
     Decl::tool("open_attachment", Class::new("sandbox", Risk::Sandbox, Label::UNTRUSTED, Audience::Private), Exec::Core(Op::Side), SANDBOX, |_| {
-        obj(json!({ "name": { "type": "string" }, "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"])
+        obj(json!({ "name": attachment_name(), "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"])
     }),
     Decl::tool("import_attachment", Class::new("sandbox", Risk::Sandbox, Label::UNTRUSTED, Audience::Private), Exec::Core(Op::Side), SANDBOX, |_| {
-        obj(json!({ "name": { "type": "string" } }), &["name"])
+        obj(json!({ "name": attachment_name() }), &["name"])
     }),
     Decl::tool("start_sub_agent", IN_SANDBOX, Exec::Core(Op::Side), ALWAYS, |_| {
         obj(
