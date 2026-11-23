@@ -149,5 +149,25 @@ const TeamRooms = (() => {
     });
   }
 
-  return { registerSlot, renderSlot, workPanelHtml, peopleCapabilitiesHtml, wire };
+  /**
+   * What a Start shared work form (`data-mission-new`) asks for: its goal,
+   * its conversation, and a lane for one's own Magnus, each teammate picked
+   * and the public web if picked. Null without a goal or a conversation.
+   * @param {HTMLElement} form @param {string} me @param {?string} [room] the conversation, when the form names none
+   * @returns {?{ goal: string, room: string, lanes: any[] }}
+   */
+  function missionAsk(form, me, room = null) {
+    const goal = (/** @type {HTMLInputElement | null} */ (form.querySelector('input[name="goal"]'))?.value || "").trim();
+    const at = form.dataset.missionRoom || room || "";
+    if (!goal || !at) return null;
+    const lanes = [{ kind: "member_agent", target_member: me, objective: goal, scope: "room_work" }];
+    for (const cb of form.querySelectorAll('input[name="member"]:checked')) {
+      const memberId = /** @type {HTMLInputElement} */ (cb).value;
+      if (memberId) lanes.push({ kind: "member_agent", target_member: memberId, objective: goal, scope: "room_work" });
+    }
+    if (form.querySelector('input[name="open_web"]:checked')) lanes.push({ kind: "open_web", objective: goal, scope: "public_research" });
+    return { goal, room: at, lanes };
+  }
+
+  return { registerSlot, renderSlot, workPanelHtml, peopleCapabilitiesHtml, wire, missionAsk };
 })();

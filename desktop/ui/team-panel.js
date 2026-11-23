@@ -282,20 +282,9 @@ const TeamPanel = {
         const form = /** @type {HTMLFormElement} */ (e.target).closest("[data-mission-new]");
         if (!form) return;
         e.preventDefault();
-        const goal = (/** @type {HTMLInputElement | null} */ (form.querySelector('input[name="goal"]'))?.value || "").trim();
-        const room = /** @type {HTMLElement} */ (form).dataset.missionRoom || "";
-        if (!goal || !room || !Server.workspaces.createMission) return;
-        const at = this.sideAt;
-        if (!at) return;
-        const lanes = [{ kind: "member_agent", target_member: Team.home?.me, objective: goal, scope: "room_work" }];
-        for (const cb of form.querySelectorAll('input[name="member"]:checked')) {
-          const memberId = /** @type {HTMLInputElement} */ (cb).value;
-          if (memberId) lanes.push({ kind: "member_agent", target_member: memberId, objective: goal, scope: "room_work" });
-        }
-        if (form.querySelector('input[name="open_web"]:checked')) {
-          lanes.push({ kind: "open_web", objective: goal, scope: "public_research" });
-        }
-        await Server.workspaces.createMission(at.ws, room, { goal, lanes }).catch(() => {});
+        const ask = TeamRooms.missionAsk(/** @type {HTMLElement} */ (form), Team.home?.me), at = this.sideAt;
+        if (!ask || !at || !Server.workspaces.createMission) return;
+        await Server.workspaces.createMission(at.ws, ask.room, { goal: ask.goal, lanes: ask.lanes }).catch(() => {});
         this.side(at.el, at.ws, at.d?.project?.id || null, at.channel);
       });
       el.addEventListener("click", async e => {

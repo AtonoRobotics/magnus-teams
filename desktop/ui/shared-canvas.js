@@ -128,13 +128,9 @@ const SharedCanvas = (() => {
             const f = e.target.closest?.("[data-mission-new]");
             if (!f) return;
             e.preventDefault();
-            const goal = (f.querySelector('input[name="goal"]')?.value || "").trim();
-            const room = f.dataset.missionRoom || channel;
-            if (!goal || !room || !Server.workspaces.createMission) return;
-            const lanes = [{ kind: "member_agent", target_member: home.me, objective: goal, scope: "room_work" }];
-            for (const cb of f.querySelectorAll('input[name="member"]:checked')) if (cb.value) lanes.push({ kind: "member_agent", target_member: cb.value, objective: goal, scope: "room_work" });
-            if (f.querySelector('input[name="open_web"]:checked')) lanes.push({ kind: "open_web", objective: goal, scope: "public_research" });
-            try { await Server.workspaces.createMission(ws, room, { goal, lanes }); redraw(); } catch (err) { toast(err.message); }
+            const ask = TeamRooms.missionAsk(f, home.me, channel);
+            if (!ask || !Server.workspaces.createMission) return;
+            try { await Server.workspaces.createMission(ws, ask.room, { goal: ask.goal, lanes: ask.lanes }); redraw(); } catch (err) { toast(err.message); }
           });
         },
       };
