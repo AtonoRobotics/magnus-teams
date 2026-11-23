@@ -207,8 +207,12 @@ impl Computers {
 
     pub fn whose_uid(&self, uid: u32) -> Result<Option<ComputerId>> {
         for id in self.list()? {
-            if self.meta(&id)?.uid == uid {
-                return Ok(Some(id));
+            // One computer whose metadata cannot be read is skipped, so it
+            // does not cut every other computer off the network.
+            match self.meta(&id) {
+                Ok(m) if m.uid == uid => return Ok(Some(id)),
+                Ok(_) => {}
+                Err(e) => eprintln!("magnus-computerd: skipped computer {} whose metadata cannot be read: {e:#}", id.as_str()),
             }
         }
         Ok(None)
@@ -592,6 +596,22 @@ mod tests {
         assert!(cgroups.contains(&"cpu.max=150000 100000"), "{cgroups:?}");
         assert!(cgroups.contains(&"pids.max=128"), "{cgroups:?}");
         assert!(after(&args, "--resource-limit").contains(&"fsize=21474836480"));
+    }
+
+    #[test]
+    fn one_unreadable_computer_does_not_hide_the_others_from_the_proxy() {
+        let state = tempfile::tempdir().unwrap();
+        let mut cfg = config();
+        cfg.state_dir = state.path().into();
+        let c = Computers::new(cfg);
+        for (name, meta) in [("aaa", "not json".to_string()), ("abc", json!({ "uid": 200001 }).to_string())] {
+            let id = ComputerId::parse(name).unwrap();
+            std::fs::create_dir_all(c.computer(&id)).unwrap();
+            std::fs::write(c.computer(&id).join("meta.json"), meta).unwrap();
+        }
+        std::fs::create_dir_all(c.computer(&ComputerId::parse("abd").unwrap())).unwrap();
+        assert_eq!(c.whose_uid(200001).unwrap().map(|id| id.as_str().to_string()), Some("abc".to_string()));
+        assert!(c.whose_uid(200002).unwrap().is_none());
     }
 
     #[test]
