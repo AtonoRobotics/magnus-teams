@@ -93,7 +93,8 @@ impl Kernel {
             }
         };
         let (owed, missing): (Vec<String>, Vec<String>) = self.read(|s| {
-            let owed = s.computers.deleted().iter().filter(|id| listed.contains(*id)).cloned().collect();
+            // Never one the log has again, should an id ever come back.
+            let owed = s.computers.deleted().iter().filter(|id| listed.contains(*id) && s.computers.get(id).is_none()).cloned().collect();
             let missing = s.computers.all().filter(|c| c.status != Status::Queued && !listed.contains(&c.id)).map(|c| c.id.clone()).collect();
             (owed, missing)
         });

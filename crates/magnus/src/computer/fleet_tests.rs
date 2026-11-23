@@ -36,6 +36,12 @@ async fn the_look_deletes_only_what_the_log_deleted() {
     s.k.agree_with_computerd().await;
     assert!(s.asked("destroy").is_empty());
     assert!(s.fake.held().contains(&id));
+    // An id the log deleted and then made again is the log's again.
+    let killed = Change::Killed { id: id.clone(), mode: KillMode::Destroy, delete_volume: true };
+    s.k.emit("kernel", Ev::Computer(killed)).await.unwrap();
+    s.k.emit("kernel", Ev::Computer(Change::Created { id: id.clone(), owner: person("mo") })).await.unwrap();
+    s.k.agree_with_computerd().await;
+    assert!(s.fake.held().contains(&id), "a computer the log has was deleted");
     s.done().await;
 }
 
