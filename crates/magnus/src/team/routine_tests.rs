@@ -105,3 +105,26 @@ async fn a_quiet_question_is_followed_up_by_its_askers_own_agent() {
     assert_eq!(s.k.read(|st| st.missions.view_for_room("w", "c", "mo").len()), 1, "a quiet thread was followed up twice");
     s.done().await;
 }
+
+/// A routine whose author's own agent is paused waits: it does not fire,
+/// so it neither fails nor stops, and once the pause is lifted it fires.
+/// It checked the team agent's holds instead, fired into the author's
+/// pause, failed each time and stopped for good.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_routine_waits_out_its_authors_pause() {
+    let s = server_with("", |_| Router::new()).await;
+    room(&s, "w", "mo").await;
+    s.k.emit("test", Ev::Team(Change::Routine { workspace: "w".into(), id: "r".into(), routine: routine("mo") })).await.unwrap();
+    let agent = crate::halts::agent_of_person("mo");
+    s.k.emit("admin:ana", Ev::Halt(crate::halts::Change::Paused { agent: agent.clone(), name: "Ana".into() })).await.unwrap();
+    for _ in 0..=s.k.cfg.schedules.pause_after_failures {
+        s.k.run_due_routines().await.unwrap();
+    }
+    let routine_now = || s.k.read(|st| st.team.workspace("w").unwrap().routines["r"].clone());
+    assert!(routine_now().fired.is_empty(), "a routine fired into its author's pause: {:?}", routine_now().fired);
+    assert!(routine_now().stopped.is_none(), "a pause stopped the routine for good");
+    s.k.emit("admin:ana", Ev::Halt(crate::halts::Change::Unpaused { agent })).await.unwrap();
+    s.k.run_due_routines().await.unwrap();
+    assert!(matches!(routine_now().fired.as_slice(), [Firing::Started(_)]), "the routine did not fire after the pause: {:?}", routine_now().fired);
+    s.done().await;
+}

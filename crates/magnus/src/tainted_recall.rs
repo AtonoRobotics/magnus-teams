@@ -157,6 +157,7 @@ mod tests {
             lost: Default::default(),
             verifier_model: None,
             reasoning: None,
+            quarantine: None,
         };
 
         // New event with explicit_label: true stays clean.

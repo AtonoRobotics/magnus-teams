@@ -176,14 +176,14 @@ impl Kernel {
             let said = format!("{} stopped your task", who.name);
             evs.push(("kernel", self.notice_to(Some(id.into()), Some(run.id.clone()), owner.clone(), said, json!({ "reason": "stopped_by_admin", "by": who.id }))));
         }
-        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        // Its sub-agents end with it, in the same write (`run_end`).
+        self.cancel_tree(&run.id, evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         // It may have ended on its own as the cancel was recorded: then the
         // cancel changed nothing, and the person is told how it ended.
         let now = self.read(|s| s.runs.get(&run.id).map(|r| r.status));
         if let Some(st) = now.filter(|st| *st != crate::state::Status::Cancelled) {
             return Err(Refused::Conflict(format!("the task has already ended ({})", crate::api::status_str(st))));
         }
-        self.on_stop(&run.id, true).await;
         // Reported from the run as it is now: results recorded while it
         // stopped read done, not possibly done.
         let now = self.read(|s| s.runs.get(&run.id).cloned()).unwrap_or(run);
@@ -308,8 +308,9 @@ impl Kernel {
         let mut stopped = 0;
         for (task, run) in &going {
             let (source, turn_ev) = sources(turn);
-            if self.emit(&format!("person:{}", who.id), Ev::Cancelled { run: run.clone(), source, turn: turn_ev }).await.is_ok() {
-                self.on_stop(run, true).await;
+            // Its sub-agents, which carry no schedule of their own, end with it.
+            let actor = format!("person:{}", who.id);
+            if self.cancel_tree(run, vec![(actor.as_str(), Ev::Cancelled { run: run.clone(), source, turn: turn_ev })]).await.is_ok() {
                 stopped += 1;
                 if let Some(now) = self.read(|s| s.runs.get(run).cloned()) {
                     let (cannot_be_undone, already_done, possibly_done) = self.stopped_run_report(&now);

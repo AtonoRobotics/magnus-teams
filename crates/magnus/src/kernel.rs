@@ -110,6 +110,8 @@ pub struct NewRun {
     pub grant: Option<String>,
     /// The team thread it serves, recorded with the task.
     pub team: Option<crate::team::TeamRun>,
+    /// Its untrusted reads are quarantined, under this schema (`quarantine_runtime`).
+    pub quarantine: Option<serde_json::Value>,
 }
 
 impl Kernel {
@@ -517,6 +519,7 @@ impl Kernel {
             },
             harness: HARNESS_VERSION.into(),
             playbook: self.read(|s| s.library.playbook_version()),
+            quarantine: o.quarantine,
         };
         // The project's instructions and reference files as they stand now.
         let project = o.project.as_ref().and_then(|id| {
