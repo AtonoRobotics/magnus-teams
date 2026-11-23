@@ -612,6 +612,7 @@ const Workspace = (() => {
     const wsDialog=$("#workspace-search"), wsInput=$("#workspace-query",wsDialog), wsList=$(".palette-list",wsDialog);
     wsInput.oninput=drawPalette;
     wsInput.onkeydown=e=>{
+      if(e.key==="Escape"){e.preventDefault();wsDialog.close();return;}
       if(!paletteList.length)return;
       if(e.key==="ArrowDown"||e.key==="ArrowUp"){
         e.preventDefault();
@@ -967,6 +968,10 @@ function wireDocument() {
     openPanel(o.dataset.open,{history:true,focus:true,opener:o});
   });
   document.addEventListener("click", async e => {
+    const cs = e.target.closest("[data-conv-share]");
+    if (cs && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ thread: cs.dataset.convShare, title: cs.dataset.convTitle || "" }); return; }
+    const ps = e.target.closest("[data-project-share]");
+    if (ps && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ projectId: ps.dataset.projectShare, projectName: ps.dataset.projectName || "" }); return; }
     const dm = e.target.closest("[data-start-dm]");
     if (!dm || e.button !== 0 || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -1361,11 +1366,11 @@ async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects",connectors:"Apps"})[k],path,k);
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
   const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
-  const workspaces = Server.workspaces.list().then(r => {
+  const workspaces = Server.workspaces.list().then(async r => {
     if (!Array.isArray(r)) return;
     App.workspaces = r;
     if (typeof loadHome === "function" && r.length) {
-      Promise.all(r.map(w => loadHome(w.id).catch(() => null))).then(() => { if (App.me) sidebar(); });
+      await Promise.all(r.map(w => loadHome(w.id).catch(() => null)));
     }
   }, () => {});
   const version = Server.version({ background: true }).then(v => {
@@ -1628,8 +1633,9 @@ function convHead(thread, project) {
   const ttl = here ? displayTitle(here.title) : "New conversation";
   const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
+  const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share into a shared project (clean-room)">${icon("team")}<span>Share</span></button>` : "";
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${computerChip(App.computers)}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
+    <div class="row">${computerChip(App.computers)}${shareBtn}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -3102,7 +3108,7 @@ function projectsView() {
 async function projectView(id) {
   const p = await Server.projects.get(id);
   return plain(`<div class="spread"><h2 class="ptitle">${esc(p.name)}</h2>${trashButton(id, "Delete project")}</div>
-    <div class="row"><a class="button primary" href="#/chat/new/${enc(id)}">New conversation in this project</a></div>
+    <div class="row"><a class="button primary" href="#/chat/new/${enc(id)}">New conversation in this project</a><button type="button" class="shared-promote-btn" data-project-share="${esc(id)}" data-project-name="${esc(p.name)}" title="Promote into a shared project (clean-room)">${icon("team")}<span>Share</span></button></div>
     <h3>Instructions</h3><p class="small muted">Applied to every task and conversation in this project. Only you change them; Magnus reads them.</p>
       <textarea id="pin" rows="4" data-draft="pin-${esc(id)}">${esc(p.instructions || "")}</textarea><div class="row"><button data-act="save-ins" data-id="${esc(id)}">Save instructions</button></div>
     <div class="spread"><h3>Files</h3>${attachButton("Upload to this project")}</div>
