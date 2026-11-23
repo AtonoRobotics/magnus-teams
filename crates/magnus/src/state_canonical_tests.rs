@@ -475,6 +475,10 @@ fn sequence() -> Vec<(&'static str, Value)> {
 /// The state after the sequence.
 fn replayed() -> State {
     let mut s = State::default();
+    // carl's days are UTC's until he names Tokyo: with no zone of his own
+    // they would be the server's, and so the host's (`cadence::zone_of`).
+    let utc = json!({ "kind": "preferences_set", "person": "carl", "prefs": { "timezone": "UTC" } });
+    s.apply(&Event { seq: 0, at: at(0), actor: "person:carl".into(), ev: serde_json::from_value(utc).unwrap() });
     for (i, (actor, ev)) in sequence().into_iter().enumerate() {
         let seq = i as i64 + 1;
         let ev = serde_json::from_value(ev.clone()).unwrap_or_else(|err| panic!("event {seq} does not load: {err}: {ev}"));
