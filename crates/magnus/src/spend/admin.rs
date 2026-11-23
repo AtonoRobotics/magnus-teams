@@ -183,6 +183,7 @@ impl Kernel {
         let allowed = self.allowed_models(person).await;
         let lists = self.models().await.into_iter().map(|(a, ms)| (a.clone(), ms.into_iter().filter(|m| super::access::permits(&allowed, &a, m)).collect::<Vec<_>>()));
         let lists: Vec<(String, Vec<String>)> = lists.filter(|(_, ms)| !ms.is_empty()).collect();
-        (enforce::choose(&allowed, None, self.default_model()).ok(), lists)
+        let off = self.read(|s| s.org.providers_off().clone());
+        (enforce::choose(&allowed, &off, None, self.default_model()).ok(), lists)
     }
 }

@@ -25,7 +25,13 @@ fn run(s: &mut State, seq: i64, person: &str, day: u32, model: &str, usd: f64) {
     let config = json!({ "adapter": adapter, "model": m, "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 9, "max_actions": 9, "max_usd": 50.0 }, "verifier": false, "instructions": "", "harness": "" });
     let (task, id) = (format!("t{seq}"), format!("r{seq}"));
     s.apply(&ev(seq, at(day), &format!("person:{person}"), json!({ "kind": "task_created", "task": task, "run": id, "person": person, "text": "x", "config": config })));
-    s.runs.get_mut(&id).unwrap().usd = usd;
+    charge(s, seq, &id, day, usd);
+}
+
+/// The run's model call on `day` of November 2026 cost `usd`.
+fn charge(s: &mut State, seq: i64, run: &str, day: u32, usd: f64) {
+    let usage = json!({ "input_tokens": 1, "output_tokens": 1, "cost_usd": usd });
+    s.apply(&ev(seq * 1000, at(day), "model", json!({ "kind": "model_reply", "run": run, "step": 0, "usage": usage, "served_model": "m", "stop": "end" })));
 }
 
 fn limit(scope: Scope, usd: f64) -> Change {
@@ -106,14 +112,14 @@ fn alerts_come_at_75_and_90_percent_once_a_month() {
     spend(&mut s, 1, limit(Scope::Server, 100.0));
     run(&mut s, 2, "ada", 2, "a/m", 70.0);
     assert!(alerts::due(&s, at(10)).is_empty(), "70% alerted");
-    s.runs.get_mut("r2").unwrap().usd = 80.0;
+    charge(&mut s, 3, "r2", 2, 10.0);
     let due = alerts::due(&s, at(10));
     assert_eq!(due.iter().map(|d| (d.limit.as_str(), d.percent)).collect::<Vec<_>>(), vec![("server", 75)]);
     for (i, d) in due.into_iter().enumerate() {
         spend(&mut s, 10 + i as i64, Change::Alerted { limit: d.limit, month: d.month, percent: d.percent, spent_usd: d.spent_usd, limit_usd: d.limit_usd });
     }
     assert!(alerts::due(&s, at(10)).is_empty(), "75% was alerted twice");
-    s.runs.get_mut("r2").unwrap().usd = 95.0;
+    charge(&mut s, 4, "r2", 2, 15.0);
     assert_eq!(alerts::due(&s, at(10)).iter().map(|d| d.percent).collect::<Vec<_>>(), vec![90]);
     spend(&mut s, 20, Change::Alerted { limit: "server".into(), month: "2026-11".into(), percent: 90, spent_usd: 95.0, limit_usd: 100.0 });
     assert!(alerts::due(&s, at(10)).is_empty(), "90% was alerted twice");
@@ -175,13 +181,27 @@ fn model_access_follows_roles_and_people() {
 fn a_model_not_allowed_is_refused_with_those_that_are() {
     let allowed = Some(["a/cheap".to_string(), "b/mid".to_string()].into_iter().collect());
     let default = ("a".to_string(), "costly".to_string());
-    let e = choose(&allowed, Some(("a".into(), "costly".into())), default.clone()).unwrap_err();
-    assert_eq!(e, ModelNotAllowed { model: "a/costly".into(), allowed: vec!["a/cheap".into(), "b/mid".into()] });
+    let on = Default::default();
+    let e = choose(&allowed, &on, Some(("a".into(), "costly".into())), default.clone()).unwrap_err();
+    assert_eq!(e, ModelNotAllowed { model: "a/costly".into(), allowed: vec!["a/cheap".into(), "b/mid".into()], off: false });
     assert_eq!(e.to_string(), "You may not use a/costly. You can use: a/cheap, b/mid.");
-    assert_eq!(choose(&allowed, Some(("b".into(), "mid".into())), default.clone()), Ok(("b".into(), "mid".into())));
-    assert_eq!(choose(&allowed, None, default.clone()), Ok(("a".into(), "cheap".into())), "the default was used though not allowed");
-    assert_eq!(choose(&None, None, default.clone()), Ok(default.clone()));
-    assert!(choose(&Some(Default::default()), None, default).is_err(), "nothing allowed, yet a model was chosen");
+    assert_eq!(choose(&allowed, &on, Some(("b".into(), "mid".into())), default.clone()), Ok(("b".into(), "mid".into())));
+    assert_eq!(choose(&allowed, &on, None, default.clone()), Ok(("a".into(), "cheap".into())), "the default was used though not allowed");
+    assert_eq!(choose(&None, &on, None, default.clone()), Ok(default.clone()));
+    assert!(choose(&Some(Default::default()), &on, None, default).is_err(), "nothing allowed, yet a model was chosen");
+}
+
+/// A provider an admin turned off is refused when named directly, and
+/// never chosen as the default or the first allowed.
+#[test]
+fn a_turned_off_provider_is_never_chosen() {
+    let off: std::collections::BTreeSet<String> = ["b".to_string()].into_iter().collect();
+    let default = ("b".to_string(), "mid".to_string());
+    let e = choose(&None, &off, Some(("b".into(), "big".into())), ("a".into(), "m".into())).unwrap_err();
+    assert!(e.off && e.to_string().contains("b/big is turned off"), "{e}");
+    let allowed = Some(["b/mid".to_string(), "a/cheap".to_string()].into_iter().collect());
+    assert_eq!(choose(&allowed, &off, None, default.clone()), Ok(("a".into(), "cheap".into())), "the default's provider is off, yet it was chosen");
+    assert!(choose(&None, &off, None, default).is_err(), "a turned-off default was chosen");
 }
 
 /// A refused start reaches the app as 402 with the spend details, or 403
@@ -191,7 +211,7 @@ fn a_refused_start_tells_the_app_what_to_offer() {
     let stop = SpendLimited { which: "person", month: "2026-11".into(), spent_usd: 20.0, limit_usd: 20.0, can_ask: true, pending: false };
     let r = routes::refused(&anyhow::Error::new(stop)).unwrap();
     assert_eq!(r.status(), axum::http::StatusCode::PAYMENT_REQUIRED);
-    let m = ModelNotAllowed { model: "a/x".into(), allowed: vec!["a/y".into()] };
+    let m = ModelNotAllowed { model: "a/x".into(), allowed: vec!["a/y".into()], off: false };
     assert_eq!(routes::refused(&anyhow::Error::new(m)).unwrap().status(), axum::http::StatusCode::FORBIDDEN);
     assert!(routes::refused(&anyhow::anyhow!("other")).is_none());
 }

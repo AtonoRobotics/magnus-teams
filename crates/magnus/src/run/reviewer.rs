@@ -60,27 +60,41 @@ fn review_tool(properties: Value, required: &[&str]) -> ToolSpec {
 }
 
 impl Kernel {
-    /// One reviewer call, recorded with its cost. None when the run's
-    /// allowance admits no extra call (its calls, its dollars, its grant's,
-    /// the month's or its team's limits), its worst case does not fit what
-    /// is left, or the provider failed: the reviewer then says nothing.
+    /// One reviewer call, through the one paid call (`spend::paid`). None
+    /// when the run's allowance admits no extra call (its calls, its
+    /// dollars, its grant's, the month's or its team's limits), its worst
+    /// case does not fit what is left, the model may not be used, or the
+    /// provider failed (what it charged is recorded): the reviewer then
+    /// says nothing.
     pub(crate) async fn reviewer_call(&self, run: &Run, purpose: &str, system: &str, messages: Vec<Message>, tools: Vec<ToolSpec>) -> Result<Option<Vec<Block>>> {
-        let (adapter, model) = self.cfg.safety.independent_reviewer().unwrap_or(run.model());
-        let (adapter, model) = (adapter.to_string(), model.to_string());
-        let Some(allowance) = self.aux_max_tokens(&run.id, "reviewer", &adapter, &model, system, messages.clone(), tools.clone(), run.config.max_tokens).await else {
-            return Ok(None);
+        let independent = self.cfg.safety.independent_reviewer();
+        let (adapter, model) = independent.unwrap_or(run.model());
+        let call = crate::spend::paid::Call {
+            payer: crate::spend::paid::Payer::Run(run, crate::spend::allowance::Spender::Extra),
+            purpose,
+            adapter,
+            model,
+            system,
+            messages,
+            tools,
+            max_tokens: run.config.max_tokens,
+            servers_model: independent.is_some(),
+            timeout: None,
         };
-        let out = match self.adapters.complete(&adapter, &model, system, messages, tools, allowance, |_| {}).await {
-            Ok(t) => t,
+        let record = |out: &crate::adapters::TurnOut| {
+            Some((
+                "reviewer",
+                Ev::ReviewerReply { run: run.id.clone(), purpose: purpose.into(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() },
+            ))
+        };
+        match self.paid_call(call, record).await {
+            Ok(p) => Ok(Some(p.out.blocks)),
+            Err(crate::spend::paid::Refused::Record(e)) => Err(e),
             Err(e) => {
-                tracing::warn!("reviewer on {}: {e:?}", run.id);
-                return Ok(None);
+                tracing::warn!("reviewer on {}: {e}", run.id);
+                Ok(None)
             }
-        };
-        let blocks = out.blocks.clone();
-        self.emit("reviewer", Ev::ReviewerReply { run: run.id.clone(), purpose: purpose.into(), model: format!("{adapter}/{model}"), blocks: out.blocks, usage: out.usage })
-            .await?;
-        Ok(Some(blocks))
+        }
     }
 
     fn review_input(blocks: &[Block]) -> Option<Value> {

@@ -55,6 +55,8 @@ pub struct Kernel {
     /// Each connection whose app refused Magnus when last asked for its tools, with its answer: said in the person's app index.
     pub(crate) refused_apps: Mutex<HashMap<String, String>>,
     pub live_text: Arc<Live>,
+    /// What model calls in flight hold of every spend limit (`spend::holds`).
+    pub(crate) spend_holds: crate::spend::holds::Holds,
     /// The knowledge base's search index.
     pub knowledge: crate::knowledge::Index,
     /// People's content, read for one person at a time (recall only).
@@ -160,6 +162,7 @@ impl Kernel {
             live_tools: tokio::sync::Mutex::new(HashMap::new()),
             refused_apps: Mutex::new(HashMap::new()),
             live_text,
+            spend_holds: Default::default(),
             knowledge: crate::knowledge::Index::new(&cfg.database.url),
             recall: crate::recall::Recall::new(&cfg.database.url),
             capture: Mutex::new(Capture::default()),
@@ -463,6 +466,7 @@ impl Kernel {
     /// A model the person chose, checked against its adapter's catalog. The
     /// appliance's own default needs no check.
     pub async fn check_model(&self, adapter: &str, model: &str) -> std::result::Result<(), String> {
+        crate::spend::paid::provider_on(self, adapter)?;
         if self.default_model() == (adapter.to_string(), model.to_string()) {
             return Ok(());
         }

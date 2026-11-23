@@ -11,9 +11,11 @@
 use crate::boundary::{clamp_output_for_budget, estimated_input_tokens, Action, Issuer, Verdict};
 use crate::events::{ContextRef, Ev};
 use crate::kernel::Kernel;
-use crate::spend::allowance::{Left, Spender};
+use crate::spend::allowance::{allowance_held, scope_of_run, Left, Spender};
+use crate::spend::holds::{Held, Hold};
 use crate::state::Status;
 use anyhow::Result;
+use chrono::Utc;
 use magnus_adapter_proto::ErrorClass;
 use serde_json::json;
 use std::sync::Arc;
@@ -52,6 +54,13 @@ pub enum Flow {
     Stop,
 }
 
+/// Why a step's call does not fit: the run may spend no more, or its worst
+/// case is over what is left.
+enum Unfit {
+    Stop(Box<crate::spend::allowance::Stop>),
+    Over(Left),
+}
+
 impl Kernel {
     /// What the run has left for another paid model request, read from the
     /// run as it is now. When it may not ask, the run is stopped the way
@@ -79,16 +88,16 @@ impl Kernel {
         }
     }
 
-    /// The output tokens this call may write: the full allowance when its
-    /// worst case fits what is left, fewer when only fewer fit, and none —
-    /// the run stops for budget — when the prompt alone does not fit. A
-    /// quote the adapter cannot give falls back to the full allowance: a
-    /// down adapter charges nothing, and the call fails through the retry
-    /// path below.
-    #[allow(clippy::too_many_arguments)]
-    async fn clamped_max_tokens(self: &Arc<Self>, run_id: &str, left: &Left, adapter: &str, model: &str, input_tokens: u64, max_tokens: u32) -> Result<Option<u32>> {
+    /// The output tokens this call may write, and the hold on its worst
+    /// case (`spend::holds`): the full allowance when its worst case fits
+    /// what is left under every limit, less what other calls in flight
+    /// hold; fewer when only fewer fit; and none — the run stops for the
+    /// limit it would pass — when the prompt alone does not fit. A call
+    /// that does not fit only for what others hold waits for them first.
+    /// A quote the adapter cannot give stops the run: a call nobody can
+    /// price would pass its limits unseen.
+    async fn clamped_max_tokens<'k>(self: &'k Arc<Self>, run_id: &str, adapter: &str, model: &str, input_tokens: u64, max_tokens: u32) -> Result<Option<(u32, Held<'k>)>> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(None) };
-        let left = left.usd;
         let (input_usd, output_usd) = match self.adapters.quote(adapter, model, input_tokens, max_tokens).await {
             Ok(q) => q,
             // Fail closed: a call nobody can price would pass the task's
@@ -105,13 +114,57 @@ impl Kernel {
                 return Ok(None);
             }
         };
-        match clamp_output_for_budget(left, input_usd, output_usd, max_tokens) {
-            Some(n) => Ok(Some(n)),
-            None => {
-                let why = format!("Stopped: the next model call (about ${:.2} worst case) would pass the task's ${:.2} limit.", input_usd + output_usd, run.config.budget.max_usd);
-                self.suspend_with_notice(run_id, "budget", why, json!({ "usd": run.spent_usd(), "limit": run.config.budget.max_usd, "next_call_usd": input_usd + output_usd }))
-                    .await?;
+        let scope = self.read(|s| scope_of_run(s, run_id));
+        let fit = |held: &[Hold]| {
+            let left = self.read(|s| allowance_held(s, run_id, Spender::Step, Utc::now(), held)).map_err(Unfit::Stop)?;
+            match clamp_output_for_budget(left.usd, input_usd, output_usd, max_tokens) {
+                Some(n) => Ok((n, input_usd + output_usd * f64::from(n) / f64::from(max_tokens.max(1)))),
+                None => Err(Unfit::Over(left)),
+            }
+        };
+        let worst = input_usd + output_usd;
+        match self.spend_holds.admit(scope, fit).await {
+            Ok(fits) => Ok(Some(fits)),
+            Err(Unfit::Stop(stop)) => {
+                self.suspend_with_notice(run_id, stop.reason, stop.notice, stop.details).await?;
                 Ok(None)
+            }
+            Err(Unfit::Over(left)) if left.of == "task" => {
+                let why = format!("Stopped: the next model call (about ${worst:.2} worst case) would pass the task's ${:.2} limit.", run.config.budget.max_usd);
+                self.suspend_with_notice(run_id, "budget", why, json!({ "usd": run.spent_usd(), "limit": run.config.budget.max_usd, "next_call_usd": worst })).await?;
+                Ok(None)
+            }
+            Err(Unfit::Over(left)) => {
+                let why = format!("Stopped: the next model call (about ${worst:.2} worst case) would pass what is left of {} (${:.2}).", left.named(), left.usd);
+                let reason = if left.of == "grant" { "grant_budget" } else { "spend_limit" };
+                self.suspend_with_notice(
+                    run_id,
+                    reason,
+                    why,
+                    json!({ "which": left.of, "left_usd": left.usd, "next_call_usd": worst, "can_ask": left.of == "person", "pending": false }),
+                )
+                .await?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// The prompt's tokens as the adapter would send them, or the kernel's
+    /// bytes when it cannot measure.
+    async fn prompt_tokens(
+        &self,
+        run_id: &str,
+        adapter: &str,
+        model: &str,
+        system: &str,
+        messages: &[magnus_adapter_proto::Message],
+        tools: &[magnus_adapter_proto::ToolSpec],
+    ) -> u64 {
+        match self.adapters.estimate_prompt(adapter, model, system, messages.to_vec(), tools.to_vec()).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!("prompt estimate for {run_id} on {adapter}/{model}: {e:#}; pricing the kernel's bytes");
+                estimated_input_tokens(system, messages, tools)
             }
         }
     }
@@ -190,27 +243,42 @@ impl Kernel {
         // send, not the kernel's bytes (#323). The quote below prices the
         // same prompt every attempt, while what is left is re-read. An
         // adapter that cannot measure falls back to the kernel's bytes.
-        let mut input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
-            Ok(n) => n,
-            Err(e) => {
-                tracing::warn!("prompt estimate for {run_id}: {e:#}; pricing the kernel's bytes");
-                estimated_input_tokens(&system, &messages, &tools)
-            }
-        };
+        let mut input_tokens = self.prompt_tokens(run_id, &active_adapter, &active_model, &system, &messages, &tools).await;
         let mut attempt = 0u32;
         loop {
             // Each attempt, a retry too, reads the run as it is now: a failed
             // call may have been charged, and a person may have cancelled or
             // the owner stopped everything while it waited.
-            let Some(left) = self.may_ask_model(run_id).await? else {
+            if self.may_ask_model(run_id).await?.is_none() {
                 return Ok(Flow::Stop);
-            };
+            }
+            // A provider an admin turned off is asked nothing: the run goes
+            // on with a fallback it may use, or pauses (`spend::paid`).
+            if let Err(why) = crate::spend::paid::provider_on(self, &active_adapter) {
+                match self.next_fallback(&run.person, (&active_adapter, &active_model), &mut fallback_idx).await {
+                    Some((a, m)) => {
+                        (active_adapter, active_model) = (a, m);
+                        input_tokens = self.prompt_tokens(run_id, &active_adapter, &active_model, &system, &messages, &tools).await;
+                        continue;
+                    }
+                    None => {
+                        self.suspend_with_notice(
+                            run_id,
+                            "provider",
+                            format!("Stopped: {why}. The task is paused; resume it when an admin turns it on."),
+                            json!({ "adapter": active_adapter }),
+                        )
+                        .await?;
+                        return Ok(Flow::Stop);
+                    }
+                }
+            }
             // The call's worst case against what is left: the prompt plus
-            // the full output, at the model's prices. What is left bounds
-            // the output; when the prompt alone does not fit, the run stops
-            // for budget here, before anything is asked (#273).
-            let max_tokens = match self.clamped_max_tokens(run_id, &left, &active_adapter, &active_model, input_tokens, run.config.max_tokens).await? {
-                Some(n) => n,
+            // the full output, at the model's prices. What is left under
+            // every limit bounds the output; when the prompt alone does not
+            // fit, the run stops here, before anything is asked (#273).
+            let (max_tokens, held) = match self.clamped_max_tokens(run_id, &active_adapter, &active_model, input_tokens, run.config.max_tokens).await? {
+                Some(fits) => fits,
                 None => return Ok(Flow::Stop),
             };
             self.emit(
@@ -258,6 +326,7 @@ impl Kernel {
                     }
                     self.emit("model", Ev::ModelReply { run: run_id.into(), step, blocks: t.blocks, state: t.state, usage: t.usage, served_model: t.served_model, stop: t.stop })
                         .await?;
+                    drop(held);
                     // A block that cannot be drawn goes back to be fixed.
                     let files: Vec<String> = run.outputs.iter().map(|(_, n, ..)| n.clone()).collect();
                     if let Some(why) = crate::ui::docs::problems(&answer, &run.person, &files) {
@@ -286,6 +355,7 @@ impl Kernel {
                 }
                 Err(e) => {
                     self.emit("kernel", Ev::ModelError { run: run_id.into(), step, attempt, class: e.class, message: e.message.clone(), usage: e.usage.clone() }).await?;
+                    drop(held);
                     let wait = retry_delay(attempt + 1, e.retry_after_s);
                     match e.class {
                         // An outage or a rate limit the provider says will
@@ -303,29 +373,13 @@ impl Kernel {
                             return Ok(Flow::Continue);
                         }
                         class => {
+                            // The next fallback the person may use whose
+                            // provider is on (`spend::paid`).
                             if matches!(class, ErrorClass::Unavailable | ErrorClass::UsageLimit) {
-                                let allowed = self.allowed_models(&run.person).await;
-                                let mut switched = false;
-                                while let Some(entry) = self.cfg.model.fallbacks.get(fallback_idx) {
-                                    fallback_idx += 1;
-                                    if let Some((fa, fm)) = entry.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) {
-                                        if (fa != active_adapter || fm != active_model) && crate::spend::access::permits(&allowed, fa, fm) {
-                                            active_adapter = fa.to_string();
-                                            active_model = fm.to_string();
-                                            input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
-                                                Ok(n) => n,
-                                                Err(err) => {
-                                                    tracing::warn!("prompt estimate for {run_id} on fallback {active_adapter}/{active_model}: {err:#}; pricing the kernel's bytes");
-                                                    estimated_input_tokens(&system, &messages, &tools)
-                                                }
-                                            };
-                                            attempt += 1;
-                                            switched = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if switched {
+                                if let Some((a, m)) = self.next_fallback(&run.person, (&active_adapter, &active_model), &mut fallback_idx).await {
+                                    (active_adapter, active_model) = (a, m);
+                                    input_tokens = self.prompt_tokens(run_id, &active_adapter, &active_model, &system, &messages, &tools).await;
+                                    attempt += 1;
                                     continue;
                                 }
                             }

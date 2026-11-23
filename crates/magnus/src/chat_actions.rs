@@ -302,28 +302,38 @@ impl Kernel {
         use magnus_adapter_proto::{Block, Message, Role};
         let shown = e.view().filter(|v| v.is_array()).map(|v| format!("\n\nShown below the answer: {v}")).unwrap_or_default();
         let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{}{shown}", e.text()) }], state: None };
-        let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
+        let (adapter, model) = run.model();
         let system = format!("{LISTENING}\n{}", crate::run::CHARACTER);
+        let script = |blocks: &[Block]| -> String {
+            let s = blocks.iter().filter_map(|b| if let Block::Text { text } = b { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+            s.trim().chars().take(crate::compose::MAX_SPOKEN).collect()
+        };
+        let call = crate::spend::paid::Call {
+            payer: crate::spend::paid::Payer::Run(run, crate::spend::allowance::Spender::Extra),
+            purpose: "spoken_script",
+            adapter,
+            model,
+            system: &system,
+            messages: vec![msg],
+            tools: vec![],
+            max_tokens: run.config.max_tokens,
+            servers_model: false,
+            timeout: None,
+        };
+        let spoken = |out: &crate::adapters::TurnOut| {
+            let character = Some(crate::run::character_version());
+            Some((
+                "kernel:spoken",
+                Ev::SpokenWritten { run: run.id.clone(), model: format!("{adapter}/{model}"), script: script(&out.blocks), usage: out.usage.clone(), character },
+            ))
+        };
         // No script past the run's allowance for an extra call (its calls,
         // its dollars, the month's or the team's limits): the answer itself
         // is heard as it is.
-        let Some(allowance) = self.aux_max_tokens(&run.id, "spoken script", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
-            return Ok(e.text());
-        };
-        let out = self.adapters.complete(&adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let script = out.blocks.iter().filter_map(|b| if let Block::Text { text } = b { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n").trim().to_string();
-        let script: String = script.chars().take(crate::compose::MAX_SPOKEN).collect();
-        self.emit(
-            "kernel:spoken",
-            Ev::SpokenWritten {
-                run: run.id.clone(),
-                model: format!("{adapter}/{model}"),
-                script: script.clone(),
-                usage: out.usage,
-                character: Some(crate::run::character_version()),
-            },
-        )
-        .await?;
-        Ok(script)
+        match self.paid_call(call, spoken).await {
+            Ok(p) => Ok(script(&p.out.blocks)),
+            Err(crate::spend::paid::Refused::Allowance(_) | crate::spend::paid::Refused::Model(_)) => Ok(e.text()),
+            Err(e) => Err(e.into()),
+        }
     }
 }

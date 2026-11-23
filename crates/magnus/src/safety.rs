@@ -235,11 +235,38 @@ impl Kernel {
         finding_of(&reply.ok()?.ok()??)
     }
 
-    async fn ask_monitor(&self, doc: String) -> Option<Watch> {
+    /// The monitor's word on a run's reply, through the one paid call
+    /// (`spend::paid`), charged to the run. One it cannot give, for want of
+    /// allowance or a model, holds the work for the person, as a failure
+    /// to answer does: nothing goes on unwatched.
+    async fn ask_monitor(&self, run: &Run, doc: String) -> Option<Watch> {
         let (adapter, model) = self.cfg.safety.monitor_model.as_deref()?.split_once('/')?;
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, MONITOR_SYSTEM, messages, vec![monitor_tool()], MONITOR_MAX_TOKENS, |_| {})).await;
-        Some(watch_of(reply.ok().and_then(|r| r.ok()).and_then(|out| tool_input(&out.blocks, "monitor"))))
+        let call = crate::spend::paid::Call {
+            payer: crate::spend::paid::Payer::Run(run, crate::spend::allowance::Spender::Check),
+            purpose: "monitor",
+            adapter,
+            model,
+            system: MONITOR_SYSTEM,
+            messages,
+            tools: vec![monitor_tool()],
+            max_tokens: MONITOR_MAX_TOKENS,
+            servers_model: true,
+            timeout: Some(CHECK_TIMEOUT),
+        };
+        let record = |out: &crate::adapters::TurnOut| {
+            Some((
+                "reviewer",
+                Ev::ReviewerReply { run: run.id.clone(), purpose: "monitor".into(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() },
+            ))
+        };
+        Some(match self.paid_call(call, record).await {
+            Ok(p) => watch_of(tool_input(&p.out.blocks, "monitor")),
+            Err(crate::spend::paid::Refused::Allowance(why) | crate::spend::paid::Refused::Model(why)) => {
+                Watch::Hold { reason: format!("the safety monitor could not check this: {why}"), pause: false }
+            }
+            Err(_) => watch_of(None),
+        })
     }
 
     /// The monitor on the latest reply, once however many calls it makes.
@@ -259,7 +286,7 @@ impl Kernel {
             .filter_map(|(id, _, _)| run.results.get(&id).map(|r| r.text.chars().take(MAX_MONITORED_RESULT_BYTES).collect()))
             .collect();
         let doc = json!({ "reply": reply.blocks, "last_read": read, "run_untrusted": run.untrusted, "run_private": run.private }).to_string();
-        let watch = self.ask_monitor(doc).await?;
+        let watch = self.ask_monitor(run, doc).await?;
         remember(&WATCHED, key, watch.clone());
         Some((reply.step, watch))
     }
@@ -314,7 +341,7 @@ impl Kernel {
     /// A reply that only talks has nothing to stop, so the person is told.
     pub(crate) async fn watch_answer(&self, run: &Run, answer: &str) {
         let doc = json!({ "reply": [{ "text": answer }], "run_untrusted": run.untrusted, "run_private": run.private }).to_string();
-        let (reason, pause) = match self.ask_monitor(doc).await {
+        let (reason, pause) = match self.ask_monitor(run, doc).await {
             None | Some(Watch::Allow) => return,
             Some(Watch::Block(reason)) => (reason, false),
             Some(Watch::Hold { reason, pause }) => (reason, pause),
@@ -354,7 +381,10 @@ impl Kernel {
         }
     }
 
-    /// Whether this content tries to steer the agent. `None`: no answer.
+    /// Whether this content tries to steer the agent. `None`: no answer,
+    /// and nothing it guards goes on its word. Through the one paid call
+    /// (`spend::paid`): charged to the run, or to the server when it
+    /// screens for no run (a tool definition's screen).
     async fn ask_screen(&self, run: &str, purpose: &str, spec: &str, text: &str, image: Option<&str>) -> Option<(bool, String)> {
         let (adapter, model) = spec.split_once('/')?;
         let mut content = vec![Block::Text { text: json!({ "content": text }).to_string() }];
@@ -362,20 +392,35 @@ impl Kernel {
             content.push(Block::Image { media_type: crate::attachment::image_media(i).into(), data_b64: i.to_string() });
         }
         let messages = vec![Message { role: Role::User, content, state: None }];
-        let out = tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, SCREEN_SYSTEM, messages, vec![screen_tool()], SCREEN_MAX_TOKENS, |_| {}))
-            .await
-            .ok()?
-            .ok()?;
+        let r = (!run.is_empty()).then(|| self.read(|s| s.runs.get(run).cloned())).flatten();
+        let payer = match &r {
+            Some(r) => crate::spend::paid::Payer::Run(r, crate::spend::allowance::Spender::Check),
+            None => crate::spend::paid::Payer::Owner(crate::spend::allowance::Owner::Server),
+        };
+        let call = crate::spend::paid::Call {
+            payer,
+            purpose,
+            adapter,
+            model,
+            system: SCREEN_SYSTEM,
+            messages,
+            tools: vec![screen_tool()],
+            max_tokens: SCREEN_MAX_TOKENS,
+            servers_model: true,
+            timeout: Some(CHECK_TIMEOUT),
+        };
+        let record = |out: &crate::adapters::TurnOut| {
+            Some(("reviewer", Ev::ReviewerReply { run: run.to_string(), purpose: purpose.into(), model: spec.to_string(), blocks: out.blocks.clone(), usage: out.usage.clone() }))
+        };
+        let out = match self.paid_call(call, record).await {
+            Ok(p) => p.out,
+            Err(e) => {
+                tracing::warn!("the {purpose} on {run}: {e}");
+                return None;
+            }
+        };
         let input = tool_input(&out.blocks, "screen")?;
         let found = input["injection"].as_bool()?;
-        // A screen outside any run is in the developer view's tool screens.
-        if !run.is_empty() {
-            if let Err(e) =
-                self.emit("reviewer", Ev::ReviewerReply { run: run.to_string(), purpose: purpose.into(), model: spec.to_string(), blocks: out.blocks, usage: out.usage }).await
-            {
-                tracing::warn!("the screen on {run}: {e:#}");
-            }
-        }
         Some((found, input["finding"].as_str().unwrap_or_default().to_string()))
     }
 

@@ -182,9 +182,22 @@ impl Kernel {
                 .to_string();
         let (adapter, model) = self.default_model();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply =
-            tokio::time::timeout(REVIEW_TIMEOUT, self.adapters.complete(&adapter, &model, SYSTEM, messages, vec![review_tool()], CREDENTIAL_REVIEW_MAX_TOKENS, |_| {})).await;
-        let Some(verdict) = reply.ok().and_then(|r| r.ok()).and_then(|out| verdict_of(&out.blocks)) else {
+        // Through the one paid call, charged to the computer's owner (a
+        // person, or a workspace): one it cannot make keeps the credential
+        // home, as no answer does.
+        let call = crate::spend::paid::Call {
+            payer: crate::spend::paid::Payer::Owner(crate::spend::allowance::Owner::of(person)),
+            purpose: "credential_review",
+            adapter: &adapter,
+            model: &model,
+            system: SYSTEM,
+            messages,
+            tools: vec![review_tool()],
+            max_tokens: CREDENTIAL_REVIEW_MAX_TOKENS,
+            servers_model: true,
+            timeout: Some(REVIEW_TIMEOUT),
+        };
+        let Some(verdict) = self.paid_call(call, |_| None).await.ok().and_then(|p| verdict_of(&p.out.blocks)) else {
             return Verdict::Ask("Auto Review could not be reached".to_string());
         };
         remember(key, &verdict);

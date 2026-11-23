@@ -44,8 +44,10 @@ fn month_limit(s: &mut State, scope: Value, usd: f64) {
     ev(s, 30, "person:admin", json!({ "kind": "spend", "change": "limit_set", "scope": scope, "usd": usd }));
 }
 
+/// `r1`'s model calls cost `usd`, folded as the log folds them.
 fn spent(s: &mut State, usd: f64) {
-    s.runs.get_mut("r1").unwrap().usd = usd;
+    let usage = json!({ "input_tokens": 1, "output_tokens": 1, "cost_usd": usd });
+    ev(s, 50, "model", json!({ "kind": "model_reply", "run": "r1", "step": 0, "usage": usage, "served_model": "m", "stop": "end" }));
 }
 
 /// Each spender's answer: `ok`, or the stop's reason and the details' `which`.
@@ -193,7 +195,7 @@ fn the_stops_keep_their_words_and_details() {
     assert_eq!((stop.details["can_ask"].as_bool(), stop.details["limit_usd"].as_f64()), (Some(true), Some(1.0)));
 
     let left = allowance(&world(json!({})), "r1", Spender::Extra, now()).unwrap();
-    assert_eq!(left.usd, 5.0);
+    assert_eq!((left.usd, left.of), (5.0, "task"));
     assert!(allowance(&world(json!({})), "nope", Spender::Step, now()).is_err(), "a run that is not there has nothing to spend");
 }
 
@@ -231,9 +233,13 @@ mod boundary {
     async fn charged_run(s: &Server, usd: f64) -> (String, String) {
         let (task, run) = s.k.create_run("person:mo", "mo", "take a note".into(), vec![], NewRun::default()).await.unwrap();
         stopped(s, &run).await;
-        let usage = magnus_adapter_proto::Usage { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: usd };
-        s.k.emit("kernel", Ev::MemoryPass { run: run.clone(), model: "m".into(), blocks: vec![], usage }).await.unwrap();
+        charge(s, &run, usd).await;
         (task, run)
+    }
+
+    async fn charge(s: &Server, run: &str, usd: f64) {
+        let usage = magnus_adapter_proto::Usage { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: usd };
+        s.k.emit("kernel", Ev::MemoryPass { run: run.into(), model: "m".into(), blocks: vec![], usage }).await.unwrap();
     }
 
     async fn team(s: &Server, task: &str, limit_usd: f64) {
@@ -273,8 +279,10 @@ mod boundary {
     #[tokio::test(flavor = "multi_thread")]
     async fn an_action_stops_at_its_workspaces_limit() {
         let s = server_with("", |_| Router::new()).await;
-        let (task, run) = charged_run(&s, 3.0).await;
+        // A team run's spend counts against its workspace from when it is one.
+        let (task, run) = charged_run(&s, 0.0).await;
         team(&s, &task, 2.0).await;
+        charge(&s, &run, 3.0).await;
         let (v, r) = act(&s, &run).await;
         assert!(matches!(v, Verdict::Suspended), "an action went on past its workspace's spent limit");
         assert_eq!(r.reason.as_deref(), Some("spend_limit"), "{:?}", said(&s, &run));

@@ -59,3 +59,9 @@ impl Access {
 pub fn permits(allowed: &Option<BTreeSet<String>>, adapter: &str, model: &str) -> bool {
     allowed.as_ref().is_none_or(|a| a.contains(&format!("{adapter}/{model}")))
 }
+
+/// Whether `adapter/model` may be used now: its provider is not turned off
+/// (`off`, Admin → Models) and it is among the allowed.
+pub fn usable(allowed: &Option<BTreeSet<String>>, off: &BTreeSet<String>, adapter: &str, model: &str) -> bool {
+    !off.contains(adapter) && permits(allowed, adapter, model)
+}

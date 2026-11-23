@@ -1,7 +1,7 @@
-//! What was spent in a calendar month (UTC), and on what. A run's own
-//! model calls are its `usd`; a sub-agent's are in its own run, so summing
-//! every run's `usd` counts each dollar once. A run counts in the month it
-//! started, as the team's limits count it.
+//! What was spent in a calendar month (UTC), and on what: read from the
+//! money ledger (`book`), where each dollar is written once, in the month
+//! it was spent, and stays when the run that spent it is trashed or its
+//! person erased.
 
 use crate::state::State;
 use chrono::{DateTime, Datelike, TimeZone, Utc};
@@ -30,20 +30,6 @@ pub fn agent_of(s: &State, run: &str) -> String {
     }
 }
 
-/// The project a run's work belongs to: its top task's, else its team
-/// channel's.
-fn project_of(s: &State, run: &str) -> Option<(String, String)> {
-    let task = s.authority(run)?;
-    if let Some(p) = &task.project {
-        return Some((p.id.clone(), p.name.clone()));
-    }
-    let t = s.team.run_of(&task.task_id)?;
-    let w = s.team.workspace(&t.workspace)?;
-    let id = w.channels.get(&t.channel)?.project.clone()?;
-    let name = w.projects.get(&id).map(|p| p.name.clone()).unwrap_or_default();
-    Some((id, name))
-}
-
 /// A month's spend, in all and broken down.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Spent {
@@ -55,28 +41,34 @@ pub struct Spent {
     pub by_project: BTreeMap<String, (String, f64)>,
 }
 
-/// Everything spent in the month.
+/// A project's name, by its id: the person's own or a workspace's.
+fn project_name(s: &State, id: &str) -> String {
+    if let Some(p) = s.library.projects().get(id) {
+        return p.name.clone();
+    }
+    s.team.all().find_map(|w| w.projects.get(id).map(|p| p.name.clone())).unwrap_or_default()
+}
+
+/// Everything spent in the month, from the ledger (`book`). Spend that is
+/// no one person's (the server's own, a workspace's, an erased person's)
+/// is in the total and the agent's and model's rows, not by person.
 pub fn spent(s: &State, month: &str) -> Spent {
     let mut out = Spent::default();
-    let Some((start, end)) = bounds(month) else { return out };
-    for r in s.runs.values().filter(|r| r.created_at >= start && r.created_at < end && r.usd > 0.0) {
-        out.total_usd += r.usd;
-        *out.by_person.entry(r.person.clone()).or_default() += r.usd;
-        *out.by_agent.entry(agent_of(s, &r.id)).or_default() += r.usd;
-        *out.by_model.entry(format!("{}/{}", r.config.adapter, r.config.model)).or_default() += r.usd;
-        let (id, name) = project_of(s, &r.id).unwrap_or_default();
-        let e = out.by_project.entry(id).or_insert((name, 0.0));
-        e.1 += r.usd;
+    for (l, usd) in s.spend.book.month(month) {
+        out.total_usd += usd;
+        if !l.person.is_empty() && l.person != super::book::ERASED {
+            *out.by_person.entry(l.person.clone()).or_default() += usd;
+        }
+        *out.by_agent.entry(l.agent.clone()).or_default() += usd;
+        *out.by_model.entry(l.model.clone()).or_default() += usd;
+        let e = out.by_project.entry(l.project.clone()).or_insert_with(|| (project_name(s, &l.project), 0.0));
+        e.1 += usd;
     }
     out
 }
 
 /// What the server and one person spent in the month, without the rest of
-/// the breakdown: what a run's start reads.
+/// the breakdown: what every limit reads.
 pub fn spent_by(s: &State, month: &str, person: &str) -> (f64, f64) {
-    let Some((start, end)) = bounds(month) else { return (0.0, 0.0) };
-    s.runs
-        .values()
-        .filter(|r| r.created_at >= start && r.created_at < end)
-        .fold((0.0, 0.0), |(all, theirs), r| (all + r.usd, theirs + if r.person == person { r.usd } else { 0.0 }))
+    s.spend.book.month(month).fold((0.0, 0.0), |(all, theirs), (l, usd)| (all + usd, theirs + if l.person == person { usd } else { 0.0 }))
 }

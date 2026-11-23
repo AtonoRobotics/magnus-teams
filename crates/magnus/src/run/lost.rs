@@ -116,7 +116,8 @@ impl crate::kernel::Kernel {
         }
         let Some((signal, from)) = signal(run, &c.lost) else { return Ok(None) };
         let to = run.replies.len() as u32;
-        let target = c.escalate_to.as_deref().and_then(|t| t.split_once('/')).filter(|t| *t != run.model());
+        // Never to a provider an admin turned off since the run started.
+        let target = c.escalate_to.as_deref().and_then(|t| t.split_once('/')).filter(|t| *t != run.model() && crate::spend::paid::provider_on(self, t.0).is_ok());
         let first = run.cuts.is_empty() && run.escalated.is_none();
         if reset && first {
             self.reset(run, from, to, &signal).await?;

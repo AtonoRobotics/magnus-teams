@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const MAX_DEPTH: usize = 3;
+pub(crate) const MAX_DEPTH: usize = 3;
 const MAX_CHILD_SHARE: f64 = 0.5;
 const DEFAULT_CHILD_SHARE: f64 = 0.25;
 const CHILD_WAIT: Duration = Duration::from_secs(30 * 60);

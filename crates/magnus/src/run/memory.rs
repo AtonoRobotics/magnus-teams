@@ -79,13 +79,30 @@ impl Kernel {
         let known = if known.is_empty() { "nothing yet".to_string() } else { known.join("\n") };
         let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{text}\n\nAlready remembered:\n{known}") }], state: None };
         let tools: Vec<_> = crate::tools::builtin_specs(false, false, false, false).into_iter().filter(|t| t.name == "memory_write").collect();
-        let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
-        let Some(allowance) = self.aux_max_tokens(&run.id, "memory pass", &adapter, &model, MEMORY, vec![msg.clone()], tools.clone(), run.config.max_tokens).await else {
-            return Ok(());
+        let (adapter, model) = run.model();
+        let call = crate::spend::paid::Call {
+            payer: crate::spend::paid::Payer::Run(&run, crate::spend::allowance::Spender::Extra),
+            purpose: "memory_pass",
+            adapter,
+            model,
+            system: MEMORY,
+            messages: vec![msg],
+            tools,
+            max_tokens: run.config.max_tokens,
+            servers_model: false,
+            timeout: None,
         };
-        let out = self.adapters.complete(&adapter, &model, MEMORY, vec![msg], tools, allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let blocks = out.blocks.clone();
-        let pass = self.emit("kernel:memory_pass", Ev::MemoryPass { run: run.id.clone(), model: format!("{adapter}/{model}"), blocks: out.blocks, usage: out.usage }).await?.seq;
+        let record = |out: &crate::adapters::TurnOut| {
+            Some(("kernel:memory_pass", Ev::MemoryPass { run: run.id.clone(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() }))
+        };
+        // Past what is left, or on a model it may not use, there is no pass;
+        // a failed one is charged and its error said.
+        let paid = match self.paid_call(call, record).await {
+            Ok(p) => p,
+            Err(crate::spend::paid::Refused::Allowance(_) | crate::spend::paid::Refused::Model(_)) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        let (blocks, pass) = (paid.out.blocks, paid.seq);
         let mut n = 0;
         for b in blocks {
             // Only what it was offered; the boundary refuses anything else too.

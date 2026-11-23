@@ -285,7 +285,7 @@ impl State {
             Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
             Ev::Tools(c) => self.tools.apply(e.at, c),
             Ev::Evidence(c) => self.evidence.apply(e.at, c),
-            Ev::Spend(c) => self.spend.apply(e.at, c),
+            Ev::Spend(c) => self.fold_spend(e, c),
             Ev::Catalog(c) => self.catalog.apply(c),
             Ev::TaskCreated { task, person, config, attachments, chat, label, explicit_label, .. } => {
                 // New tasks record their full clean starting label explicitly (M1);
@@ -309,7 +309,7 @@ impl State {
                 work::created(&mut self.tasks, &mut self.runs, e, pb);
             }
             Ev::ModelReply { run, usage, .. } => {
-                self.charge_grant(run, e.at, usage.cost_usd);
+                self.charge_grant(e, run, usage.cost_usd);
                 work::fold_run(&mut self.runs, e);
             }
             Ev::VerifierReply { run, usage, .. }
@@ -318,7 +318,7 @@ impl State {
             | Ev::SpokenWritten { run, usage, .. }
             | Ev::KnowledgeExtraction { run, usage, .. }
             | Ev::DraftScoped { run, usage, .. } => {
-                self.charge_grant(run, e.at, usage.cost_usd);
+                self.charge_grant(e, run, usage.cost_usd);
                 if let Ev::DraftScoped { draft, person, threads, participants, .. } = &e.ev {
                     self.draft_sources.insert(draft.clone(), DraftSources { person: person.clone(), threads: threads.clone(), participants: participants.clone() });
                 }
@@ -326,7 +326,7 @@ impl State {
             }
             Ev::ModelError { run, usage, .. } => {
                 if let Some(u) = usage {
-                    self.charge_grant(run, e.at, u.cost_usd);
+                    self.charge_grant(e, run, u.cost_usd);
                 }
                 work::fold_run(&mut self.runs, e);
             }

@@ -45,15 +45,24 @@ pub fn details(s: &SpendLimited) -> serde_json::Value {
     serde_json::json!({ "which": s.which, "month": s.month, "spent_usd": s.spent_usd, "limit_usd": s.limit_usd, "can_ask": s.can_ask, "pending": s.pending })
 }
 
-/// A model the person may not use.
+/// A model the person may not use: not among theirs, or its provider is
+/// turned off.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelNotAllowed {
     pub model: String,
     pub allowed: Vec<String>,
+    /// Its provider is turned off (Admin → Models).
+    pub off: bool,
 }
 
 impl std::fmt::Display for ModelNotAllowed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.off && self.allowed.is_empty() {
+            return write!(f, "{} is turned off on this server. Ask an admin.", self.model);
+        }
+        if self.off {
+            return write!(f, "{} is turned off on this server. You can use: {}.", self.model, self.allowed.join(", "));
+        }
         if self.allowed.is_empty() {
             return write!(f, "You may not use {}, and no model is allowed for you. Ask an admin.", self.model);
         }
@@ -103,17 +112,22 @@ pub fn left_now(s: &State, person: &str, now: DateTime<Utc>) -> Result<Option<f6
 
 /// The model a run goes to: the one the person chose, if they may use it;
 /// else the server's default, or the first they may use when the default
-/// is not theirs to use.
-pub fn choose(allowed: &Option<BTreeSet<String>>, chosen: Option<(String, String)>, default: (String, String)) -> Result<(String, String), ModelNotAllowed> {
-    let list = || allowed.iter().flatten().cloned().collect::<Vec<_>>();
+/// is not theirs to use. A model whose provider is turned off (`off`) is
+/// never chosen.
+pub fn choose(
+    allowed: &Option<BTreeSet<String>>,
+    off: &BTreeSet<String>,
+    chosen: Option<(String, String)>,
+    default: (String, String),
+) -> Result<(String, String), ModelNotAllowed> {
+    let on = |x: &String| x.split_once('/').is_some_and(|(a, _)| !off.contains(a));
+    let list = || allowed.iter().flatten().filter(|x| on(x)).cloned().collect::<Vec<_>>();
+    let refuse = |(a, m): &(String, String)| ModelNotAllowed { model: format!("{a}/{m}"), allowed: list(), off: off.contains(a) };
     match chosen {
-        Some((a, m)) if access::permits(allowed, &a, &m) => Ok((a, m)),
-        Some((a, m)) => Err(ModelNotAllowed { model: format!("{a}/{m}"), allowed: list() }),
-        None if access::permits(allowed, &default.0, &default.1) => Ok(default),
-        None => list()
-            .first()
-            .and_then(|x| x.split_once('/').map(|(a, m)| (a.to_string(), m.to_string())))
-            .ok_or_else(|| ModelNotAllowed { model: format!("{}/{}", default.0, default.1), allowed: vec![] }),
+        Some(c) if access::usable(allowed, off, &c.0, &c.1) => Ok(c),
+        Some(c) => Err(refuse(&c)),
+        None if access::usable(allowed, off, &default.0, &default.1) => Ok(default),
+        None => list().first().and_then(|x| x.split_once('/').map(|(a, m)| (a.to_string(), m.to_string()))).ok_or_else(|| refuse(&default)),
     }
 }
 
@@ -143,7 +157,8 @@ impl Kernel {
     /// within what the month's limits leave.
     pub async fn admit_run(&self, person: &str, chosen: Option<(String, String)>, budget: Budget) -> anyhow::Result<((String, String), Budget)> {
         let allowed = self.allowed_models(person).await;
-        let model = choose(&allowed, chosen, self.default_model())?;
+        let off = self.read(|s| s.org.providers_off().clone());
+        let model = choose(&allowed, &off, chosen, self.default_model())?;
         let left = self.read(|s| left_now(s, person, Utc::now()))?;
         let budget = match left {
             Some(usd) => Budget { max_usd: budget.max_usd.min(usd), ..budget },
@@ -152,11 +167,13 @@ impl Kernel {
         Ok((model, budget))
     }
 
-    /// Where a lost run escalates to, if the person may use it.
+    /// Where a lost run escalates to, if the person may use it and its
+    /// provider is on.
     pub async fn escalation_for(&self, person: &str, to: Option<String>) -> Option<String> {
         let to = to?;
         let allowed = self.allowed_models(person).await;
+        let off = self.read(|s| s.org.providers_off().clone());
         let (a, m) = to.split_once('/')?;
-        access::permits(&allowed, a, m).then_some(to)
+        access::usable(&allowed, &off, a, m).then_some(to)
     }
 }
