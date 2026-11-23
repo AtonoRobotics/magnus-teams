@@ -41,7 +41,8 @@ pub struct Schedule {
     /// Why it stopped starting runs: the strongest cause's words (an
     /// admin's, then its person's, then a waiting run's). Kept from `pauses`.
     pub paused: Option<String>,
-    /// The task whose run it is held on, waiting on a person. Kept from `pauses`.
+    /// The task whose run it is held on, waiting on a person, when that is
+    /// all that pauses it (the app then says it waits on them). Kept from `pauses`.
     pub paused_on: Option<String>,
     /// An admin suspended it: only an admin lifts it. Kept from `pauses`.
     pub paused_by_admin: bool,
@@ -76,7 +77,7 @@ impl Schedule {
     /// The derived fields, from `pauses`.
     fn settle_pauses(&mut self) {
         self.paused = self.pauses.values().next_back().cloned();
-        self.paused_on = self.pauses.keys().find_map(|c| match c {
+        self.paused_on = self.pauses.keys().next_back().and_then(|c| match c {
             PauseCause::Held(t) => Some(t.clone()),
             _ => None,
         });

@@ -23,7 +23,7 @@ async fn thread(k: &Kernel, answered: bool) {
 }
 
 fn status(k: &Kernel, run: &str) -> Status {
-    k.read(|s| s.runs[run].status.clone())
+    k.read(|s| s.runs[run].status)
 }
 
 /// With the agent paused, or the month's spend limit reached, an edited
