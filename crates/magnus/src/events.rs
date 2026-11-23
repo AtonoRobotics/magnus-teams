@@ -1221,9 +1221,9 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("prefetch_recorded", &["pointers"]),
 ];
 
-/// The content fields of one kind of event; none for most.
+/// The content fields of one kind of event (a lane stored under its lane's kind, a mission's); none for most.
 pub fn content_fields(kind: &str) -> &'static [&'static str] {
-    CONTENT.iter().find(|(k, _)| *k == kind).map(|(_, f)| *f).unwrap_or(&[])
+    CONTENT.iter().find(|(k, _)| *k == kind || (*k == "team_mission" && OLD_LANE_KINDS.contains(&kind))).map(|(_, f)| *f).unwrap_or(&[])
 }
 
 #[cfg(test)]

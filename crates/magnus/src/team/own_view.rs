@@ -59,11 +59,14 @@ impl Workspace {
 
 impl Kernel {
     /// Delete a message for everyone: the place it stood stays, its text
-    /// goes, from the ledger at once and from the log and the backups.
+    /// goes, from the ledger at once and from the log and the backups, with
+    /// every copy of it (`copies`).
     pub(super) async fn unsend(&self, actor: &str, ws: &str, channel: &str, m: &Message) -> Result<()> {
+        let copies = self.copies_of_message(ws, channel, m).await?;
         let gone = Chat::Unsent { channel: channel.to_string(), id: m.id.clone(), sender: m.sender.clone(), thread: m.thread.clone(), at: m.at };
         self.emit(actor, Ev::Team(Change::Chat { workspace: ws.to_string(), chat: gone })).await?;
-        let seqs = self.read(|s| s.team.message_seqs(&m.id).to_vec());
+        let mut seqs = self.read(|s| s.team.message_seqs(&m.id).to_vec());
+        seqs.extend(copies);
         if seqs.is_empty() {
             return Ok(());
         }

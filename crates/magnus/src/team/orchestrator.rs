@@ -268,28 +268,14 @@ impl Kernel {
         let _ = self.emit(&actor, Ev::Team(super::Change::Message { workspace: workspace.to_string(), channel: room, message })).await;
     }
 
-    /// Re-synthesizes the Living Deliverable snapshot from all released lanes
-    /// and wakes the Leader Agent run if one is attached.
+    /// Records whether every lane is in, and wakes the Leader Agent run if
+    /// one is attached. The deliverable itself is read from the lanes
+    /// (`Mission::deliverable`), so the event keeps no copy of their words.
     pub(crate) async fn refresh_mission_deliverable(self: &Arc<Self>, workspace: &str, mission_id: &str) {
-        let Some((markdown, complete, leader_run)) = self.read(|s| {
-            let m = s.missions.mission(mission_id)?;
-            let mut sections = Vec::new();
-            let mut all_done = !m.lanes.is_empty();
-            for lane in m.lanes.values() {
-                match (&lane.contribution, lane.status) {
-                    (Some(text), crate::team::missions::LaneStatus::Released) => {
-                        let who = lane.owner.as_deref().unwrap_or("OpenWeb");
-                        sections.push(format!("### {} ({})\n{}", lane.objective, who, text.trim()));
-                    }
-                    _ => {
-                        all_done = false;
-                    }
-                }
-            }
-            Some((sections.join("\n\n"), all_done, m.leader_run.clone()))
-        }) else {
+        let Some((complete, leader_run)) = self.read(|s| s.missions.mission(mission_id).map(|m| (m.all_released(), m.leader_run.clone()))) else {
             return;
         };
+        let markdown = String::new();
         let _ = self
             .emit("kernel", Ev::TeamMission(TeamMissionEvent::DeliverableUpdated { workspace: workspace.to_string(), mission: mission_id.to_string(), markdown, complete }))
             .await;

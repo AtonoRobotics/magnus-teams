@@ -103,8 +103,27 @@ pub struct Mission {
     pub requester: String,
     pub leader_run: Option<String>,
     pub lanes: BTreeMap<String, Lane>,
-    pub deliverable: String,
     pub complete: bool,
+}
+
+impl Mission {
+    /// The Living Deliverable: each released lane's contribution under its
+    /// objective, read from the lanes, so it holds no copy of anyone's words
+    /// and loses what erasing or unsending takes from them (`copies`).
+    pub fn deliverable(&self) -> String {
+        let released = self.lanes.values().filter(|l| l.status == LaneStatus::Released);
+        let sections = released.filter_map(|l| {
+            let text = l.contribution.as_deref().map(str::trim).filter(|t| !t.is_empty())?;
+            let who = l.owner.as_deref().unwrap_or("OpenWeb");
+            Some(if l.objective.is_empty() { format!("### {who}\n{text}") } else { format!("### {} ({who})\n{text}", l.objective) })
+        });
+        sections.collect::<Vec<_>>().join("\n\n")
+    }
+
+    /// Every lane released: the mission is done.
+    pub fn all_released(&self) -> bool {
+        !self.lanes.is_empty() && self.lanes.values().all(|l| l.status == LaneStatus::Released && l.contribution.is_some())
+    }
 }
 
 /// Simplified 2-role model (`Member` / `Admin`) mapped from legacy 4-tier `Role`
@@ -127,7 +146,9 @@ impl From<super::Role> for TeamRole {
 
 #[derive(Clone, Debug, Default)]
 pub struct MissionLedger {
-    missions: BTreeMap<String, Mission>,
+    pub(super) missions: BTreeMap<String, Mission>,
+    /// The events that hold a mission's words, and which (`copies`).
+    pub(super) rows: BTreeMap<i64, (String, super::copies::Words)>,
     /// `(workspace, room, person, scope)` keys where `person` authorized standing auto-release.
     standing_releases: BTreeSet<(String, String, String, String)>,
     /// Per-person display avatar (`Default | Preset | Photo`).
@@ -152,6 +173,12 @@ impl crate::forget::Forget for MissionLedger {
         // A release credited to `open_web` (before 2026-11-22) is its requester's.
         let credited = |by: &str, requester: &str| by == p || (by == super::lanes::OPEN_WEB_CREDIT && requester == p);
         for m in self.missions.values_mut() {
+            // A mission's goal and objectives are its requester's words
+            // (`content_owner`), wherever the log kept them.
+            if m.requester == p {
+                m.goal.clear();
+                m.lanes.values_mut().for_each(|l| l.objective.clear());
+            }
             for lane in m.lanes.values_mut() {
                 if lane.owner.as_deref() == Some(p) {
                     lane.private_draft = None;
@@ -180,7 +207,6 @@ impl MissionLedger {
                         requester: requester.clone(),
                         leader_run: leader_run.clone(),
                         lanes: BTreeMap::new(),
-                        deliverable: String::new(),
                         complete: false,
                     },
                 );
@@ -238,9 +264,10 @@ impl MissionLedger {
                     }
                 }
             }
-            TeamMissionEvent::DeliverableUpdated { mission, markdown, complete, .. } => {
+            // Its markdown, a copy older releases kept, is not read: the
+            // deliverable is read from the lanes (`Mission::deliverable`).
+            TeamMissionEvent::DeliverableUpdated { mission, complete, .. } => {
                 if let Some(m) = self.missions.get_mut(mission) {
-                    m.deliverable = markdown.clone();
                     m.complete = *complete;
                 }
             }
@@ -322,6 +349,8 @@ impl MissionLedger {
     pub fn drop_workspace(&mut self, workspace: &str) {
         self.missions.retain(|_, m| m.workspace != workspace);
         self.standing_releases.retain(|(w, ..)| w != workspace);
+        let missions = &self.missions;
+        self.rows.retain(|_, (m, _)| missions.contains_key(m));
     }
 
     /// The tasks of a workspace's lanes still working.
@@ -401,7 +430,7 @@ impl MissionLedger {
                     "room": m.room,
                     "goal": m.goal,
                     "requester": m.requester,
-                    "deliverable": m.deliverable,
+                    "deliverable": m.deliverable(),
                     "complete": m.complete,
                     "released_count": released,
                     "total_lanes": m.lanes.len(),

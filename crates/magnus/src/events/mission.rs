@@ -123,6 +123,9 @@ pub enum TeamMissionEvent {
 /// `member_agent`, `open_web` or `peer_agent` event, a kind no release
 /// knows, and every boot skipped it: after a restart the lane was gone.
 /// Such a row in its current form, the lane's kind under `lane_kind`.
+/// Its objective was kept in the record, as no content field of those
+/// kinds was listed; `log::migrate` moves it to the content store, where
+/// erasure deletes it (`events::content_fields`).
 pub fn current_lane_dispatched(body: &Value) -> Option<Value> {
     let kind = body.get("kind")?.as_str()?;
     if body.get("change")?.as_str()? != "lane_dispatched" || serde_json::from_value::<LaneKind>(Value::from(kind)).is_err() {
@@ -133,6 +136,9 @@ pub fn current_lane_dispatched(body: &Value) -> Option<Value> {
     current["kind"] = Value::from("team_mission");
     Some(current)
 }
+
+/// The kinds a `LaneDispatched` was stored under before 2026-11-22.
+pub const OLD_LANE_KINDS: [&str; 3] = ["member_agent", "open_web", "peer_agent"];
 
 #[cfg(test)]
 mod tests {

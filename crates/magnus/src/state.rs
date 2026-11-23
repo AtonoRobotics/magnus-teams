@@ -244,7 +244,9 @@ impl State {
                     self.put_back(t.held);
                 }
             }
-            Ev::Removed { item, .. } => {
+            Ev::Removed { item, seqs } => {
+                // What the removed events had copied leaves with them.
+                self.drop_copies(seqs);
                 // A person's erasure: their subject is still bound here.
                 if let Some(p) = item.strip_prefix("person:") {
                     self.erasures.record(p, e.seq, self.identity.subject(p).map(str::to_string));
@@ -359,7 +361,7 @@ impl State {
             }
             Ev::QueryGateRecorded(p) => self.security.apply_query_gate(p),
             Ev::SafetyBlocked(p) => self.security.apply_safety_blocked(p),
-            Ev::TeamMission(ev) => self.missions.apply(ev),
+            Ev::TeamMission(ev) => self.missions.apply_at(ev, e.seq),
             Ev::MemorySuperseded(p) => {
                 self.memory_superseded.insert(p.old_id.clone(), p.new_id.clone());
             }

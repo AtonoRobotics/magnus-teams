@@ -71,14 +71,18 @@ impl Ledger {
 impl Kernel {
     /// Erasing `person`: each of their messages is deleted for everyone, in
     /// one write, as its sender would delete it. The events that held their
-    /// text are returned, for the erasure to take out of the log with the
-    /// rest of their content.
+    /// text, and every copy of their words (`copies`), are returned, for the
+    /// erasure to take out of the log with the rest of their content.
     pub(crate) async fn unsend_all_of(&self, actor: &str, person: &str) -> anyhow::Result<Vec<i64>> {
-        let (theirs, seqs) = self.read(|s| {
+        let (theirs, mut seqs) = self.read(|s| {
             let theirs = s.team.messages_of(person);
-            let seqs: Vec<i64> = theirs.iter().flat_map(|(_, _, m)| s.team.message_seqs(&m.id).to_vec()).collect();
+            let mut seqs: Vec<i64> = theirs.iter().flat_map(|(_, _, m)| s.team.message_seqs(&m.id).to_vec()).collect();
+            seqs.extend(s.copies_of_person(person));
             (theirs, seqs)
         });
+        for (workspace, channel, m) in &theirs {
+            seqs.extend(self.copies_of_message(workspace, channel, m).await?);
+        }
         let evs: Vec<(&str, Ev)> = theirs
             .into_iter()
             .map(|(workspace, channel, m)| {
