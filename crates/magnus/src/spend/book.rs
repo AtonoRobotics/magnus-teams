@@ -166,3 +166,7 @@ impl State {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "book_tests.rs"]
+mod tests;

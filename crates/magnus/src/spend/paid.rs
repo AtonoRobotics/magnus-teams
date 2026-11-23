@@ -116,20 +116,32 @@ async fn person_may_not(k: &Kernel, person: &str, adapter: &str, model: &str) ->
     (!super::access::permits(&allowed, adapter, model)).then(|| super::enforce::ModelNotAllowed { model: format!("{adapter}/{model}"), allowed: list(), off: false }.to_string())
 }
 
+/// The next of `fallbacks` (`adapter/model`) after `idx` that may be used
+/// (`access::usable`) and is not `active`; `idx` moves past it.
+pub(crate) fn fallback_after(
+    fallbacks: &[String],
+    allowed: &Option<std::collections::BTreeSet<String>>,
+    off: &std::collections::BTreeSet<String>,
+    active: (&str, &str),
+    idx: &mut usize,
+) -> Option<(String, String)> {
+    while let Some(entry) = fallbacks.get(*idx) {
+        *idx += 1;
+        let Some((a, m)) = entry.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) else { continue };
+        if (a, m) != active && super::access::usable(allowed, off, a, m) {
+            return Some((a.to_string(), m.to_string()));
+        }
+    }
+    None
+}
+
 impl Kernel {
     /// The next of the server's fallback models the person may use and
     /// whose provider is on, after `idx`, other than the one `active`.
     pub(crate) async fn next_fallback(&self, person: &str, active: (&str, &str), idx: &mut usize) -> Option<(String, String)> {
         let allowed = self.allowed_models(person).await;
         let off = self.read(|s| s.org.providers_off().clone());
-        while let Some(entry) = self.cfg.model.fallbacks.get(*idx) {
-            *idx += 1;
-            let Some((a, m)) = entry.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) else { continue };
-            if (a, m) != active && super::access::usable(&allowed, &off, a, m) {
-                return Some((a.to_string(), m.to_string()));
-            }
-        }
-        None
+        fallback_after(&self.cfg.model.fallbacks, &allowed, &off, active, idx)
     }
 
     /// Make one paid model call: allowed, within what is left, made, and

@@ -79,7 +79,11 @@ impl Kernel {
         by_person.sort_by(|a, b| b["usd"].as_f64().partial_cmp(&a["usd"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
         let ws_name = |id: &str| workspaces.iter().find(|w| w["id"] == id).and_then(|w| w["name"].as_str()).unwrap_or(id).to_string();
         let by_agent = rows(&spent.by_agent, |k, usd| {
-            let name = k.strip_prefix("team:").map(|w| format!("Team agent · {}", ws_name(w))).unwrap_or_else(|| "Personal agents".into());
+            let name = match k.strip_prefix("team:") {
+                Some(w) => format!("Team agent · {}", ws_name(w)),
+                None if k == super::book::SERVER_AGENT => "The server's own checks".into(),
+                None => "Personal agents".into(),
+            };
             json!({ "id": k, "name": name, "usd": usd })
         });
         let by_model = rows(&spent.by_model, |k, usd| json!({ "id": k, "name": k, "usd": usd }));

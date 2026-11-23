@@ -321,12 +321,14 @@ impl Kernel {
                         .join("\n")
                         .trim()
                         .to_string();
+                    self.emit("model", Ev::ModelReply { run: run_id.into(), step, blocks: t.blocks, state: t.state, usage: t.usage, served_model: t.served_model, stop: t.stop })
+                        .await?;
+                    // Its cost is on the run now: what it held is free for
+                    // the monitor's own call.
+                    drop(held);
                     if !has_call && self.cfg.safety.monitor_model.is_some() {
                         self.watch_answer(&run, &answer).await;
                     }
-                    self.emit("model", Ev::ModelReply { run: run_id.into(), step, blocks: t.blocks, state: t.state, usage: t.usage, served_model: t.served_model, stop: t.stop })
-                        .await?;
-                    drop(held);
                     // A block that cannot be drawn goes back to be fixed.
                     let files: Vec<String> = run.outputs.iter().map(|(_, n, ..)| n.clone()).collect();
                     if let Some(why) = crate::ui::docs::problems(&answer, &run.person, &files) {
