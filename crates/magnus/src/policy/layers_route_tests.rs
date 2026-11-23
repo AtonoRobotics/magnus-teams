@@ -31,8 +31,12 @@ async fn a_persons_own_rules_are_theirs_and_only_tighten() {
     assert!(v["error"].as_str().unwrap_or_default().contains("org"), "the refusal does not name the layer above: {v}");
     assert_eq!(s.get(&mo, "/v1/policies").await.1["layers"]["user/mo"], FORBID, "a refused write changed the layer");
 
-    // The owner keeps the organisation's and the groups' layers; a group's
-    // still only tightens.
+    // The owner keeps the organisation's and the groups' layers, changed
+    // only after confirming their password; a group's still only tightens.
+    let (path, body) = put("org", PERMIT);
+    let (st, v) = s.call(&sam, Method::PUT, &path, body).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "the org's rules loosened without a step-up: {v}");
+    assert_eq!(s.post(&sam, "/v1/admin/step-up", json!({ "password": "a-long-admin-password" })).await.0, 200);
     let (path, body) = put("group/staff", PERMIT);
     assert_eq!(s.call(&sam, Method::PUT, &path, body).await.0, 422, "a group's layer loosened the organisation's");
     let (path, body) = put("org", PERMIT);
