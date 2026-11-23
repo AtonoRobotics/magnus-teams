@@ -287,6 +287,9 @@ impl Kernel {
     /// under: unattended, and with a writable destination someone other
     /// than its person, it is quarantined; its own schema, or the typed-only
     /// default. Decided before the run is created, and recorded with it.
+    /// Whoever wrote the text, an address in it only adds this caution: it
+    /// allows nothing (a schedule a run set is the model's words, whose
+    /// addresses the envelope does not take, `run_words::schedule_source`).
     pub(crate) fn schedule_quarantine(&self, sc: &Schedule, text: &str) -> Option<Value> {
         let (_, dests) = crate::envelope::resolve::extract_literal_destinations(text);
         let env = Envelope { scope_id: sc.id.clone(), allowed_destinations: dests, allowed_write_apps: Default::default(), user_named: vec![], grant_ids: vec![] };

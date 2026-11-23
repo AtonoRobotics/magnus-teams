@@ -91,8 +91,8 @@ async fn a_steers_objective_reads_as_another_members() {
     assert!(run.untrusted, "the steer's run is trusted");
     // Its words as the run reads them: the text is recalled from the log, so
     // a stand-in for it here; who wrote it is the task's.
-    let (task, outcome) = s.k.read(|st| crate::run_words::request_of(st, &run)).unwrap();
-    let words = crate::run_words::of_task(&task, outcome, "the steer's text");
+    let req = s.k.read(|st| crate::run_words::request_of(st, &run)).unwrap();
+    let words = crate::run_words::of_task(&req, "the steer's text");
     assert!(words.asked(&[Source::Person]).is_empty(), "the requester's objective read as mo's own words");
     assert_eq!(words.asked(&[Source::Other]), ["the steer's text"], "the objective is not read as another's");
     s.done().await;

@@ -8,7 +8,9 @@
 //! model's words, never the person's. A chat task's text is the model's (the
 //! turn that started it wrote it); the person's words are their own lines of
 //! the conversation it carries. A schedule's text is what the person set up
-//! once, not a live request. A task someone else made for the person (a
+//! once, not a live request, when they set it up themselves; one a run set
+//! (`create_schedule`) is the model's words (2026-11-23, who wrote a
+//! schedule). A task someone else made for the person (a
 //! teammate's lane, the team agent's delegation) holds no words of theirs.
 //! An opener's, an outcome's and a review's text is the server's
 //! instruction.
@@ -24,9 +26,11 @@ pub enum Source {
     /// The person themselves: a task they started, their chat message,
     /// their own lines of the conversation a chat task carries.
     Person,
-    /// The model: a chat task's goal, Magnus's lines of a conversation.
+    /// The model: a chat task's goal, Magnus's lines of a conversation, the
+    /// text of a schedule a run set.
     Model,
-    /// A schedule's text: set up once by the person, not a live request.
+    /// A schedule's text the person set up themselves (in the app, or by
+    /// accepting a card): set up once, not a live request.
     Schedule,
     /// Someone else, for the person: a teammate's lane, the team agent's delegation.
     Other,
@@ -92,17 +96,51 @@ impl RunWords {
     }
 }
 
-/// The task whose words `run` acts on (its requester's: the top of a
-/// sub-agent's parents), and whether that task is an outcome's turn.
-pub fn request_of(s: &State, run: &Run) -> Option<(Task, bool)> {
-    let top = s.requester_run(run);
-    let task = s.tasks.get(&top.task)?;
-    Some((task.clone(), s.outcomes.of(&task.task_id).is_some()))
+/// The request a run acts on: its requester's task (the top of a
+/// sub-agent's parents), whether that task is an outcome's turn, and who
+/// wrote the text of the schedule it fires for, if any.
+#[derive(Clone, Debug)]
+pub struct Request {
+    pub task: Task,
+    outcome_turn: bool,
+    schedule: Option<Source>,
 }
 
-/// A task's words, tagged: `text` is its text as recalled for its person,
-/// `outcome_turn` whether the server wrote it as an outcome's turn.
-pub fn of_task(task: &Task, outcome_turn: bool, text: &str) -> RunWords {
+/// The task whose words `run` acts on (its requester's: the top of a
+/// sub-agent's parents), and what else says who wrote them.
+pub fn request_of(s: &State, run: &Run) -> Option<Request> {
+    let top = s.requester_run(run);
+    let task = s.tasks.get(&top.task)?;
+    let schedule = task.schedule.as_deref().map(|id| schedule_source(s, id));
+    Some(Request { task: task.clone(), outcome_turn: s.outcomes.of(&task.task_id).is_some(), schedule })
+}
+
+/// Who wrote a schedule's text: its person, when they set it up themselves
+/// (in the app, or by accepting a card or a suggestion); otherwise the
+/// model, whose run set it with `create_schedule`. A schedule no longer
+/// known is nobody's set-up: the model's.
+pub fn schedule_source(s: &State, schedule: &str) -> Source {
+    if s.arrangements.schedules().get(schedule).is_some_and(|sc| sc.by_person) {
+        Source::Schedule
+    } else {
+        Source::Model
+    }
+}
+
+/// The schedule the person set up themselves that `run` fires for (at the
+/// top of its parents), when its person is the run's: what may stand for
+/// their approval of what it does (`Kernel::what_covers`). None for a
+/// schedule a run set.
+pub fn person_schedule(s: &State, run: &Run) -> Option<String> {
+    let id = s.authority(&run.id)?.schedule.clone()?;
+    let sc = s.arrangements.schedules().get(&id)?;
+    (sc.person == run.person && schedule_source(s, &id) == Source::Schedule).then_some(id)
+}
+
+/// A request's words, tagged: `text` is its task's text as recalled for
+/// its person.
+pub fn of_task(r: &Request, text: &str) -> RunWords {
+    let task = &r.task;
     let person = if task.by_other { Source::Other } else { Source::Person };
     let mut words = vec![];
     if let Some(c) = &task.chat {
@@ -119,8 +157,8 @@ pub fn of_task(task: &Task, outcome_turn: bool, text: &str) -> RunWords {
             }
         }
     }
-    let source = if task.schedule.is_some() {
-        Source::Schedule
+    let source = if let Some(by) = r.schedule {
+        by
     } else if task.by_other {
         Source::Other
     } else if task.review {
@@ -128,7 +166,7 @@ pub fn of_task(task: &Task, outcome_turn: bool, text: &str) -> RunWords {
     } else {
         match &task.chat {
             Some(c) if !c.turn => Source::Model,
-            Some(c) if c.opener.is_some() || outcome_turn => Source::Server,
+            Some(c) if c.opener.is_some() || r.outcome_turn => Source::Server,
             _ => Source::Person,
         }
     };
@@ -143,9 +181,9 @@ impl Kernel {
     /// it; the task's text recalled for its person. A run with no task
     /// (or a sub-agent whose top run is gone) has none.
     pub async fn run_words(&self, run: &Run) -> Result<RunWords> {
-        let Some((task, outcome_turn)) = self.read(|s| request_of(s, run)) else { return Ok(RunWords::default()) };
-        let w = self.words_of(&task.person, task.seq).await?;
-        Ok(of_task(&task, outcome_turn, w.text(task.seq)))
+        let Some(r) = self.read(|s| request_of(s, run)) else { return Ok(RunWords::default()) };
+        let w = self.words_of(&r.task.person, r.task.seq).await?;
+        Ok(of_task(&r, w.text(r.task.seq)))
     }
 }
 
