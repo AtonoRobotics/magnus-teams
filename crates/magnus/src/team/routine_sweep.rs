@@ -36,9 +36,12 @@ pub fn plan(s: &State, now: DateTime<Utc>, stop_after_failures: u32) -> Vec<Due>
     s.team
         .all()
         .flat_map(|w| {
+            // Its author's own agent runs it (`start_room_mission_as`), so
+            // that agent's holds decide: a held routine waits, unfired and
+            // uncounted, as a person's schedule does (`due_schedules`).
             w.routines
                 .iter()
-                .filter(|(_, r)| r.stopped.is_none() && r.due(now) && w.members.contains_key(&r.by) && crate::halts::holds_new(s, &r.by, true).is_none())
+                .filter(|(_, r)| r.stopped.is_none() && r.due(now) && w.members.contains_key(&r.by) && crate::halts::holds_new(s, &r.by, false).is_none())
                 .map(|(id, r)| Due { workspace: w.id.clone(), id: id.clone(), routine: r.clone(), step: step(s, r, stop_after_failures) })
         })
         .collect()
