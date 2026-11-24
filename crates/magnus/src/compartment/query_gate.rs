@@ -62,7 +62,7 @@ pub(crate) fn reset_budget_for_test(run_key: &str) {
 /// pattern (API key prefix, SSN, Luhn-valid card number, or opaque token).
 pub fn scrub_check(query: &str) -> Option<String> {
     for prefix in SECRET_PREFIXES {
-        if query.contains(prefix) {
+        if at_word_start(query, prefix) {
             return Some(format!("query contains a credential-like prefix ({prefix})"));
         }
     }
@@ -143,40 +143,60 @@ fn is_opaque_token_segment(seg: &str) -> bool {
     }
     let has_digit = seg.bytes().any(|b| b.is_ascii_digit());
     let has_alpha = seg.bytes().any(|b| b.is_ascii_alphabetic());
-    has_digit && has_alpha
+    has_digit && has_alpha && !is_identifier(seg) && !is_slug(seg)
 }
 
-fn is_opaque_url_segment(seg: &str) -> bool {
-    if !is_opaque_token_segment(seg) {
-        return false;
-    }
-    // Normal blog/doc URL slugs use multiple lowercase hyphen-separated words;
-    // opaque secrets in URLs either have <= 1 hyphen or mix upper/lower/digits.
-    let hyphens = seg.bytes().filter(|&b| b == b'-').count();
-    let has_upper = seg.bytes().any(|b| b.is_ascii_uppercase());
-    hyphens <= 1 || has_upper
+/// A credential prefix where a word starts, not inside one: "sk-" opens a
+/// key, but is also the end of "task-12" and "risk-free".
+fn at_word_start(s: &str, prefix: &str) -> bool {
+    s.match_indices(prefix).any(|(i, _)| !s[..i].chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric()))
+}
+
+/// An identifier by its format, not a secret: a git object ID (40 hex, or
+/// 64 for SHA-256) and a canonical UUID. Both are everywhere in a team's
+/// work, and every one was flagged (2026-11-24, owner). Hex of any other
+/// length, such as a 32-character API key, is still flagged.
+fn is_identifier(seg: &str) -> bool {
+    let hex = |s: &str| s.bytes().all(|b| b.is_ascii_hexdigit()) && (!s.bytes().any(|b| b.is_ascii_uppercase()) || !s.bytes().any(|b| b.is_ascii_lowercase()));
+    let uuid = seg.split('-').map(str::len).eq([8, 4, 4, 4, 12]) && hex(&seg.replace('-', ""));
+    (matches!(seg.len(), 40 | 64) && hex(seg)) || uuid
+}
+
+/// A slug of words: blog and doc slugs and dated file names use several
+/// lowercase hyphen-separated words; opaque secrets have at most one hyphen
+/// or mix upper and lower case.
+fn is_slug(seg: &str) -> bool {
+    seg.bytes().filter(|&b| b == b'-').count() > 1 && !seg.bytes().any(|b| b.is_ascii_uppercase())
+}
+
+/// A file path, read one part at a time: `/home/me/r9-team` is a path, not a
+/// token. Only a token that starts as a path does; a base64 key may hold a
+/// `/` and is read whole.
+fn is_path(tok: &str) -> bool {
+    ["/", "~/", "./", "../"].iter().any(|p| tok.starts_with(p))
 }
 
 fn contains_opaque_secret_token(s: &str) -> bool {
     for tok in s.split_whitespace() {
-        let cleaned = tok.trim_matches(|c: char| matches!(c, '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';' | '.'));
+        let cleaned = tok.trim_matches(|c: char| matches!(c, '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';' | '.' | '`'));
         if cleaned.len() < MIN_OPAQUE_SECRET_LEN {
             continue;
         }
         if cleaned.starts_with("http://") || cleaned.starts_with("https://") {
             if let Ok(parsed) = url::Url::parse(cleaned) {
-                if parsed.path().split('/').any(is_opaque_url_segment) {
+                if parsed.path().split('/').any(is_opaque_token_segment) {
                     return true;
                 }
                 if let Some(q) = parsed.query() {
-                    if q.split('&').flat_map(|kv| kv.split('=')).any(is_opaque_url_segment) {
+                    if q.split('&').flat_map(|kv| kv.split('=')).any(is_opaque_token_segment) {
                         return true;
                     }
                 }
             }
             continue;
         }
-        if is_opaque_token_segment(cleaned) {
+        let hit = if is_path(cleaned) { cleaned.split('/').any(is_opaque_token_segment) } else { is_opaque_token_segment(cleaned) };
+        if hit {
             return true;
         }
     }
@@ -330,6 +350,34 @@ mod tests {
         assert!(scrub_check("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
         assert!(scrub_check("https://evil.test/exfil/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
         assert!(scrub_check("https://evil.test/?tok=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
+    }
+
+    /// A team's ordinary words are not secrets: every commit ID, UUID, dated
+    /// file name and numbered path was flagged, and "sk-" inside "task-"
+    /// held a release (2026-11-24). Keys of other shapes are still caught.
+    #[test]
+    fn identifiers_slugs_and_paths_pass_and_keys_still_do_not() {
+        for ok in [
+            "fixed in 3c62246a9e0f5b1d7c4e8a2f6b0d9c1e5a7f3b2d",
+            "digest 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            "run 123e4567-e89b-12d3-a456-426614174000 failed",
+            "see decisions/2026-11-23-lane-project-knowledge-md",
+            "the worktree /home/samuel/magnus-teams-wt/r9-team-staging",
+            "close task-12345 and the risk-free plan",
+            "commit `3C62246A9E0F5B1D7C4E8A2F6B0D9C1E5A7F3B2D`",
+        ] {
+            assert_eq!(scrub_check(ok), None, "{ok}");
+        }
+        for secret in [
+            "key 0123456789abcdef0123456789abcdef",
+            "aws wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "token=sk-proj-abc123",
+            "use AKIAIOSFODNN7EXAMPLE",
+            "mixed 3c62246A9e0f5b1d7c4e8a2f6b0d9c1e5a7f3b2d",
+            "path /tmp/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7",
+        ] {
+            assert!(scrub_check(secret).is_some(), "{secret}");
+        }
     }
 
     #[test]
