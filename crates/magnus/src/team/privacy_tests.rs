@@ -115,20 +115,25 @@ async fn working_notes_are_the_threads_and_expire_with_the_task() {
 }
 
 /// An ask is its asker's own agent at work, private to them: the lane runs
-/// as them, labelled private, in no team-agent run. Named and not called
-/// on, its answer waits for them, and no one else may release it.
+/// as them, labelled private, in no team-agent run. When the agent joins
+/// to help, its answer waits for them, and no one else may release it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_private_answer_reaches_only_its_requester_until_shared() {
     let s = server_with("", |_| Router::new()).await;
     let (ws, sam, mo, ana) = workspace(&s).await;
     let channel = general(&s, &ws);
-    let (task, mission, run) = ask(&s, &mo, &ws, &channel, "Magnus, what did my inbox say").await;
+    let (status, quiet) = s.post(&mo, &format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": "Magnus, what did my inbox say" })).await;
+    assert_eq!(status, 200, "{quiet}");
+    assert!(quiet.get("task_id").is_none(), "a bare name started a lane: {quiet}");
+    let (status, mode) = s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{channel}/agent"), json!({ "mode": "when_helpful" })).await;
+    assert_eq!(status, 200, "{mode}");
+    let (task, mission, run) = ask(&s, &mo, &ws, &channel, "Can someone catch me up on what my inbox said?").await;
     assert_eq!(run.person, "mo", "the ask did not run as its asker's own agent");
     assert!(run.private, "the asker's lane is not private, so what it reads could reach the room");
     assert!(s.k.team_of(&task).is_none() && !s.k.run_kind(&run.id).in_team(), "an ask started a team-agent run");
     let lane = s.k.read(|st| st.missions.mission(&mission).and_then(|m| m.lanes.values().next().cloned())).unwrap();
     assert_eq!(lane.owner.as_deref(), Some("mo"));
-    assert!(!lane.auto_release, "an answer mo only named Magnus for would post unasked");
+    assert!(!lane.auto_release, "an answer from the agent joining to help would post unasked");
     let release = format!("/v1/workspaces/{ws}/missions/{mission}/lanes/{}/release", lane.id);
     for (who, t) in [("sam", &sam), ("ana", &ana)] {
         assert_ne!(s.post(t, &release, json!({ "contribution": "the deal closes Friday" })).await.0, 200, "{who} released mo's answer");
