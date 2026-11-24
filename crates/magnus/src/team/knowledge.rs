@@ -55,9 +55,18 @@ pub struct Entry {
     pub flags: Vec<Flag>,
     #[serde(default)]
     pub retired: Option<Retired>,
+    /// Who last wrote its words, when a curator corrected them: `None`, its
+    /// author's still (and every entry written before 2026-11-23).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
 }
 
 impl Entry {
+    /// Everyone whose words it holds or who answers for it.
+    pub fn writers(&self) -> impl Iterator<Item = &str> {
+        [self.author.as_str(), self.owner.as_str()].into_iter().chain(self.edited_by.as_deref())
+    }
+
     /// What a reader is given. A retired entry is never read as current.
     pub fn line(&self) -> String {
         let outside = if self.weight == Weight::Outside { "; from outside the workspace" } else { "" };
@@ -147,6 +156,9 @@ impl Workspace {
                     e.owner,
                     e.reviewed_at.to_rfc3339()
                 ));
+                if let Some(by) = &e.edited_by {
+                    text.push_str(&format!("- last written by: {by}\n"));
+                }
                 for r in &e.relations {
                     text.push_str(&format!("- {}: {}\n", r.kind, r.to));
                 }
@@ -189,6 +201,7 @@ mod tests {
             relations: vec![],
             flags: vec![],
             retired: None,
+            edited_by: None,
         }
     }
 

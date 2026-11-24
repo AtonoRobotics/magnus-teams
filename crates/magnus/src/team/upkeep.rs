@@ -198,8 +198,9 @@ impl Kernel {
         Ok(())
     }
 
+    /// An entry's events, and the results of the runs that read it.
     pub(super) async fn erase_entry(&self, actor: &str, id: &str) -> Result<()> {
-        let holding = Holding { matches: vec![("team", "id", id.to_string())], ..Default::default() };
+        let holding = Holding { matches: vec![("team", "id", id.to_string())], seqs: self.read(|s| s.reads_of(id)), ..Default::default() };
         self.erase(actor, format!("entry:{id}"), holding).await
     }
 
