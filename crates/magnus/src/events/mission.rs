@@ -80,7 +80,7 @@ pub enum TeamMissionEvent {
         /// Why a lane that would have posted itself waits for its owner
         /// instead: a check held it (`team::lane_release`). Shown to the
         /// owner only. Absent from events written before 2026-11-23.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         held_because: Option<String>,
     },
     LaneReleased {
