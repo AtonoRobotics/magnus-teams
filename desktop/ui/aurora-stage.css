@@ -24,7 +24,7 @@
 }
 
 /* ---------- The conversation and its bento ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> section.conv) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-workspace="single"][data-region="work"]) .shell > main:has(> section.conv) {
   display: flex;
   flex-direction: column;
   background: transparent;

@@ -151,7 +151,7 @@ body[data-workspace=split] .shell { grid-template-columns: var(--nav-width) minm
   #workspace-splitter::after { left: calc(50% - 1px); }
   nav a { min-width: 44px; min-height: 44px; }
 }
-body[data-workspace=single][data-region=work] .shell > main, body[data-workspace=single][data-region=conversation] .shell > aside.detail { display: none; }
+body[data-workspace=single][data-region=work] .shell > main, body[data-workspace=single][data-region=conversation] .shell > aside.detail, body[data-workspace=conversation] .shell > aside.detail { display: none; }
 body[data-navigation=compact] nav.side .brand-name, body[data-navigation=compact] nav.side #find,
 body[data-navigation=compact] nav.side .nav-label, body[data-navigation=compact] nav.side .nav-tree,
 body[data-navigation=compact] nav.side .whoami, body[data-navigation=compact] nav.side .avatar,
