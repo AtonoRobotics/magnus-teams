@@ -197,23 +197,40 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
 }
 
 /// A tunnel request, once device certificates are configured, must present
-/// a paired device. The header is only believed from loopback with
-/// `Cf-Connecting-Ip`: that is cloudflared. A client on the LAN can set
+/// a paired device, and one its session may be used from: the session
+/// person's own, and the session's own device when it has one
+/// (`devices::session_holds`). The header is only believed from loopback
+/// with `Cf-Connecting-Ip`: that is cloudflared. A client on the LAN can set
 /// the same header and is not held to it.
 async fn require_device_cert(State(k): State<Arc<Kernel>>, req: Request, next: Next) -> ApiResult {
     let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
     let tunnelish = req.headers().contains_key("cf-connecting-ip");
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let live = crate::devices::presented(req.headers()).is_some_and(|fp| k.devices.is_live(fp));
+    let device = crate::devices::presented(req.headers()).and_then(|fp| k.devices.live_device(fp));
     let on = k.cfg.client_certs.is_some();
     let decision = match peer {
-        Some(p) => crate::devices::admit(on, p, req.headers(), &method, &path, live),
+        Some(p) => crate::devices::admit(on, p, req.headers(), &method, &path, device.is_some()),
         None if on && tunnelish => Err("this device is not paired with the server"),
         None => Ok(()),
     };
     if let Err(msg) = decision {
         return refuse(StatusCode::UNAUTHORIZED, msg);
+    }
+    let tunnel = on && peer.is_some_and(|p| crate::devices::is_tunnel(p, req.headers()));
+    if let (true, Some(d), Some(token)) = (tunnel, &device, credential(req.headers()).map(str::to_string)) {
+        let holder = match k.cfg.person_by_token(&token) {
+            Some(p) => Some((p.id.clone(), None)),
+            None => match k.accounts.session(&token).await {
+                Ok(s) => s.map(|s| (s.person, s.device)),
+                Err(e) => return Ok(session_unread(e)),
+            },
+        };
+        if let Some((person, bound)) = holder {
+            if let Err(msg) = crate::devices::session_holds(d, &person, bound.as_deref()) {
+                return refuse(StatusCode::UNAUTHORIZED, msg);
+            }
+        }
     }
     Ok(next.run(req).await)
 }
