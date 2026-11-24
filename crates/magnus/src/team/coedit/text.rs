@@ -71,7 +71,7 @@ fn write(lead: &str, ps: &[Para], nl: &str) -> String {
     let mut text = lead.to_string();
     for (i, p) in ps.iter().enumerate() {
         text.push_str(&p.raw);
-        if i + 1 < ps.len() && !p.raw.split_inclusive('\n').last().is_some_and(|l| l.ends_with('\n') && blank(l) && p.raw.lines().count() > 1) {
+        if i + 1 < ps.len() && !p.raw.split_inclusive('\n').next_back().is_some_and(|l| l.ends_with('\n') && blank(l) && p.raw.lines().count() > 1) {
             if !p.raw.ends_with('\n') {
                 text.push_str(nl);
             }
