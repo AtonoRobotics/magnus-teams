@@ -27,6 +27,8 @@
 mod card;
 mod client;
 mod connect;
+#[cfg(test)]
+mod fake;
 mod inbound;
 mod jws;
 mod keys;
@@ -34,6 +36,8 @@ mod ledger;
 mod outbound;
 mod reply;
 mod routes;
+#[cfg(test)]
+mod tests;
 
 pub use card::{CARD_PATH, ENDPOINT_PATH, KEYS_PATH, KEY_HEADER};
 pub use inbound::REQUEST_ITEM;

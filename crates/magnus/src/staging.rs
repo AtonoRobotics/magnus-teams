@@ -148,7 +148,8 @@ const UNSTAGEABLE_SUBSTRINGS: [&str; 9] = ["delete", "remove", "destroy", "purge
 /// Classify whether `(app, tool, risk)` can be staged asynchronously, or
 /// `None` if it is unstageable (payments, destructive deletes, ACL changes).
 pub fn classify_stageable(app: &str, tool: &str, risk: Risk, input: &Value) -> Option<StageKind> {
-    if risk == Risk::Financial || !risk.changes_state() {
+    // A task for an outside agent asks: no draft of it can be held there.
+    if risk == Risk::Financial || !risk.changes_state() || app == crate::a2a::APP {
         return None;
     }
     let lower = tool.to_ascii_lowercase();

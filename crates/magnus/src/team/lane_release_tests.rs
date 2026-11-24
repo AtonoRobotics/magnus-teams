@@ -22,13 +22,13 @@ const SOCKET_TICK: std::time::Duration = std::time::Duration::from_millis(10);
 /// What the served model says when it is asked to check: the classifier's
 /// finding (none is clean), and Auto Review's decision (none: it fails).
 #[derive(Clone)]
-pub(super) struct Says {
+pub(crate) struct Says {
     pub finding: Option<&'static str>,
     pub review: Option<&'static str>,
 }
 
 impl Says {
-    pub(super) const ALLOWING: Says = Says { finding: None, review: Some("allow") };
+    pub(crate) const ALLOWING: Says = Says { finding: None, review: Some("allow") };
 }
 
 async fn answer(says: Arc<Mutex<Says>>, req: Request, mut sink: proto::Sink) -> anyhow::Result<()> {
@@ -58,7 +58,7 @@ async fn answer(says: Arc<Mutex<Says>>, req: Request, mut sink: proto::Sink) -> 
 }
 
 /// Serve the server's model (`a`) on `k`, answering checks as `says` does.
-pub(super) async fn serve_checks(k: &Kernel, says: Says) -> Arc<Mutex<Says>> {
+pub(crate) async fn serve_checks(k: &Kernel, says: Says) -> Arc<Mutex<Says>> {
     let says = Arc::new(Mutex::new(says));
     let socket = std::env::temp_dir().join(format!("lr-{}.sock", new_id("a")));
     let (path, served) = (socket.clone(), says.clone());
