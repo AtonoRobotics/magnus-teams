@@ -64,6 +64,7 @@ fn lane(ws: &str, lane: &str, owner: &str, objective: &str) -> TeamMissionEvent 
         child_task: None,
         child_run: None,
         thread: None,
+        routine: None,
     }
 }
 

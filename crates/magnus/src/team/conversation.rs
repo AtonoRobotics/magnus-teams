@@ -152,7 +152,7 @@ impl Kernel {
         for (workspace, channel, thread, person, question) in quiet {
             self.emit("poll", Ev::Team(Change::Chat { workspace: workspace.clone(), chat: Chat::FollowedUp { channel: channel.clone(), thread: thread.clone() } })).await?;
             let objective = follow_up_objective(&question);
-            if let Err(e) = self.start_room_mission_as("poll", &workspace, &channel, &person, &objective, Some(thread), None, true).await {
+            if let Err(e) = self.start_room_mission_as("poll", &workspace, &channel, &person, &objective, Some(thread), None, true, None).await {
                 tracing::warn!("team follow-up for {person} in {workspace}: {e:#}");
             }
         }

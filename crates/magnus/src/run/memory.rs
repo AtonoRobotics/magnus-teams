@@ -66,7 +66,9 @@ impl Kernel {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(()) };
         // What it may spend is the run's allowance for an extra call, asked
         // below; a grant's, the month's and the team's limits bound it too.
-        if self.run_kind(&run.id).in_team() || !run.config.module("memory_pass") {
+        // Nor a person's agent in a project's channel: the project is its
+        // people's, and their memory outlasts their place in it.
+        if self.run_kind(&run.id).in_team() || !run.config.module("memory_pass") || self.read(|s| s.in_project_channel(&run.id)) {
             return Ok(());
         }
         let Some(text) = self.exchange(&run).await? else { return Ok(()) };

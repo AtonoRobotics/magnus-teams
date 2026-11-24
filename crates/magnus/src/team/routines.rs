@@ -251,7 +251,7 @@ impl Kernel {
                     // for unattended runs quarantines its untrusted reads.
                     let text = r.text.trim();
                     let quarantine = self.unattended_quarantine(&crate::quarantine_runtime::Unattended { id: &id, person: &r.by, text, posts_to_others: true });
-                    match self.start_room_mission_as("poll", &workspace, &r.channel, &r.by, text, None, quarantine, false).await {
+                    match self.start_room_mission_as("poll", &workspace, &r.channel, &r.by, text, None, quarantine, false, Some(id.clone())).await {
                         Ok((_, task, _)) => {
                             self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
                         }
