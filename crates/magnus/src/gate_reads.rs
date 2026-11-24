@@ -127,7 +127,7 @@ impl Kernel {
     /// how (a draft's To, Cc and Bcc through `get_draft`, never the model's
     /// words), with the person's own sign-in. Whatever stops the read stops
     /// the action: nothing is sent to an address no one has seen.
-    async fn read_destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
+    pub(crate) async fn read_destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
         let Some(d) = f.connector.as_ref().and_then(|c| c.destinations.get(&f.remote)) else { return Ok(None) };
         let nothing = format!("Nothing was sent to {}.", f.app);
         let Some(id) = a.input.get(&d.id).filter(|v| !v.is_null()) else {
