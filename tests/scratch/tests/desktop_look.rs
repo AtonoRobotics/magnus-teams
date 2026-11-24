@@ -22,10 +22,9 @@ const HEIGHT: usize = 800;
 /// The Desktop artboard's top bar, in pixels.
 const BAR_PX: usize = 34;
 const BAR_SLACK_PX: usize = 2;
-/// Channel steps: the bar's color against the app's token and the
-/// artboard's, and what counts as something drawn on the bar.
+/// Channel steps: the bar's color against the app's token, and what
+/// counts as something drawn on the bar.
 const SAME_COLOR: u8 = 4;
-const NEAR_ARTBOARD: u8 = 16;
 const DRAWN: u8 = 40;
 /// The wallpaper, below the bar and clear of the mark: the mean channel
 /// difference from the artboard, and the share of pixels far from it.
@@ -131,7 +130,9 @@ fn looks_like_the_mockup(theme: &str, png: &[u8], bar_token: &str) {
     assert!(h.abs_diff(BAR_PX) <= BAR_SLACK_PX && h.abs_diff(art_h) <= BAR_SLACK_PX, "{theme}: the top bar is {h} pixels, the artboard's {art_h}");
     let bar = ours.at(clear, 1);
     assert!(near(bar, hex(bar_token), SAME_COLOR), "{theme}: the bar is {bar:?}, not the app's {bar_token}");
-    assert!(near(bar, art.at(clear, 1), NEAR_ARTBOARD), "{theme}: the bar is {bar:?}, the artboard's {:?}", art.at(clear, 1));
+    // Its color is the app's (above), not the artboard's: the artboards
+    // (2026-11-11) predate the app's themes (2026-11-17, 2026-11-20), which
+    // the computer's desktop follows (decisions/2026-11-24-the-desktop-bar-is-the-apps-color.md).
     let (mean, far) = difference(&ours, &art, 300..WIDTH, 60..700);
     assert!(mean <= MOST_MEAN_DIFFERENCE && far <= MOST_FAR_SHARE, "{theme}: the wallpaper differs from the artboard: mean {mean:.2}, {:.2}% far", far * 100.0);
     let (mark, _) = difference(&ours, &art, 40..220, 715..765);

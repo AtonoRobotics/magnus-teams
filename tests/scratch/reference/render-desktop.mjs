@@ -1,17 +1,20 @@
 // The reference the desktop acceptance check compares against (spec rev 145,
 // "The desktop": "Mockup. The Desktop and Wallpaper artboards"): the Desktop
-// artboard with no window open, over the Wallpaper artboard, in dark and
-// light, rendered by a real Chromium at the computer's 1280x800.
+// artboard with no window open, over the wallpaper, in dark and light,
+// rendered by a real Chromium at the computer's 1280x800. The wallpaper is
+// the one make_theme.py draws: it replaced the Wallpaper artboard's on
+// 2026-11-16 (decisions/2026-11-24-the-desktop-bar-is-the-apps-color.md).
 //
 // node tests/scratch/reference/render-desktop.mjs
 //   MAGNUS_CHROMIUM  the Chromium to run (default: Playwright's, as tests use)
 //
 // Writes desktop-dark.png and desktop-light.png beside this file. Run it
-// again when either artboard changes, and commit what it writes.
+// again when the artboard or the wallpaper changes, and commit what it writes.
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(here, "../../../browser/package.json"));
@@ -30,7 +33,7 @@ function artboard(file, theme) {
 }
 
 function page(theme) {
-  const wallpaper = artboard("Wallpaper.dc.html", theme);
+  const wallpaper = execFileSync("python3", ["-c", `import sys; sys.path.insert(0, sys.argv[1]); import make_theme; print(make_theme.wallpaper_svg(sys.argv[2]))`, path.join(here, "../../../sandbox/desktop"), theme], { encoding: "utf8" });
   let desktop = artboard("computer-desktop.dc.html", theme);
   desktop = desktop.replace(/<dc-import name="Wallpaper"[^>]*><\/dc-import>/, wallpaper);
   // No window open: a computer as it wakes.

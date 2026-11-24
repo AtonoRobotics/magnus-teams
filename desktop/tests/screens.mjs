@@ -43,6 +43,8 @@ let computer;
 await step("open the app", async () => {
   await page.goto(base);
   await page.locator("#main").waitFor();
+  // A newcomer is shown the setup wizard once (272cec4); close it as they would.
+  await page.locator("#setup-wizard-modal[open] [data-wiz-close]").click({ timeout: 10000 }).catch(() => {});
 });
 
 // The person's one computer is there with nobody making it (spec rev 142),
