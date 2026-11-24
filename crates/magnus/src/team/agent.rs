@@ -27,6 +27,10 @@ const CITE: &str = "When you rely on an entry, cite its id in square brackets.";
 pub(crate) enum TeamOp {
     /// Reading a base its owner may.
     ReadKnowledge,
+    /// Reading a shared file (`coedit::tool`).
+    ReadFile,
+    /// Proposing an edit to a co-edited file, with a lane's result.
+    ProposeEdit,
 }
 
 /// The workspace's tools, as `tool_registry` declares them.
@@ -38,9 +42,10 @@ fn in_team_run(tool: &str) -> bool {
     tools::RECORDS.contains(&tool) || crate::tool_registry::decl(tool).is_some_and(|d| d.in_team)
 }
 
-/// Whether this is the base reader a person's own agent has too.
+/// Whether this is a workspace tool a person's own agent has too: every
+/// one left is.
 fn open_to_personal(tool: &str) -> bool {
-    crate::tool_registry::team_op(tool) == Some(TeamOp::ReadKnowledge)
+    crate::tool_registry::team_op(tool).is_some()
 }
 
 /// Whether an app acts through each person's own sign-in. A team run never
@@ -233,6 +238,8 @@ impl Kernel {
     pub(crate) async fn team_tool(&self, a: &Action) -> Result<(String, bool, Option<Value>)> {
         match crate::tool_registry::team_op(&a.tool).with_context(|| format!("no executor for {}", a.tool))? {
             TeamOp::ReadKnowledge => self.team_read_knowledge(a),
+            TeamOp::ReadFile => self.team_read_file(a).await,
+            TeamOp::ProposeEdit => self.team_propose_edit(a).await,
         }
     }
 

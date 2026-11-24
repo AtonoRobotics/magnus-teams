@@ -63,7 +63,13 @@ async fn list_missions(State(k): K, Member { person: p, .. }: Member<at::Guest>,
     if !has_channel(&k, &ws, &room, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    let view = k.read(|s| s.missions.view_for_room(&ws, &room, &p.id));
+    let view = k.read(|s| {
+        let mut view = s.missions.view_for_room(&ws, &room, &p.id);
+        if let Some(w) = s.team.workspace(&ws) {
+            super::coedit::with_edits(&mut view, w, &p.id);
+        }
+        view
+    });
     Ok(Json(view).into_response())
 }
 
@@ -115,6 +121,17 @@ async fn release_lane(
     }
 
     let actor = format!("person:{}", p.id);
+    // Its edits to co-edited files land with it; one that conflicts now is
+    // the owner's to decide first, from both versions.
+    match k.coedit_land_lane(&actor, &ws, &mission, &lane).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(stuck)) => {
+            let changes: Vec<Value> = stuck.into_iter().map(|(id, name, conflicts)| json!({ "change": id, "name": name, "conflicts": conflicts })).collect();
+            let error = "a shared file changed since your agent's edit, and parts conflict: decide each, or throw the edit away, then share again";
+            return Ok((StatusCode::CONFLICT, Json(json!({ "error": error, "changes": changes }))).into_response());
+        }
+        Err(e) => return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+    }
     let released = TeamMissionEvent::LaneReleased { workspace: ws.clone(), mission: mission.clone(), lane: lane.clone(), contribution: text.clone(), released_by: p.id.clone() };
     let moved = k.move_lane(&actor, LaneStep::OwnerRelease, released).await.map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
     if !moved {

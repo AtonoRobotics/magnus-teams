@@ -111,7 +111,7 @@ const sandbox = {
   document: { addEventListener: () => {} }, location: { hash: "" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["server.js", "message-controls.js", "chat-view.js", "personal-chat.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["server.js", "message-controls.js", "chat-view.js", "personal-chat.js", "teams.js", "team-chat.js", "team-conversation.js", "coedit.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, MessageControls };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal

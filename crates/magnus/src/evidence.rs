@@ -159,7 +159,7 @@ pub fn receipts(s: &State, run: &Run, class: Class) -> Vec<Value> {
             let read_back = s.evidence.read_backs(&run.id).iter().find(|r| r.call_id == i.call_id).cloned();
             let risk = class(&i.tool).map(|(_, r)| r).unwrap_or(Risk::ReversibleWrite);
             let reversible = risk == Risk::ReversibleWrite;
-            json!({
+            let mut r = json!({
                 "call_id": i.call_id,
                 "tool": i.tool,
                 "what": what(class, &i.tool, &dests),
@@ -168,7 +168,13 @@ pub fn receipts(s: &State, run: &Run, class: Class) -> Vec<Value> {
                 "read_back": read_back,
                 "risk": risk.as_str(),
                 "reversible": reversible,
-            })
+            });
+            // A quote or invoice sent from a co-edited file names the version that went.
+            let versions = crate::team::coedit::versions_sent(run, i);
+            if !versions.is_empty() {
+                r["versions"] = json!(versions);
+            }
+            r
         })
         .collect()
 }

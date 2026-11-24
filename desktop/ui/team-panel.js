@@ -342,8 +342,8 @@ const TeamPanel = {
       body = `<h2>Channels</h2><ul class="team-mini">${chans.map(c => `<li><a href="${teamHref(ws, { kind: "channel", id: c.id })}">#${esc(c.name)}</a>${railCount(c)}</li>`).join("")}</ul>${boardHtml(d.tasks, ws, n => this.name(n), edit)}`;
     }
     if (s.tab === "board") body = boardHtml(d.tasks, ws, n => this.name(n), edit);
-    if (s.tab === "files") body = `${d.files.length ? `<ul class="team-files">${d.files.map(f => `<li data-team-file="${esc(f.name)}"><span>${esc(f.name)}</span><span class="small faint">${esc(f.by_name)} · ${esc(kb(f.size))}</span><button class="link" data-file-save>Download</button>${edit ? `<button class="link" data-file-delete>Delete</button>` : ""}</li>`).join("")}</ul>` : `<p class="empty">No files yet.</p>`}
-      ${edit ? `<label class="team-drop" data-drop-files>Drop files here, or <input type="file" multiple data-project-files aria-label="Add files"></label>` : ""}`;
+    if (s.tab === "files") body = `${d.files.length ? `<ul class="team-files">${d.files.map(f => `<li data-team-file="${esc(f.name)}"><span>${esc(f.name)}</span><span class="small faint">${esc(f.coedit ? "the project's" : f.by_name)} · ${esc(kb(f.size))}</span>${Coedit.badge(f, Team.home.me, edit)}<button class="link" data-file-save>Download</button>${edit ? `<button class="link" data-file-delete>Delete</button>` : ""}</li>`).join("")}</ul>` : `<p class="empty">No files yet.</p>`}
+      ${edit ? `<label class="team-drop" data-drop-files>Drop files here, or <input type="file" multiple data-project-files aria-label="Add files"> ${Coedit.choice()}</label>` : ""}`;
     if (s.tab === "knowledge") body = `<div id="tp-knowledge"><p class="small faint">Loading…</p></div>`;
     if (s.tab === "members") {
       const owner = d.project.owner === Team.home.me, inIt = new Set(d.members.map(m => m.id));
@@ -382,13 +382,14 @@ const TeamPanel = {
 
   async change(e) {
     if (e.target.matches("[data-task-status]")) this.move(e.target.closest("[data-task]").dataset.task, e.target.value);
-    if (e.target.matches("[data-project-files]")) { await this.upload(e.target.files); e.target.value = ""; }
+    if (e.target.matches("[data-project-files]")) { await this.upload(e.target.files, e.target.closest("[data-drop-files]")?.querySelector("[data-share-as]")?.value); e.target.value = ""; }
   },
 
-  async upload(files) {
+  /** @param {FileList|File[]} files @param {string} [as] "copy" or "coedit" */
+  async upload(files, as = "copy") {
     const s = this.s;
     for (const f of files) {
-      try { await Magnus.putBytes(`/v1/workspaces/${enc(s.ws)}/files/${enc(f.name)}?project=${enc(s.id)}`, new Uint8Array(await f.arrayBuffer())); } catch (err) { toast(err.message); }
+      await Coedit.upload(s.ws, f, s.id, as, s.data?.files);
     }
     await this.refresh();
   },
@@ -427,6 +428,7 @@ const TeamPanel = {
 
   async click(e) {
     const s = this.s, t = e.target;
+    if (await Coedit.click(e, s.ws, Team.home.role !== "guest", () => this.refresh())) return;
     const file = t.closest("[data-team-file]")?.dataset.teamFile, at = file && `/v1/workspaces/${enc(s.ws)}/files/${enc(file)}`;
     const entry = t.closest("[data-entry]")?.dataset.entry;
     if (t.closest("[data-dismiss-made]")) { Team.justMade = null; this.draw(); return; }
@@ -496,6 +498,6 @@ document.addEventListener("drop", e => {
   const zone = e.target.closest?.("[data-drop-files]");
   if (!zone || !e.dataTransfer?.files?.length || !TeamPanel.s) return;
   e.preventDefault();
-  TeamPanel.upload(e.dataTransfer.files);
+  TeamPanel.upload(e.dataTransfer.files, zone.querySelector("[data-share-as]")?.value);
 });
 document.addEventListener("dragover", e => { if (e.target.closest?.("[data-drop-files]")) e.preventDefault(); });

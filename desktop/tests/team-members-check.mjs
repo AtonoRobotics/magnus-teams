@@ -39,7 +39,7 @@ const sandbox = {
   location: { hash: "#/team/w/people", origin: "https://server", pathname: "/" }, setTimeout: () => 0, clearTimeout: () => {}, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["server.js", "teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["server.js", "teams.js", "team-chat.js", "coedit.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team };`, sandbox);
 const { Team } = sandbox.__x;
 Team.home = home; Team.ws = "w"; Team.homes = { w: home };

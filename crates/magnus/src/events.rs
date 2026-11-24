@@ -1215,7 +1215,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("rule", &["words"]),
     ("spend", &["reason", "note"]),
     ("team_mission", &["goal", "objective", "draft", "contribution", "markdown", "held_because"]),
-    ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
+    ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat", "coedit"]),
     ("prefetch_recorded", &["pointers"]),
     ("outside_agent", &["text", "reply", "draft", "held_because"]),
     ("staged", &["sentence", "input", "shown", "provenance"]),

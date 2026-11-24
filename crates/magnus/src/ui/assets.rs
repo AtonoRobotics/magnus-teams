@@ -46,6 +46,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("payments.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/payments.js")),
     ("rules.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/rules.js")),
     ("user-avatar.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/user-avatar.js")),
+    ("coedit.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/coedit.js")),
     ("team-rooms.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/team-rooms.js")),
     ("teams.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/teams.js")),
     ("message-controls.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/message-controls.js")),

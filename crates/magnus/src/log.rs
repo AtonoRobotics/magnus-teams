@@ -245,6 +245,8 @@ pub const CONTENT_OWNERS: &str = "UPDATE public.content c SET person = o.person 
             WHEN 'note' THEN regexp_replace(w.body->'note'->>'by', '^agent:', '')
             WHEN 'run' THEN e.body->>'requester'
             WHEN 'whisper' THEN e.body->>'owner'
+            WHEN 'coedit' THEN CASE w.body->'coedit'->>'step' WHEN 'proposed' THEN w.body->'coedit'->'author'->>'person'
+                WHEN 'checked_out' THEN w.body->'coedit'->>'person' WHEN 'checked_in' THEN w.body->'coedit'->>'person' END
             WHEN 'chat' THEN CASE WHEN w.body->'chat'->>'what' = 'edited' THEN (SELECT regexp_replace(mc.body->'message'->>'sender', '^agent:', '')
                 FROM public.events m JOIN public.content mc USING (seq) WHERE m.kind = 'team' AND m.body->>'change' = 'message'
                 AND m.body->>'workspace' = e.body->>'workspace' AND m.body->>'channel' = w.body->'chat'->>'channel'

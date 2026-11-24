@@ -114,6 +114,7 @@ impl Kernel {
                 input: json!({ "agent": agent.name, "text": draft }),
                 readers: ("outside_agent", vec![agent.name.clone()]),
                 text: &draft,
+                content: vec![],
                 to: "the outside agent",
                 standing: format!("{} asked; covered by a standing release the person set for this agent and this exact request; it is sent to the outside agent, which is no person of this server", agent.name),
                 covered: true,

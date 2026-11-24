@@ -174,22 +174,22 @@ const SharedCanvas = (() => {
     if (kind === "files") {
       const d = await TeamPanel.load(ws, project);
       const files = d.files || [];
-      const body = `${files.length ? `<ul class="team-files">${files.map(f => `<li data-team-file="${esc(f.name)}"><span>${esc(f.name)}</span><span class="small faint">${esc(f.by_name)} · ${esc(kb(f.size))}</span><button class="link" data-file-save>Download</button>${edit ? `<button class="link" data-file-delete>Delete</button>` : ""}</li>`).join("")}</ul>` : `<p class="empty">No files yet. Drop one into the conversation or add one below.</p>`}
-        ${edit ? `<label class="team-drop" data-drop-files>Add files to ${esc(home.name)}: <input type="file" multiple data-project-files aria-label="Add files"></label>` : ""}`;
+      const body = `${files.length ? `<ul class="team-files">${files.map(f => `<li data-team-file="${esc(f.name)}"><span>${esc(f.name)}</span><span class="small faint">${esc(f.coedit ? "the project's" : f.by_name)} · ${esc(kb(f.size))}</span>${Coedit.badge(f, home.me, edit)}<button class="link" data-file-save>Download</button>${edit ? `<button class="link" data-file-delete>Delete</button>` : ""}</li>`).join("")}</ul>` : `<p class="empty">No files yet. Drop one into the conversation or add one below.</p>`}
+        ${edit ? `<label class="team-drop" data-drop-files>Add files to ${esc(home.name)}: <input type="file" multiple data-project-files aria-label="Add files"> ${Coedit.choice()}</label>` : ""}`;
       return {
         head, body,
         after: el => {
           el.onchange = async e => {
             if (!e.target.matches("[data-project-files]")) return;
             for (const f of e.target.files) {
-              try { await Magnus.putBytes(`/v1/workspaces/${enc(ws)}/files/${enc(f.name)}${project ? `?project=${enc(project)}` : ""}`, new Uint8Array(await f.arrayBuffer())); } catch (err) { toast(err.message); }
+              await Coedit.upload(ws, f, project, $("[data-share-as]", el)?.value || "copy", files);
             }
             e.target.value = "";
             redraw();
           };
           el.onclick = async e => {
             const name = e.target.closest("[data-team-file]")?.dataset.teamFile;
-            if (!name) return;
+            if (!name || await Coedit.click(e, ws, edit, redraw)) return;
             const at = `/v1/workspaces/${enc(ws)}/files/${enc(name)}`;
             try {
               if (e.target.closest("[data-file-save]")) await Magnus.download(at, name);
