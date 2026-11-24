@@ -1,8 +1,12 @@
 # The fast tier: runs on every push, on a throwaway hosted runner. Its target
 # is five minutes once the build cache is warm; on 2026-11-13 warm runs took
 # 4 to 5 minutes, about 3.5 of them `cargo test --workspace --lib --bins`
-# and 35 seconds clippy. The timeout is twice that, so a hung test fails the
-# run in ten minutes instead of thirty (decisions/2026-11-13-ci-and-test-hygiene.md).
+# and 35 seconds clippy. The timeout was twice that, so a hung test fails the
+# run long before thirty minutes (decisions/2026-11-13-ci-and-test-hygiene.md).
+# On 2026-11-23 the same commit's lib tests took 156 s on one runner and
+# 285 s on another, and a whole run passed ten minutes with every test
+# passing, so the timeout is fifteen
+# (decisions/2026-11-23-fast-tier-timeout-fifteen-minutes.md).
 # Heavy suites run as acceptance against a release candidate, not here (see
 # AGENTS.md, "How work lands").
 #
@@ -24,7 +28,7 @@ env:
 jobs:
   fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: pgvector/pgvector:pg16
