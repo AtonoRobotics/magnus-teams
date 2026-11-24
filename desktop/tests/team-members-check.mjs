@@ -123,6 +123,9 @@ const form = { q: sel => (sel === "[data-people-input]" ? field : null) };
 await fire("submit", { target: { closest: s => (s === "[data-people-invite]" ? form : null) }, preventDefault() {} });
 assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST")), JSON.stringify([["POST", "/v1/workspaces/w/invites", { email: "ann@example.com" }]]), "an invite was not sent exactly once");
 assert.match(result.textContent, /Invitation emailed to ann@example\.com/);
+// The outcome is drawn with the panel, so the redraw after an invite (and
+// every refresh) keeps it instead of wiping the link to send.
+assert.match(sandbox.teamPeopleHtml({ ...owner, id: "w" }, [], caps), /data-invite-result[^>]*>Invitation emailed to ann@example\.com/, "a redraw wiped the invite's outcome");
 
 // Switching workspaces rebinds context without adding duplicate listeners.
 sandbox.wirePeopleSettings(center, "v", { ...owner, id: "v" }, [], async () => {});
