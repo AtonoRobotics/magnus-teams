@@ -22,7 +22,7 @@ const sandbox = {
   document: { addEventListener: (type, f) => (listeners[type] ||= []).push(f) }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "side-panel.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "side-panel.js", "teams.js", "team-chat.js", "team-conversation.js", "coedit.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, ChatView, Conversation, MessageDrafts };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal

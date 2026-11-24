@@ -233,6 +233,21 @@ pub(crate) fn listed(w: &Workspace, name: &str, person: &str) -> serde_json::Val
     serde_json::json!({ "version": f.head().map_or(0, |h| h.number), "format": f.format, "checked_out": lease, "open_changes": open })
 }
 
+/// Each of `viewer`'s own lanes in a room's missions, with the edits that
+/// wait with its result: only its owner sees them, as only they see its draft.
+pub(crate) fn with_edits(view: &mut [serde_json::Value], w: &Workspace, viewer: &str) {
+    for m in view.iter_mut() {
+        let mission = m["id"].as_str().unwrap_or_default().to_string();
+        let Some(lanes) = m["lanes"].as_array_mut() else { continue };
+        for l in lanes.iter_mut().filter(|l| l["owner"] == viewer) {
+            let edits: Vec<serde_json::Value> = w.coedit.of_lane(&mission, l["id"].as_str().unwrap_or_default()).into_iter().map(|o| serde_json::json!(o)).collect();
+            if !edits.is_empty() {
+                l["edits"] = serde_json::Value::Array(edits);
+            }
+        }
+    }
+}
+
 /// A shared file came in: a co-edited one starts its history.
 pub(super) fn on_file(w: &mut Workspace, f: &File) {
     if f.coedit {

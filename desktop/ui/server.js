@@ -378,6 +378,15 @@ const Server = (() => {
       removeTask: (/** @type {Id} */ w, /** @type {Id} */ id) => del(`${ws(w)}/tasks/${enc(id)}`),
       setProjectMembers: (/** @type {Id} */ w, /** @type {Id} */ project, /** @type {Id[]} */ members) => put(`${ws(w)}/projects/${enc(project)}`, { members }),
       removeFile: (/** @type {Id} */ w, /** @type {Id} */ file) => del(`${ws(w)}/files/${enc(file)}`),
+      // A co-edited file (coedit.js): its history, a check-out, a revert, and this person's open changes.
+      coedit: (/** @type {Id} */ w, /** @type {string} */ name) => get(`${ws(w)}/coedit/${enc(name)}`),
+      checkOut: (/** @type {Id} */ w, /** @type {string} */ name) => post(`${ws(w)}/coedit/${enc(name)}/checkout`),
+      checkIn: (/** @type {Id} */ w, /** @type {string} */ name) => post(`${ws(w)}/coedit/${enc(name)}/checkin`),
+      revert: (/** @type {Id} */ w, /** @type {string} */ name, /** @type {number} */ to) => post(`${ws(w)}/coedit/${enc(name)}/revert`, { to }),
+      coeditChanges: (/** @type {Id} */ w) => get(`${ws(w)}/coedit-changes`),
+      /** @param {Id} w @param {Id} id @param {Record<string, CoeditKeep>} choices */
+      landChange: (w, id, choices) => post(`${ws(w)}/coedit-changes/${enc(id)}/land`, { choices }),
+      discardChange: (/** @type {Id} */ w, /** @type {Id} */ id) => post(`${ws(w)}/coedit-changes/${enc(id)}/discard`),
       knowledge: (/** @type {Id} */ w, /** @type {Id} */ project) => get(`${ws(w)}/knowledge${query({ project })}`),
       /** @param {Id} w @param {{statement: string, kind?: string, project?: Id}} body */
       addKnowledge: (w, body) => post(`${ws(w)}/knowledge`, body),

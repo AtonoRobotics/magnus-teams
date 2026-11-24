@@ -96,7 +96,7 @@ const ctx = {
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ["side-panel.js", "user-avatar.js", "team-rooms.js", "teams.js", "team-chat.js", "team-panel.js", "team-people.js", "team-command.js", "shared-canvas.js"]) {
+for (const f of ["side-panel.js", "user-avatar.js", "coedit.js", "team-rooms.js", "teams.js", "team-chat.js", "team-panel.js", "team-people.js", "team-command.js", "shared-canvas.js"]) {
   vm.runInContext(readFileSync(join(here, "../ui", f), "utf8"), ctx, { filename: f });
 }
 vm.runInContext("globalThis.__x = { SharedCanvas, Team, PANELS };", ctx);

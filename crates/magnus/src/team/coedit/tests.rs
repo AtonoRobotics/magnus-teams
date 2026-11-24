@@ -216,6 +216,13 @@ async fn an_agent_edit_with_a_private_canary_after_an_injected_page_waits_in_the
     assert_eq!(mine["changes"][0]["lane"], "l1", "{mine}");
     let (_, sams) = s.get(&s.token("sam").await, &format!("/v1/workspaces/{ws}/coedit-changes")).await;
     assert_eq!(sams["changes"], json!([]), "another member sees mo's held edit");
+    // And on its lane's card in the room, to mo alone.
+    let lanes = |who: &'static str| {
+        let (s, ws, room) = (&s, ws.clone(), room.clone());
+        async move { s.get(&s.token(who).await, &format!("/v1/workspaces/{ws}/rooms/{room}/missions")).await.1[0]["lanes"][0]["edits"].clone() }
+    };
+    assert_eq!(lanes("mo").await[0]["name"], "quote.json");
+    assert_eq!(lanes("sam").await, Value::Null, "another member sees mo's held edit on the card");
     s.done().await;
 }
 

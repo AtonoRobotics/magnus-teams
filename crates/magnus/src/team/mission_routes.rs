@@ -63,7 +63,13 @@ async fn list_missions(State(k): K, Member { person: p, .. }: Member<at::Guest>,
     if !has_channel(&k, &ws, &room, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    let view = k.read(|s| s.missions.view_for_room(&ws, &room, &p.id));
+    let view = k.read(|s| {
+        let mut view = s.missions.view_for_room(&ws, &room, &p.id);
+        if let Some(w) = s.team.workspace(&ws) {
+            super::coedit::with_edits(&mut view, w, &p.id);
+        }
+        view
+    });
     Ok(Json(view).into_response())
 }
 
