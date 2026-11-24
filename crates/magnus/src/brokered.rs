@@ -426,8 +426,9 @@ impl Session {
     }
 
     /// A request and its answer. Nothing happened at the provider when the
-    /// request was not sent or the server refused it; once sent, what
-    /// happened is unknown until it answers.
+    /// request was not sent; once sent, what happened is unknown until it
+    /// answers, and a tool call answered with an error stays unknown
+    /// (`error_answer`).
     async fn rpc(&mut self, method: &str, params: Value) -> Result<Value, CallError> {
         self.n += 1;
         let id = self.n;
@@ -441,10 +442,24 @@ impl Session {
                 continue;
             }
             if let Some(e) = msg.get("error") {
-                return Err(CallError::NotSent(format!("connector error: {}", e["message"].as_str().unwrap_or("unknown"))));
+                return Err(error_answer(method, e));
             }
             return Ok(msg["result"].clone());
         }
+    }
+}
+
+/// A server's error answer to `method`. A tool call it answers with an
+/// error may have acted before it failed, so what happened at the provider
+/// is unknown, never "not sent": a send is then reconciled, not tried again
+/// as if nothing went out. Anything else (the handshake, the tool list)
+/// changed nothing.
+fn error_answer(method: &str, e: &Value) -> CallError {
+    let m = format!("connector error: {}", e["message"].as_str().unwrap_or("unknown"));
+    if method == "tools/call" {
+        CallError::Unknown(m)
+    } else {
+        CallError::NotSent(m)
     }
 }
 
@@ -557,6 +572,34 @@ mod tests {
         assert_eq!(b.generation("mail", "alice"), 1);
         b.stop(None, None).await;
         assert_eq!((b.generation("mail", "bob"), b.generation("drive", "alice"), b.generation("mail", "alice")), (1, 1, 2));
+    }
+
+    /// A server that answers a tool call with an error may have acted
+    /// before it failed: the outcome is unknown, never "not sent". An error
+    /// answer to the handshake or the list changed nothing. Before, every
+    /// error answer was "not sent", and a send could be tried again.
+    #[tokio::test]
+    async fn a_tool_call_answered_with_an_error_has_an_unknown_outcome() {
+        for (method, unknown) in [("tools/call", true), ("tools/list", false), ("initialize", false)] {
+            let (ours, mut theirs) = UnixStream::pair().unwrap();
+            let (r, w) = ours.into_split();
+            let mut s = Session { r: BufReader::new(r), w, n: 0 };
+            let server = tokio::spawn(async move {
+                let mut asked = String::new();
+                BufReader::new(&mut theirs).read_line(&mut asked).await.unwrap();
+                let id = serde_json::from_str::<Value>(&asked).unwrap()["id"].clone();
+                let answer = json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "upstream timed out after sending" } });
+                theirs.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                theirs
+            });
+            let out = s.rpc(method, json!({})).await;
+            let _theirs = server.await.unwrap();
+            match out {
+                Err(CallError::Unknown(m)) if unknown => assert!(m.contains("upstream timed out"), "{m}"),
+                Err(CallError::NotSent(m)) if !unknown => assert!(m.contains("upstream timed out"), "{m}"),
+                other => panic!("{method}: {:?}", other.err()),
+            }
+        }
     }
 
     #[test]
