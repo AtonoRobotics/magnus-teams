@@ -32,7 +32,7 @@ When you must ask, ask once with your recommendation, and keep working on what d
 - A duration or limit is a named constant with its unit in the name. No `Duration::from_*` with a bare number outside the constants and tests.
 - Config is typed, validated at startup and passed in. Logic never reads the environment.
 - No `unwrap()` or `expect()` outside tests. Clippy warns on them, and the count may only fall (`ci/clippy-baseline`).
-- A source file stays under 800 lines. Files over it are listed in `ci/oversize.txt` and may only shrink. New code goes in a new module.
+- A source file stays under 800 lines. Files over it are listed in `ci/oversize.txt` and may only shrink. New code goes in a new module. Test files have no limit: a tests/ directory, `*_tests.rs` and `*_test.rs`.
 - Secrets come from the vault only.
 - The wire types are defined once in Rust. The UI is plain JavaScript with no build step, and its types come from JSDoc.
 - Styles live in one sheet per area, and a property is set for a selector in one place (`docs/ui-styles.md`, checked by `desktop/tests/stylesheet-check.mjs`).
