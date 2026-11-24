@@ -63,13 +63,16 @@ impl ReadBack {
 
 /// Whether a tool sends a message: an irreversible one named for sending
 /// or posting it (`send_draft`, `send_message`, `post_message`).
+#[cfg(test)]
 fn sends_a_message(tool: &str, risk: &str) -> bool {
     risk == "irreversible" && (tool.starts_with("send") || tool.starts_with("post"))
 }
 
 /// What a connector's manifest leaves unread: every message send is read
 /// back (spec rev 147), so a send with no `[read_back.<tool>]` would end
-/// "Not read back" and still count as done.
+/// "Not read back" and still count as done. The catalog's check
+/// (`catalog::tests::well_formed`) refuses such a manifest.
+#[cfg(test)]
 pub fn unread_send<'a>(tools: impl IntoIterator<Item = (&'a String, &'a String)>, read_back: &BTreeMap<String, ReadBack>) -> Option<String> {
     let t = tools.into_iter().find(|(t, risk)| sends_a_message(t, risk) && !read_back.contains_key(*t))?.0;
     Some(format!("{t} sends a message and is not read back: it needs a [read_back.{t}]"))
