@@ -107,16 +107,15 @@ await step("browse, edit and bulk delete files", async () => {
 const composer = () => page.locator("#say");
 
 await step("use a team", async () => {
-  await page.getByRole("link", { name: "Teams" }).click();
+  // A team is a shared project, started from the sidebar's Projects group
+  // (eea5aa0); its conversation is the one chat view on the unified Stage,
+  // with no rail of its own (46d0dd8).
+  await page.getByRole("group", { name: "Projects" }).getByRole("link", { name: "Shared", exact: true }).click();
   await page.locator("#team-name").fill("Research");
   await page.getByRole("button", { name: "Create" }).click();
   await page.locator("#msg").fill("Hello team");
   await composer().getByRole("button", { name: "Send" }).click();
   await page.locator("#thread [data-entry]", { hasText: "Hello team" }).waitFor();
-  // The workspace's own rail is the left column: the app's navigation folds
-  // to icons and its bar goes, so there is one rail, not two.
-  assert.equal(await page.evaluate(() => document.body.dataset.navigation), "compact", "the app's navigation stays open beside the team rail");
-  assert.equal(await page.locator("#workspace-bar").isVisible(), false, "the app's bar sits above the workspace");
 });
 
 await step("whisper and share it", async () => {
@@ -131,22 +130,28 @@ await step("whisper and share it", async () => {
 });
 
 await step("invite someone, and keep files and knowledge in a project", async () => {
-  await page.locator("#team-rail").getByRole("link", { name: /^People: add or remove/ }).click();
-  await page.getByLabel("Invite by email").fill("newcomer@corp.example");
-  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  // People are added from the conversation's Members chip, projects made
+  // from the one Ctrl+K palette, and a project's views are the links of the
+  // head's Workspace views menu (#/team/:ws/p/:id/files, shown in stage
+  // themes): followed here as that menu does.
+  await page.getByRole("button", { name: "Members and project settings" }).first().click();
+  await page.getByLabel("Add collaborator by name or email").fill("newcomer@corp.example");
+  await page.locator("[data-people-invite]").getByRole("button", { name: "Add", exact: true }).click();
   await page.locator("[data-invite-result]", { hasText: "Send them this link" }).waitFor();
-  await page.locator("#team-rail [data-command]").click();
-  await page.locator("dialog.team-command input").fill("Launch");
-  await page.locator("dialog.team-command").getByRole("option", { name: /^New project Launch/ }).click();
-  const tabs = page.getByRole("navigation", { name: "Project" });
-  await tabs.getByRole("link", { name: "Files", exact: true }).click();
+  await page.keyboard.press("Control+K");
+  await page.locator("#workspace-query").fill("Launch");
+  await page.locator("#workspace-search").getByRole("option", { name: /^New project Launch/ }).click();
+  await page.waitForURL(/#\/team\/[^/]+\/p\/[^/]+$/);
+  const project = await page.evaluate(() => location.hash);
+  const view = tab => go(`${project}/${tab}`);
+  await view("files");
   await page.locator("[data-project-files]").setInputFiles({ name: "plan.txt", mimeType: "text/plain", buffer: Buffer.from("the plan") });
   const file = page.locator('[data-team-file="plan.txt"]');
   await file.waitFor();
   await file.locator("[data-file-delete]").click();
   await page.locator("dialog.ask").getByRole("button", { name: "Delete" }).click();
   await file.waitFor({ state: "detached" });
-  await tabs.getByRole("link", { name: "Knowledge", exact: true }).click();
+  await view("knowledge");
   await page.getByLabel("Statement").fill("Fridays are for reviews");
   await page.locator("[data-new-entry]").getByRole("button", { name: "Add" }).click();
   await page.locator("[data-entry]", { hasText: "Fridays" }).waitFor();
@@ -166,7 +171,7 @@ await step("sign in through a secure card", async () => {
   const sent = [];
   await page.route("**/v1/identities/ident/secure-form", r => { sent.push(r.request().postDataJSON()); r.fulfill({ json: { filled: true } }); });
   await go("#/teams");
-  await page.getByRole("heading", { name: "Teams" }).waitFor();
+  await page.getByRole("heading", { name: "Shared projects" }).waitFor();
   await page.evaluate(() => {
     const item = { id: "sf", kind: "secure_form", status: "open", can_respond: true, summary: "Sign in", details: { identity: "ident", site: "example.test", password_field: "#p", username_field: "#u" } };
     App.inbox.push(item);
