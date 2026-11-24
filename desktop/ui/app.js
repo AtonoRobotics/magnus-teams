@@ -1410,13 +1410,13 @@ function scheduleText(sc) {
   return `${sc.ended ? `Ended: ${sc.ended}` : sc.paused ? `Paused: ${sc.paused}` : `Next run ${until(sc.next)}`} · ${sc.last_failed ? `Last firing could not start: ${sc.last_failed.error}` : last ? `Last result: ${(STATUS[last.status] || ["", last.status])[1]}, ${when(last.ended_at || last.created_at)}` : "No results yet"}`;
 }
 // A card's answers: accept (one tap, which grants the work), Not now, or
-// Decline, which asks for the reason. A grant card is not put off (`later`
-// false).
-function cardActs(e, ui, accept, later = true) {
+// Decline, which asks for the reason. A grant card, or one already put off,
+// is not put off (`later` false); one put off is deleted, as a decline.
+function cardActs(e, ui, accept, later = true, decline = "Decline") {
   if (ui.declining === e.card) return `<div class="row cc-act decline-why"><label class="sr" for="why-${esc(e.card)}">Why not?</label>
     <input id="why-${esc(e.card)}" data-draft="why-${esc(e.card)}" placeholder="Why not? Magnus reads this before suggesting again">
-    <button class="primary" data-decide="decline">Decline</button><button class="link" data-decide="decline-cancel">Cancel</button></div>`;
-  return `<div class="row cc-act"><button class="primary" data-decide="confirm">${esc(accept)}</button>${later ? `<button data-decide="later">Not now</button>` : ""}<button class="link" data-decide="decline-open">Decline</button></div>`;
+    <button class="primary" data-decide="decline">${esc(decline)}</button><button class="link" data-decide="decline-cancel">Cancel</button></div>`;
+  return `<div class="row cc-act"><button class="primary" data-decide="confirm">${esc(accept)}</button>${later ? `<button data-decide="later">Not now</button>` : ""}<button class="link" data-decide="decline-open">${esc(decline)}</button></div>`;
 }
 
 // A grant's fields as a form (#235): the kind of work, the apps it covers,
@@ -1468,7 +1468,7 @@ function scheduleLine(e) {
   if (!sc) return `<p class="small" data-schedule-gone="${esc(e.schedule || "")}"><span class="chip">Details unavailable</span> ${esc(e.title || "This schedule")} · Schedule details are not currently available.</p>`;
   const act = (k, label) => `<button class="link small" data-sched-act="${k}" data-schedule-id="${esc(sc.id)}">${label}</button>`;
   const chip = sc.ended ? `<span class="chip">Ended</span>` : `<span class="chip sch">${sc.paused ? "Paused" : "Scheduled"}</span>`;
-  const acts = sc.ended ? act("cancel", "Delete") : `${sc.paused ? act("resume", "Resume") : act("pause", "Pause")}${act("cancel", "Cancel")}`;
+  const acts = sc.ended ? act("cancel", "Delete") : `${sc.paused ? act("resume", "Resume") : act("pause", "Pause")}${act("stop", "Stop")}${act("cancel", "Delete")}`;
   return `<div class="reqgroup sched-state" data-schedule="${esc(sc.id)}"><a class="rg-row" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="Open the schedule">
     <span class="st sch">${icon("calendar")}</span><span class="rg-main"><span class="ttl">${esc(sc.title)}</span><span class="sub" data-last>${esc(scheduleText(sc))}</span></span>${chip}${icon("chev", "chev")}</a>
     <div class="card-acts">${acts}<a class="small" href="#/schedules" data-open="schedule:${esc(sc.id)}">Open</a>${sc.started ? `<a class="small" href="#/chat/${enc(`schedule-${sc.id}`)}" data-schedule-runs>Its runs</a>` : ""}</div></div>`;
@@ -1590,16 +1590,18 @@ function entry(e, ui = {}) {
       <div class="pre">${esc(e.summary || "")}</div>${e.view ? shownFrame(e.id, "The deliverable") : ""}${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}</details></div>`;
     case "connector_card": return appOfferCard(e);
     case "suggestion_card": {
-      if (e.state !== "open") return `<div data-card="${esc(e.card)}">${e.schedule ? scheduleLine(e) : cardOutcome(e)}</div>`;
+      // Put off ("Not now"), it is kept, to accept or delete later.
+      const later = e.state === "later";
+      if (e.state !== "open" && !later) return `<div data-card="${esc(e.card)}">${e.schedule ? scheduleLine(e) : cardOutcome(e)}</div>`;
       const timed = e.every_minutes || e.daily_at;
-      return `<div class="confirm chatcard suggestion" data-card="${esc(e.card)}"><div class="cc-head"><span class="st sch">${icon(timed ? "calendar" : "tasks")}</span><strong>${esc(e.title)}</strong></div>
+      return `<div class="confirm chatcard suggestion" data-card="${esc(e.card)}"${later ? " data-later" : ""}><div class="cc-head"><span class="st sch">${icon(timed ? "calendar" : "tasks")}</span><strong>${esc(e.title)}</strong>${later ? ` <span class="chip">Not now</span>` : ""}</div>
         <p class="cc-text">${esc(e.plan)}</p>
         ${e.changed ? `<p class="small"><strong>What changed:</strong> ${esc(e.changed)}</p>` : ""}
         ${evidenceList(e, "Why")}
         <div class="sugg-part"><span class="small muted">What it may do</span><ul class="sugg-list">${(e.permissions || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
         ${timed ? `<div class="tiles"><div><span>When</span><strong>${esc(rule(e))}</strong></div><div><span>Ends</span><strong>${esc(ends(e))}</strong></div></div>` : ""}
         <p class="small muted">It acts for you (${esc(e.acts_for)}), with your access; what it needs from you shows under Needs you.</p>${taintNote(e.taint)}
-        ${cardActs(e, ui, "Accept")}</div>`;
+        ${cardActs(e, ui, "Accept", !later, later ? "Delete" : "Decline")}</div>`;
     }
     case "grant_card": {
       if (e.state !== "open") return `<div data-card="${esc(e.card)}">${cardOutcome(e)}</div>`;
@@ -2642,11 +2644,9 @@ function wirePanel() {
           await Server.tasks.cancel(id); break;
         case "resume": await Server.tasks.resume(id); break;
         case "stop-schedule":
-          if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
-          await Server.schedules.remove(id);
-          App.schedules = (App.schedules || []).filter(x => x.id !== id);
+          if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done. The schedule stays here, ended, until you delete it.", "Stop schedule")) return;
+          await Server.schedules.stop(id);
           toast("The schedule is stopped.");
-          if (Panel.what === `schedule:${id}`) await openPanel("schedules");
           break;
         case "delete-schedule": {
           const sc = (App.schedules || []).find(x => x.id === id);

@@ -153,4 +153,19 @@ assert.match(stage, /MAX_APPROVAL_BOXES/, "Aurora bento surfaces multiple approv
 assert.match(stage, /t\.receipts_count > 0 \|\| t\.has_deliverable/, "Verified badge checks server-returned receipts_count/has_deliverable");
 assert.ok(stage.indexOf("slide(bento, 1);") < stage.indexOf("grow(bento, was);"), "FLIP slide runs before container height animation");
 
+// 6. Stop keeps a schedule and Delete removes it; a card put off is kept,
+// to accept or delete later (owner, 2026-11-23).
+{
+  const chat = read("personal-chat.js");
+  const caseOf = (src, name) => src.slice(src.indexOf(`case "${name}"`), src.indexOf("break;", src.indexOf(`case "${name}"`)));
+  assert.match(caseOf(app, "stop-schedule"), /Server\.schedules\.stop\(id\)/, "Stop does not stop the schedule");
+  assert.doesNotMatch(caseOf(app, "stop-schedule"), /Server\.schedules\.remove/, "Stop deletes the schedule");
+  assert.match(caseOf(app, "delete-schedule"), /Server\.schedules\.remove\(id\)/, "Delete does not remove the schedule");
+  assert.match(chat, /k === "stop"[^]*?Server\.schedules\.stop\(id\)/, "the thread's Stop does not stop the schedule");
+  assert.match(app, /act\("stop", "Stop"\)\}\$\{act\("cancel", "Delete"\)/, "a schedule in a thread does not offer Stop and Delete");
+  const suggestion = app.slice(app.indexOf('case "suggestion_card"'), app.indexOf('case "grant_card"'));
+  assert.match(suggestion, /e\.state !== "open" && !later/, "a card put off is drawn as decided");
+  assert.match(suggestion, /cardActs\(e, ui, "Accept", !later, later \? "Delete" : "Decline"\)/, "a card put off offers no Accept and Delete");
+}
+
 console.log("agent ux check passed");

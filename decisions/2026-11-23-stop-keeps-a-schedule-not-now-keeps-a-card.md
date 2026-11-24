@@ -1,0 +1,7 @@
+# Stop keeps a schedule; Not now keeps a card
+
+The owner ruled on two controls the fourth review found doing the wrong thing (2026-11-23).
+
+**Stop keeps a schedule; Delete removes it.** Stop and Delete on a schedule made the same server call, `DELETE /v1/schedules/{id}`, which removes the schedule. Stop now has its own route, `POST /v1/schedules/{id}/stop` (`Kernel::stop_schedule`). It writes `ScheduleEnded` with the reason "you stopped it" and stops any run of the schedule still going, as Delete does. The schedule stays in Schedules and in its conversation, marked as ended, with its runs, until the person deletes it. Delete is unchanged. Stopping uses the same permission as deleting (`cancel_schedule`), because it does less. The thread's schedule line now offers Stop and Delete where it offered only Cancel. No event kind is new: stopping is an end, as reaching `until` or `max_runs` is. The model's `cancel_schedule` tool still deletes, as its description says.
+
+**Not now keeps a card; Delete removes it as Decline did.** Before, "Not now" counted as an answer, and every later answer was refused, so a card put off could never be taken up. A card put off now stays in its conversation, marked "Not now", with Accept and Delete. Accept does what it does on an open card. Delete is the Decline it was before, reason included, so Magnus reads why before suggesting again. Putting a card off a second time is refused, and so is any answer to a card that was accepted or declined.

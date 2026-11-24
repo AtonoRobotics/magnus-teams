@@ -207,8 +207,10 @@ const Server = (() => {
     schedules: {
       /** Creates a recurring schedule (every_minutes or daily_at). */
       create: (/** @type {{text: string, every_minutes?: number, daily_at?: string, until?: string, max_runs?: number, project?: Id}} */ body) => post("/v1/schedules", body),
-      /** Stops a schedule that is running; deletes one that has ended. */
+      /** Deletes a schedule: it is gone, and a run of it still going stops. */
       remove: (/** @type {Id} */ id) => del(`/v1/schedules/${enc(id)}`),
+      /** Stops a schedule: no more runs, and a run still going stops; it stays, ended. */
+      stop: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/stop`),
       resume: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/resume`),
       pause: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/pause`),
     },

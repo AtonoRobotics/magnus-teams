@@ -726,7 +726,12 @@ pub(super) async fn edit_schedule(State(k): K, Caller(p): Caller, Path(id): Path
     Ok(controlled(k.edit_schedule(&p, &id, &b, None).await))
 }
 
-/// Cancel: no more runs, and one still going stops.
+/// Stop: no more runs, and one still going stops; the schedule stays, ended.
+pub(super) async fn stop_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(controlled(k.stop_schedule(&p, &id).await))
+}
+
+/// Delete: the schedule is gone, and a run of it still going stops.
 pub(super) async fn remove_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
     // The report goes back with the status: what each stopped run had
     // done, and how many actually stopped (#263).
