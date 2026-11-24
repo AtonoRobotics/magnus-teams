@@ -155,25 +155,32 @@ fn a_staged_send_of_a_cancelled_task_is_not_sent() {
     });
 }
 
-/// Signing in, and filling a form in a signed-in browser, after untrusted
-/// input with private data in hand are not messages: neither becomes a
-/// staged item no one can carry out. The form gets case 3's ask, as before
-/// staging; the sign-in is refused outright in a private conversation.
+/// After untrusted input with private data in hand, `tool` waits on case
+/// 3's ask, and nothing is staged.
+async fn asked_not_staged(tool: &str, input: Value) {
+    let (s, _fake) = mail().await;
+    let r = run(&s).await;
+    s.k.execute(action(&r, 1, "mail__read", json!({ "id": "m1" }))).await.unwrap();
+    let v = s.k.execute(action(&r, 2, tool, input)).await.unwrap();
+    if let Verdict::Done { text, .. } = &v {
+        panic!("{tool} did not wait for the person: {text}");
+    }
+    assert!(s.k.read(|st| st.staged.open_for("mo").is_empty()), "{tool} was staged");
+    let rule = s.k.read(|st| st.inbox.open_for_run(&r).find(|i| i.kind == "approval").map(|i| i.details["rule"].clone()));
+    assert_eq!(rule, Some(json!(crate::asks::NEW_DESTINATION)), "{tool} was not asked about as case 3");
+    s.done().await;
+}
+
+/// A sign-in is not a message: it gets case 3's ask, as before staging,
+/// never a staged item no one can carry out, nor a refusal as public
+/// browsing.
 #[test]
-fn a_sign_in_or_a_signed_in_form_after_untrusted_input_is_never_staged() {
-    on_big_stacks(async {
-        let (s, _fake) = mail().await;
-        let r = run(&s).await;
-        s.k.execute(action(&r, 1, "mail__read", json!({ "id": "m1" }))).await.unwrap();
-        s.k.execute(action(&r, 2, "browser_sign_in", json!({ "identity": "idn_1", "password_field": "#password" }))).await.unwrap();
-        assert!(s.k.read(|st| st.staged.open_for("mo").is_empty()), "the sign-in was staged");
-        let v = s.k.execute(action(&r, 3, "browser_as_type", json!({ "identity": "idn_1", "target": "#card", "text": "4242", "submit": true }))).await.unwrap();
-        if let Verdict::Done { text, .. } = &v {
-            panic!("the signed-in form did not wait for the person: {text}");
-        }
-        assert!(s.k.read(|st| st.staged.open_for("mo").is_empty()), "the signed-in form was staged");
-        let rule = s.k.read(|st| st.inbox.open_for_run(&r).find(|i| i.kind == "approval").map(|i| i.details["rule"].clone()));
-        assert_eq!(rule, Some(json!(crate::asks::NEW_DESTINATION)), "the signed-in form was not asked about as case 3");
-        s.done().await;
-    });
+fn a_sign_in_after_untrusted_input_is_asked_not_staged() {
+    on_big_stacks(asked_not_staged("browser_sign_in", json!({ "identity": "idn_1", "password_field": "#password" })));
+}
+
+/// Filling a form in a signed-in browser is not a message either.
+#[test]
+fn a_signed_in_form_after_untrusted_input_is_asked_not_staged() {
+    on_big_stacks(asked_not_staged("browser_as_type", json!({ "identity": "idn_1", "target": "#card", "text": "4242", "submit": true })));
 }

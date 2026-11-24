@@ -21,8 +21,10 @@
    Chat), of a connected app. Everything else that case 3 catches (a form in a
    signed-in browser, a local command given the network, an app's write that is not
    a message) gets the case-3 ask with `NEW_DESTINATION`, as before 23d0914,
-   because a held item nothing can carry out answers nothing. (`browser_sign_in` itself is refused outright in a
-   private conversation after untrusted input, by the 2026-11-20 browsing rule.) The gate no longer
+   because a held item nothing can carry out answers nothing. A sign-in
+   (`browser_sign_in`) is that case too: it acts as the person's identity, as
+   `browser_as_*` does, so the 2026-11-22 rule that refuses public browsing in a
+   private conversation no longer takes it for public browsing. The gate no longer
    stages an action the person already answered for (a sent staged item, or Allow
    on a case-3 card): that is case 3 answered.
 3. **No false draft.** Nothing is created in the app when an item is staged: the

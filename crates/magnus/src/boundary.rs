@@ -591,7 +591,8 @@ impl Kernel {
             }
         }
         let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
-        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
+        // Signing in acts as the person's identity, as `browser_as_*` does: not public browsing.
+        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_") && a.tool != "browser_sign_in";
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
         if web_or_browser_read && !is_query_tool && untrusted && private {
