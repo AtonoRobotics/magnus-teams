@@ -25,7 +25,7 @@ const DEFAULT_KIND: &str = "fact";
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
         .route("/v1/workspaces/{ws}/projects", post(add_project))
-        .route("/v1/workspaces/{ws}/projects/{id}", get(project).put(set_project))
+        .route("/v1/workspaces/{ws}/projects/{id}", get(project).put(set_project).delete(remove_project))
         .route("/v1/workspaces/{ws}/channels/{channel}/project", post(link_channel))
         .route("/v1/workspaces/{ws}/knowledge", get(list).post(add))
         .route("/v1/workspaces/{ws}/knowledge/export", get(export))
@@ -101,6 +101,17 @@ async fn set_project(State(k): K, Member { person: p, .. }: Member<at::Member>, 
     def.kinds = b.kinds.unwrap_or(def.kinds);
     def.relations = b.relations.unwrap_or(def.relations);
     send(&k, &p, Change::Project { workspace: ws, id, def }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
+}
+
+/// The project's owner or a workspace creator/admin may delete a workspace project.
+async fn remove_project(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
+    let Some(def) = w.projects.get(&id).filter(|d| d.may_read(&p.id)) else { return refuse(StatusCode::NOT_FOUND, "no such project") };
+    if def.owner != p.id && role < super::Role::Admin {
+        return refuse(StatusCode::FORBIDDEN, "only the project's owner or creator may delete it");
+    }
+    send(&k, &p, Change::ProjectRemoved { workspace: ws, id }).await?;
     Ok(Json(json!({ "ok": true })).into_response())
 }
 

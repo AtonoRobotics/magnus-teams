@@ -101,8 +101,9 @@ function channelTools(home, c, project) {
   const comp = typeof computerChip === "function" ? computerChip(App.computers) : "";
   const autoJoin = c.direct ? "" : `<button type="button" class="shared-autojoin-btn${helpful ? " on" : ""}" data-agent-toggle aria-pressed="${helpful}" ${home.role === "guest" ? "disabled" : ""} title="${helpful ? "Magnus auto-joins when helpful (click for @Magnus mentions only)" : "Magnus replies to @Magnus mentions (click to auto-join when helpful)"}">${helpful ? "Auto-join: On" : "Auto-join"}</button>`;
   const membersBtn = `<button type="button" class="shared-members-btn" data-open="shared:settings" aria-label="Members and project settings" title="Members and project settings">${icon("team")}<span>${home.members.length}</span></button>`;
+  const creatorDel = !c.direct && (home.role === "owner" || home.role === "admin") ? `<button type="button" class="icon-btn" data-nav-del-shared="${esc(home.id)}" data-nav-del-name="${esc(home.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>` : "";
   const clearDm = c.direct ? `<button type="button" class="icon-btn" data-clear-conversation title="Delete conversation" aria-label="Delete conversation">${icon("trash")}</button>` : "";
-  return `${channelFaces(home, c, project)}${ext}${comp}${autoJoin}${membersBtn}${clearDm}`;
+  return `${channelFaces(home, c, project)}${ext}${comp}${autoJoin}${membersBtn}${creatorDel}${clearDm}`;
 }
 
 const TeamChat = {

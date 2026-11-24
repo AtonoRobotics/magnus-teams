@@ -387,6 +387,7 @@ const Server = (() => {
       updateTask: (/** @type {Id} */ w, /** @type {Id} */ id, /** @type {any} */ body) => put(`${ws(w)}/tasks/${enc(id)}`, body),
       removeTask: (/** @type {Id} */ w, /** @type {Id} */ id) => del(`${ws(w)}/tasks/${enc(id)}`),
       setProjectMembers: (/** @type {Id} */ w, /** @type {Id} */ project, /** @type {Id[]} */ members) => put(`${ws(w)}/projects/${enc(project)}`, { members }),
+      removeProject: (/** @type {Id} */ w, /** @type {Id} */ project) => del(`${ws(w)}/projects/${enc(project)}`),
       removeFile: (/** @type {Id} */ w, /** @type {Id} */ file) => del(`${ws(w)}/files/${enc(file)}`),
       // A co-edited file (coedit.js): its history, a check-out, a revert, and this person's open changes.
       coedit: (/** @type {Id} */ w, /** @type {string} */ name) => get(`${ws(w)}/coedit/${enc(name)}`),

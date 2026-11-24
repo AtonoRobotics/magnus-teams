@@ -443,7 +443,9 @@ function navigationTree() {
       const on=route===href || route.startsWith(`${href}/`);
       return `<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(c.name)}"><span class="ttl">${esc(c.name)}</span>${countBadge(c)}</a>`;
     }).join("");
-    return `<details class="nav-project nav-shared-project" data-key="ws:${esc(w.id)}" open><summary><a href="#/team/${enc(w.id)}"${activeWs && !chRows ? ' class="on" aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span><span class="nav-shared-badge" aria-label="Shared project">Shared</span>${teamBadge(w)}</a></summary>${chRows}</details>`;
+    const canDelWs = w.role === "owner" || w.role === "admin";
+    const delWsBtn = canDelWs ? `<button type="button" class="icon-btn nav-row-del" data-nav-del-shared="${esc(w.id)}" data-nav-del-name="${esc(w.name)}" title="Delete ${esc(w.name)}" aria-label="Delete ${esc(w.name)}">${icon("trash")}</button>` : "";
+    return `<details class="nav-project nav-shared-project" data-key="ws:${esc(w.id)}" open><summary><a href="#/team/${enc(w.id)}"${activeWs && !chRows ? ' class="on" aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span><span class="nav-shared-badge" aria-label="Shared project">Shared</span>${teamBadge(w)}</a>${delWsBtn}</summary>${chRows}</details>`;
   }).join("");
   const peopleRows=[];
   const seenPeople=new Set();
@@ -467,8 +469,9 @@ function navigationTree() {
     }
   }
   const peopleHtml=peopleRows.length ? peopleRows.join("") : '<a class="conv small muted" href="#/teams"><span class="ttl">Start or join a shared project…</span></a>';
-  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><span class="nav-group-acts"><a href="#/teams" class="more">Shared</a><a href="#/projects" data-open="projects" class="more">All</a></span></div>
-    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}${sharedProjects}</div>
+  const inlineNew = typeof Projects !== "undefined" ? Projects.inlineNewHtml() : "";
+  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><a href="#/projects" class="nav-group-link">Projects</a><span class="nav-group-acts"><button type="button" class="icon-btn nav-group-add" data-new-project title="New project" aria-label="New project">${icon("plus")}</button></span></div>${inlineNew}
+    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}"${route===`#/project/${enc(p.id)}` ? ' class="on" aria-current="page"' : ""} title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a><button type="button" class="icon-btn nav-row-del" data-nav-del-project="${esc(p.id)}" data-nav-del-name="${esc(p.name)}" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}">${icon("trash")}</button></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}${sharedProjects}</div>
     <div class="sect" role="group" aria-label="Conversations">${looseHtml}</div>
     <div class="sect" role="group" aria-label="People"><div class="group"><span>People</span><a href="#/teams" class="more">Manage</a></div>${peopleHtml}</div>
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
@@ -1283,7 +1286,7 @@ function convHead(thread, project) {
   const here = thread && App.threads.find(t => t.thread === thread);
   const p = here ? here.project : project && App.projects.find(x => x.id === project);
   const ttl = here ? displayTitle(here.title) : "New conversation";
-  const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
+  const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
   const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share into a shared project (clean-room)">${icon("team")}<span>Share</span></button>` : "";
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
@@ -1346,14 +1349,15 @@ route(/^#\/chat\/new\/([^/]+)$/, (m, project) => showNewChat(m, project), true);
 // Where the views over tasks, schedules, files and decisions used to be
 // pages: each opens beside the latest conversation.
 route(/^#\/inbox$/, main => home(main, "needs"), true);
-route(/^#\/(activity|tasks|schedules|files|projects)$/, (main, k) => home(main, k), true);
+route(/^#\/(activity|tasks|schedules|files)$/, (main, k) => home(main, k), true);
+route(/^#\/projects$/, main => Projects.showList(main));
 // The Library is the connector catalog, a page of its own (connectors spec,
 // Library); a connector's page is under it.
 route(/^#\/explore$/, main => Discover.show(main));
 route(/^#\/library(?:\/([^/]+))?$/, (main, name) => showLibrary(main, name));
 route(/^#\/new$/, main => home(main), true);
 route(/^#\/file\/([^/]+)$/, (main, id) => home(main, `file:${id}`), true);
-route(/^#\/project\/([^/]+)$/, (main, id) => home(main, `project:${id}`), true);
+route(/^#\/project\/([^/]+)$/, (main, id) => Projects.show(main, id));
 // A task opens beside the conversation it came from.
 route(/^#\/task\/([^/]+)$/, async (main, id) => {
   const seq = App.seq;
@@ -2091,7 +2095,7 @@ function stopPanelLive() {
 }
 
 const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks", schedules: "Routines", files: "Files", apps: "Apps", projects: "Projects", task: "Task", file: "File", schedule: "Schedule", project: "Project", item: "Item", search: "Search", connector: "Connector", rules: "Rules" };
-const PANEL_TAB_PARENT = { activity: "activity", tasks: "tasks", task: "tasks", schedules: "schedules", schedule: "schedules", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
+const PANEL_TAB_PARENT = { activity: "activity", tasks: "tasks", task: "tasks", schedules: "schedules", schedule: "schedules", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files", projects: "projects", project: "projects" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
   const activeTasks = (App.tasks || []).filter(t => !ENDED.includes(t.status)).length;

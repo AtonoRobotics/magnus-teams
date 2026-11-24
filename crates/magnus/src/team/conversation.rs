@@ -39,27 +39,22 @@ pub enum Why {
     Helpful,
 }
 
-/// Whether a message is addressed to the team agent: an @mention, or its
-/// name as a word. "My Magnus" and "your Magnus" are personal agents.
+/// Whether a message is explicitly addressed to the agent via `@Magnus`.
+/// Bare occurrences of the word "Magnus" never start a task unasked.
 pub fn addressed(text: &str) -> Option<Why> {
     let lower = text.to_lowercase();
     let name = AGENT_NAME.to_lowercase();
-    let mut named = false;
     for (i, _) in lower.match_indices(&name) {
         let before = lower[..i].chars().next_back();
         let after = lower[i + name.len()..].chars().next();
-        if after.is_some_and(char::is_alphanumeric) || before.is_some_and(char::is_alphanumeric) {
+        if after.is_some_and(char::is_alphanumeric) {
             continue;
         }
         if before == Some('@') {
             return Some(Why::Mentioned);
         }
-        let head = lower[..i].trim_end();
-        if !(head.ends_with(" my") || head == "my" || head.ends_with(" your") || head == "your") {
-            named = true;
-        }
     }
-    named.then_some(Why::Named)
+    None
 }
 
 /// A message the agent can help with unasked: someone catching up, or a
@@ -184,11 +179,11 @@ mod tests {
     }
 
     #[test]
-    fn it_answers_when_mentioned_or_named_and_not_otherwise() {
+    fn it_answers_only_when_explicitly_mentioned() {
         let w = ws(AgentMode::Mentions);
         assert_eq!(w.agent_answers("c", Role::Member, "@Magnus what's left?"), Some(Why::Mentioned));
-        assert_eq!(w.agent_answers("c", Role::Member, "magnus, summarize this"), Some(Why::Named));
-        assert_eq!(w.agent_answers("c", Role::Member, "Thanks Magnus."), Some(Why::Named));
+        assert_eq!(w.agent_answers("c", Role::Member, "magnus, summarize this"), None, "bare word does not start a task");
+        assert_eq!(w.agent_answers("c", Role::Member, "Thanks Magnus."), None, "bare word does not start a task");
         assert_eq!(w.agent_answers("c", Role::Member, "lunch at noon?"), None);
         assert_eq!(w.agent_answers("c", Role::Member, "my Magnus has notes on this"), None, "a personal agent is not the team's");
         assert_eq!(w.agent_answers("c", Role::Member, "the magnusson file"), None);

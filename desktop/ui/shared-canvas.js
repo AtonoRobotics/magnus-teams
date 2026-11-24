@@ -419,7 +419,7 @@ const SharedCanvas = (() => {
         const mode = d.querySelector('input[name="share_mode"]:checked')?.value === "selected" ? "selected" : "summary";
         const selectedIds = [...d.querySelectorAll('input[name="msg_id"]:checked')].map(el => el.value);
         const payload = cleanRoomPayload({ mode, summary: sumBox?.value || "", messages: entries, selectedIds });
-        if (payload && chId) await Server.channels.post(wsId, chId, { text: payload });
+        if (payload && chId) await Server.channels.post(wsId, chId, { text: payload, no_agent: true });
         if ($('input[name="copy_invite"]', d)?.checked) {
           const inv = await Server.workspaces.invite(wsId).catch(() => null);
           if (inv) {

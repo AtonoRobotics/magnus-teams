@@ -147,7 +147,7 @@ async fn retry(State(k): K, Member { person: p, role, .. }: Member<at::Member>, 
     super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.retry, "only who asked asks again")?;
     let asked = m.workspace.chat.asked.get(task).and_then(|a| m.workspace.channels.get(&channel)?.messages.iter().find(|x| &x.id == a && !x.text.is_empty()).cloned());
     let Some(asked) = asked.filter(|a| !m.workspace.chat.unsent.contains(&a.id)) else { return refuse(StatusCode::CONFLICT, "the request is no longer here to ask again") };
-    Ok(post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, crate::say::Pick::default()).await)
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, false, crate::say::Pick::default()).await)
 }
 
 #[cfg(test)]

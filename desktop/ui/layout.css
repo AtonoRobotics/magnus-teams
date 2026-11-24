@@ -284,6 +284,15 @@ nav.side .nav-project > summary > a { flex: 1; min-width: 0; }
 .nav-group-acts { display: inline-flex; align-items: center; gap: 8px; }
 .nav-shared-badge { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-text); flex: none; }
 .nav-shared-project > a.conv { padding-left: 24px; }
+nav.side .nav-group-link { color: inherit; text-decoration: none; }
+nav.side .nav-group-link:hover { color: var(--fg); }
+nav.side .nav-group-add { width: 22px; height: 22px; padding: 0; border-radius: var(--r-sm); }
+nav.side .nav-row-del { width: 24px; height: 24px; padding: 0; opacity: 0; flex: none; color: var(--muted); }
+nav.side .nav-project > summary:hover .nav-row-del,
+nav.side .nav-project > summary:focus-within .nav-row-del { opacity: 1; }
+nav.side .nav-row-del:hover { color: var(--bad, #d14343); }
+.nav-project-new { display: flex; align-items: center; gap: 4px; padding: 4px 6px; }
+.nav-project-new input { flex: 1; min-width: 0; height: 28px; padding: 2px 8px; font-size: 13px; }
 /* Conversation-left / Artifact-right split mode & seamless 1px splitter */
 html[data-motion="full"] .shell { transition: grid-template-columns .18s var(--ease); }
 body[data-workspace=split] .shell > main { grid-column: 2; }

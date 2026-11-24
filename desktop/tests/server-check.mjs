@@ -207,6 +207,7 @@ const table = [
   ["workspaces.updateRoutine", [W, "r 1", { stopped: false }], "PATCH", `${w}/routines/r%201`, { stopped: false }],
   ["workspaces.removeRoutine", [W, "r 1"], "DELETE", `${w}/routines/r%201`, undefined],
   ["workspaces.setProjectMembers", [W, "p 1", ["ada"]], "PUT", `${w}/projects/p%201`, { members: ["ada"] }],
+  ["workspaces.removeProject", [W, "p 1"], "DELETE", `${w}/projects/p%201`],
   ["workspaces.removeFile", [W, "a b.md"], "DELETE", `${w}/files/a%20b.md`, undefined],
   ["workspaces.coedit", [W, "a b.md"], "GET", `${w}/coedit/a%20b.md`, undefined],
   ["workspaces.checkOut", [W, "a.dwg"], "POST", `${w}/coedit/a.dwg/checkout`, {}],

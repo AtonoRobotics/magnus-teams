@@ -36,6 +36,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("signin.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/signin.js")),
     ("tasks-schedules.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/tasks-schedules.js")),
     ("settings-sections.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/settings-sections.js")),
+    ("projects.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/projects.js")),
     ("password.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/password.js")),
     ("dev.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/dev.js")),
     ("rfb.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/rfb.js")),

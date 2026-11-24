@@ -217,11 +217,18 @@ function leftWorkspaceQuietly(ws) {
   location.hash = "#/teams";
 }
 
-/** Delete it, once its name is typed: only its creator may. */
+/** Delete a shared project: simple confirm when solo, typed name only when other collaborators are in it. */
 async function deleteWorkspace(home) {
-  if (!(await askTyped(`Delete ${home.name} for everyone? Its shared conversations, tasks, files, and knowledge go, and this cannot be undone.`, home.name, "Delete project"))) return;
+  const others = (home.members?.length || 1) > 1;
+  const ok = others
+    ? await askTyped(`Delete ${home.name} for everyone? Its shared conversations, tasks, files, and knowledge go, and this cannot be undone.`, home.name, "Delete project")
+    : await ask(`Delete ${home.name}? Its conversations and files will be permanently deleted. Your personal space is untouched.`, "Delete project");
+  if (!ok) return;
   try {
     await Server.workspaces.remove(home.id);
+    if (typeof App !== "undefined" && Array.isArray(App.workspaces)) {
+      App.workspaces = App.workspaces.filter(w => w.id !== home.id);
+    }
     leftWorkspaceQuietly(home.id);
     toast(`${home.name} was deleted.`);
   } catch (err) { if (!err.cancelled) toast(err.body?.message || err.message); }

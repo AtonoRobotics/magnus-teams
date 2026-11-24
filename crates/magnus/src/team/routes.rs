@@ -211,6 +211,10 @@ struct NewMessage {
     /// names files already in the shared Files.
     #[serde(default)]
     whisper: bool,
+    /// Post the message without starting an agent task (e.g. clean-room share
+    /// or seeding notes into a new project).
+    #[serde(default)]
+    no_agent: bool,
 }
 
 async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> ApiResult {
@@ -220,7 +224,7 @@ async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Gu
     if b.say.text.trim().is_empty() || b.say.text.chars().count() > MAX_MESSAGE_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
-    allow(role, &p.id, Act::Post { with_agent: b.agent || b.whisper })?;
+    allow(role, &p.id, Act::Post { with_agent: (b.agent || b.whisper) && !b.no_agent })?;
     if !b.whisper && !b.say.files.is_empty() {
         return refuse(StatusCode::BAD_REQUEST, "a message here names files in the shared Files; only a whisper takes files of your own");
     }
@@ -231,7 +235,7 @@ async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Gu
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         });
     }
-    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, said.text, b.agent, said.pick).await)
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, said.text, b.agent && !b.no_agent, b.no_agent, said.pick).await)
 }
 
 /// Post a message as `p`, and when asked or `@Magnus` is mentioned, dispatch
@@ -247,12 +251,16 @@ pub(super) async fn post_and_ask(
     thread: Option<String>,
     text: String,
     asked: bool,
+    no_agent: bool,
     pick: crate::say::Pick,
 ) -> Reply {
     super::presence::sent(ws, channel, &p.id);
     let message = Message { id: new_id(), sender: p.id.clone(), text: text.clone(), thread: thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
     ok_or_return!(send(k, p, Change::Message { workspace: ws.to_string(), channel: channel.to_string(), message }).await);
+    if no_agent {
+        return Json(json!({ "id": id })).into_response();
+    }
     let why = if asked { Some(Why::Asked) } else { k.read(|s| s.team.workspace(ws).and_then(|w| w.agent_answers(channel, role, &text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
     let objective: String = text.trim().chars().take(super::orchestrator::MAX_OBJECTIVE_CHARS).collect();
