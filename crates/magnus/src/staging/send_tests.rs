@@ -194,9 +194,8 @@ fn a_signed_in_form_after_untrusted_input_is_asked_not_staged() {
 /// to the same new destination after untrusted input goes back to the
 /// person, case 3 for a message: held for them to send, not sent. Before,
 /// the once rule went into the task's cached envelope and stayed there
-/// once spent, so no send to that destination was case 3 again: each went
-/// to Auto Review alone, which here (no reviewer) holds even the first, and
-/// in inv4 (a reviewer that allows) let the second go out.
+/// once spent, so the second send was not case 3 again: it went to Auto
+/// Review alone, which in inv4 (a reviewer that allows) let it go out.
 #[test]
 fn a_once_allow_covers_one_send_and_the_next_one_asks() {
     on_big_stacks(async {
