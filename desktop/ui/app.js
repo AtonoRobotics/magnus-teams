@@ -1628,6 +1628,7 @@ const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
   policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed",
   monitor: "Safety monitor", secure_form: "Secure sign-in", takeover_request: "Take over", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
+  outside_request: "Request from an outside agent", outside_reply: "Reply to an outside agent",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
 const AUDIENCE = { private: "only you", org: "people in your organization", public: "anyone" };
@@ -1710,6 +1711,11 @@ function card(i, composed) {
     case "observation":
     case "interrupt":
       body = `${d.why ? `<p>${esc(d.why)}</p>` : ""}${d.evidence ? `<div class="evidence"><div class="small muted">Evidence</div>${fieldValue(d.evidence)}</div>` : ""}${d.notify_at && Date.parse(d.notify_at) > Date.now() ? `<p class="small faint">Pings ${esc(when(d.notify_at))}.</p>` : ""}${taintNote(d.taint)}${buttons(i, [["dismiss", "Dismiss"]])}`;
+      break;
+    // An outside agent's request, or the reply to one waiting to be released (outside-agents.js).
+    case "outside_request":
+    case "outside_reply":
+      body = outsideAgentCard(i);
       break;
     case "shared":
       body = `<div class="msg magnus"><div class="small faint">${esc(d.speaker)} · ${esc(when(d.at))}</div><div class="pre">${esc(d.text)}</div></div>${taintNote(d.taint)}
@@ -2400,9 +2406,10 @@ async function showLibrary(main, name) {
     <div class="lbar"><div class="lseg" role="group" aria-label="Show">${seg("yours", "Yours")}${seg("discover", "Discover")}</div>
     <div class="lsearch">${SVG.search}<label class="sr" for="libq">Search apps and capabilities</label><input id="libq" type="search" value="${esc(Lib.q)}" placeholder="Search apps and capabilities" autocomplete="off"></div></div>
     <div class="lchips" role="group" aria-label="Category">${CATEGORIES.map(([k, l]) => `<button data-lib-cat="${k}" aria-pressed="${Lib.cat === k}">${esc(l)}</button>`).join("")}</div>
-    <p><a href="#/chat/new" data-ask-app>Ask Magnus to find an app</a></p><div id="lib-programs"></div><div id="lib-sections">${connectors ? librarySections(Lib.all) : '<p class="empty">Apps are unavailable. Retrying when connected.</p>'}</div></div>`;
+    <p><a href="#/chat/new" data-ask-app>Ask Magnus to find an app</a></p><div id="lib-programs"></div><div id="lib-outside-agents"></div><div id="lib-sections">${connectors ? librarySections(Lib.all) : '<p class="empty">Apps are unavailable. Retrying when connected.</p>'}</div></div>`;
   bindConnectorActs(main);
   mountPrograms(main).catch(() => {});
+  mountOutsideAgents(main).catch(() => {});
   const update=async()=>{
     const connectors=await Resources.read("Apps","/v1/connectors","connectors",true);
     if(!connectors || !main.querySelector('#lib-sections'))return;

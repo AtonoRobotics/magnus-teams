@@ -254,6 +254,16 @@ const Server = (() => {
       consent: (/** @type {string} */ name, /** @type {string} */ terms) => post(`/v1/connectors/${enc(name)}/consent`, { terms }),
     },
 
+    /** Outside agents the person connected (another organisation's agents), beside their apps. */
+    outsideAgents: {
+      list: () => get("/v1/outside-agents"),
+      /** Connect one by its agent card's address, with the credential its card asks for. @param {{card_url: string, credential?: string, client_id?: string, client_secret?: string}} body */
+      connect: body => post("/v1/outside-agents", body),
+      /** Let it ask the person, or a shared project as a guest. @param {Id} id @param {{person: string}|{project: string}} to */
+      admit: (id, to) => post(`/v1/outside-agents/${enc(id)}/admit`, { to }),
+      disconnect: (/** @type {Id} */ id) => del(`/v1/outside-agents/${enc(id)}`),
+    },
+
     account: {
       password: () => get("/v1/account/password"),
       setPassword: (/** @type {string} */ current, /** @type {string} */ next) => post("/v1/account/password", { current_password: current, new_password: next }),
