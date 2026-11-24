@@ -1773,6 +1773,8 @@ async function respond(btn, root) {
   btn.disabled = true;
   try {
     await Server.inbox.answer(id, body);
+    // Said as given only now the server took it (aurora-alerts.js, aurora-stage.js).
+    document.dispatchEvent(new CustomEvent("magnus:answered", { detail: { item: id, decision, button: btn } }));
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
     if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Settings → Rules.", 5000);
     else toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
