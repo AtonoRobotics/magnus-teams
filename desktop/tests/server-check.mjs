@@ -102,7 +102,7 @@ const table = [
   ["tasks.stopAll", [], "POST", "/v1/tasks/stop-all", {}],
   ["schedules.create", [{ text: "Check inbox", daily_at: "08:00" }], "POST", "/v1/schedules", { text: "Check inbox", daily_at: "08:00" }],
   ["schedules.remove", ["s/1"], "DELETE", "/v1/schedules/s%2F1", undefined],
-  ["schedules.stop", ["s/1"], "POST", "/v1/schedules/s%2F1/stop", undefined],
+  ["schedules.stop", ["s/1"], "POST", "/v1/schedules/s%2F1/stop", {}],
   ["schedules.resume", ["s1"], "POST", "/v1/schedules/s1/resume", {}],
   ["schedules.pause", ["s1"], "POST", "/v1/schedules/s1/pause", {}],
   ["chat.send", [{ text: "hi", thread: "th" }], "POST", "/v1/chat", { text: "hi", thread: "th" }],
