@@ -12,7 +12,10 @@
    Send after a crash, performs nothing more. One resolution runs at a time per
    item. If where it goes changed (an added Bcc), nothing is sent: the old item is
    closed as edited and a new one is staged showing where it would go now. If the
-   send fails or must wait, the item stays open and Send says why.
+   send fails or must wait, the item stays open and Send says why. The run has
+   usually ended by the time the person sends, so the call's last fence (the run is
+   still running, #187) lets through a staged item that is still open, and its
+   read-back, unless the task was cancelled.
 2. **Only a message is stageable**: a mail send, post, reply or forward (Gmail,
    Outlook), a calendar event or invite, or a chat send or post (Slack, Google
    Chat), of a connected app. Everything else that case 3 catches (a form in a

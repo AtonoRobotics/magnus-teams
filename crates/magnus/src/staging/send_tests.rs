@@ -66,8 +66,9 @@ fn sends(fake: &Fake) -> usize {
 }
 
 /// The run has read untrusted, private mail; then the model sends draft d1,
-/// which goes to no one the person named: it is staged. The id staged.
-async fn staged_send(s: &Server, fake: &Fake) -> (String, String) {
+/// which goes to no one the person named: it is staged, and the run ends
+/// `how`. The run and the id staged.
+async fn staged_send(s: &Server, fake: &Fake, how: &str) -> (String, String) {
     let r = run(s).await;
     s.k.execute(action(&r, 1, "mail__read", json!({ "id": "m1" }))).await.unwrap();
     answers(fake, [draft("")]);
@@ -77,17 +78,26 @@ async fn staged_send(s: &Server, fake: &Fake) -> (String, String) {
     assert_eq!(sends(fake), 0, "the send went out before the person sent it");
     let open = s.k.read(|st| st.staged.open_for("mo").into_iter().map(|i| i.id.clone()).collect::<Vec<_>>());
     assert_eq!(open.len(), 1, "the send was not staged");
+    // The run goes on without it and ends; the person sends it later.
+    end(s, &r, how).await;
     (r, open[0].clone())
 }
 
-/// Send performs the staged action once, through the gate: an intent under
-/// its key, a done result (its receipt), and a read-back. Sending it again
-/// does nothing. Before, Send recorded the item resolved and nothing ran.
+/// End run `r` as `how` (`completed`, `cancelled`).
+async fn end(s: &Server, r: &str, how: &str) {
+    let ended = json!({ "kind": how, "run": r, "summary": "Done." });
+    s.k.emit("kernel", serde_json::from_value(ended).unwrap()).await.unwrap();
+}
+
+/// Send performs the staged action once, through the gate, after its run
+/// ended: an intent under its key, a done result (its receipt), and a
+/// read-back. Sending it again does nothing. Before, Send recorded the item
+/// resolved and nothing ran.
 #[test]
 fn sending_a_staged_item_performs_it_once_with_a_receipt() {
     on_big_stacks(async {
         let (s, fake) = mail().await;
-        let (r, id) = staged_send(&s, &fake).await;
+        let (r, id) = staged_send(&s, &fake, "completed").await;
         // Read again before it goes, then by the gate itself.
         answers(&fake, [draft(""), draft("")]);
         let sent = s.k.resolve_staged(&id, Resolution::Sent, "person:mo", Some(GrantScope::Once)).await.unwrap();
@@ -113,7 +123,7 @@ fn sending_a_staged_item_performs_it_once_with_a_receipt() {
 fn a_staged_draft_whose_recipients_changed_is_not_sent() {
     on_big_stacks(async {
         let (s, fake) = mail().await;
-        let (_, id) = staged_send(&s, &fake).await;
+        let (_, id) = staged_send(&s, &fake, "completed").await;
         answers(&fake, [draft("eve@evil.example")]);
         let out = s.k.resolve_staged(&id, Resolution::Sent, "person:mo", Some(GrantScope::Once)).await.unwrap();
         assert_eq!(out["sent"], false, "{out}");
@@ -127,6 +137,20 @@ fn a_staged_draft_whose_recipients_changed_is_not_sent() {
         let sent = s.k.resolve_staged(&again, Resolution::Sent, "person:mo", Some(GrantScope::Once)).await.unwrap();
         assert_eq!(sent["sent"], true, "{sent}");
         assert_eq!(sends(&fake), 1);
+        s.done().await;
+    });
+}
+
+/// A staged item of a task that was cancelled does not go out on Send.
+#[test]
+fn a_staged_send_of_a_cancelled_task_is_not_sent() {
+    on_big_stacks(async {
+        let (s, fake) = mail().await;
+        let (_, id) = staged_send(&s, &fake, "cancelled").await;
+        answers(&fake, [draft(""), draft("")]);
+        let out = s.k.resolve_staged(&id, Resolution::Sent, "person:mo", Some(GrantScope::Once)).await.unwrap();
+        assert_eq!(out["sent"], false, "{out}");
+        assert_eq!(sends(&fake), 0, "a cancelled task's staged send went out");
         s.done().await;
     });
 }
