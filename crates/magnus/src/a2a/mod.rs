@@ -41,6 +41,7 @@ mod tests;
 
 pub use card::{CARD_PATH, ENDPOINT_PATH, KEYS_PATH, KEY_HEADER};
 pub use inbound::REQUEST_ITEM;
+pub use jws::sign_with_seed;
 pub use ledger::{Change, Inbound, Ledger, Outbound, OutsideAgent, Scheme, Target};
 pub(crate) use outbound::Resumed;
 pub use reply::REPLY_ITEM;

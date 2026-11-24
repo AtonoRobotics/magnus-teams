@@ -7,11 +7,15 @@ use super::fake::{self, ask, request};
 use super::ledger::Change;
 use super::{COMPLETED, SEND_TOOL, SUBMITTED, WORKING};
 use crate::admin_app::tests::{server_with, Server};
+use crate::apps::{AppTool, CallOutput};
 use crate::boundary::{idempotency_key, Action, Issuer, Verdict};
 use crate::events::Ev;
 use crate::team::lane_release_tests::{serve_checks, Says};
+use crate::transport::fake::Fake as AppFake;
+use crate::transport::Kind;
 use axum::Router;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 /// The fake agent is on this machine.
 const MORE: &str = "[web]\nallow_private_networks = true\n";
@@ -212,7 +216,7 @@ fn disconnecting_an_agent_cancels_its_open_tasks_in_both_directions() {
         assert_eq!(s.post(&mo, &format!("/v1/outside-agents/{agent}/admit"), json!({ "to": { "person": "mo" } })).await.0, 200);
         let r = run(&s, "r_open", false).await;
         let v = s.k.execute(send(&r, 1, "Build the quote for part 7.")).await.unwrap();
-        assert!(matches!(v, Verdict::Done { is_error: false, .. }), "the send did not go");
+        assert!(matches!(v, Verdict::Done { is_error: false, .. }), "the send did not go: {}", said(&v));
         let (st, got) = ask(&s, &key, "SendMessage", request("m-1", "Please review our invoice.", json!({ "person": "mo" }))).await;
         assert_eq!(st, 200, "{got}");
         let task = got["result"]["task"]["id"].as_str().unwrap().to_string();
@@ -338,4 +342,104 @@ fn requests_per_agent_per_hour_are_limited() {
         assert!(items(&s, super::REQUEST_ITEM).is_empty());
         s.done().await;
     });
+}
+
+/// An app with one read tool, answering `record`: what an outside agent's
+/// work changed, for Magnus to read back.
+async fn server_with_crm(record: Value) -> (Server, Arc<AppFake>) {
+    let tool = AppTool { name: "get_record".into(), description: "Get a record.".into(), input_schema: json!({ "type": "object" }), annotations: json!({}) };
+    let fake = AppFake { tools: vec![tool], ..AppFake::new(Kind::Brokered) };
+    fake.answers.lock().unwrap().push_back(Ok(CallOutput { text: record.to_string(), structured: None, is_error: false }));
+    let (url, fake) = fake.install();
+    let app = format!("{MORE}[[connectors]]\nname = \"crm\"\nurl = \"{url}\"\naudience = \"private\"\nlabel = \"private\"\n[connectors.tools.get_record]\nrisk = \"read\"\n");
+    (server_with(&app, |_| Router::new()).await, fake)
+}
+
+/// The agent says it finished; Magnus reads back what it changed with the
+/// person's own read tool and records what it found, and a report with no
+/// read named says it is not evidence.
+#[test]
+fn an_outside_agents_report_is_not_evidence_and_what_it_changed_is_read_back() {
+    on_big_stacks(async {
+        let (s, crm) = server_with_crm(json!({ "id": "42", "status": "open" })).await;
+        serve_checks(&s.k, Says::ALLOWING).await;
+        let f = fake::agent("Record 42 is closed.", COMPLETED, COMPLETED).await;
+        fake::connect(&s, "mo", &f).await;
+        let r = run(&s, "r_rb", false).await;
+        let mut a = send(&r, 1, "Close record 42.");
+        a.input["read_back"] = json!({ "tool": "crm__get_record", "input": { "id": "42" }, "expect": { "/status": "closed" } });
+        let v = s.k.execute(a).await.unwrap();
+        let Verdict::Done { text, is_error: false, .. } = v else { panic!("the send did not go") };
+        assert!(text.contains("does not match") && text.contains("Do not report this as done"), "the agent's report was taken as done: {text}");
+        assert_eq!(crm.sent().len(), 1, "what it changed was not read back");
+        let found = s.k.read(|st| st.evidence.read_backs(&r).to_vec());
+        assert_eq!(found.iter().map(|b| b.matches).collect::<Vec<_>>(), vec![Some(false)], "{found:?}");
+        let v = s.k.execute(send(&r, 2, "Close record 43.")).await.unwrap();
+        let Verdict::Done { text, .. } = v else { panic!("the second send did not answer") };
+        assert!(text.contains("Not read back") && text.contains("not evidence"), "{text}");
+        s.done().await;
+    });
+}
+
+/// A run that stops cancels the tasks it sent that are still open.
+#[test]
+fn stopping_a_run_cancels_its_open_outside_tasks() {
+    on_big_stacks(async {
+        let s = server().await;
+        serve_checks(&s.k, Says::ALLOWING).await;
+        let f = fake::agent("Working on it.", WORKING, WORKING).await;
+        fake::connect(&s, "mo", &f).await;
+        let r = run(&s, "r_stop", false).await;
+        let v = s.k.execute(send(&r, 1, "Build the quote for part 8.")).await.unwrap();
+        assert!(matches!(v, Verdict::Done { is_error: false, .. }), "the send did not go: {}", said(&v));
+        assert!(f.seen.lock().unwrap().cancels.is_empty());
+        s.k.cancel_tree(&r, vec![("person:mo", Ev::Cancelled { run: r.clone(), source: None, turn: None })]).await.unwrap();
+        assert_eq!(f.seen.lock().unwrap().cancels, vec!["t-1".to_string()], "the stopped run's task was left open");
+        s.done().await;
+    });
+}
+
+/// Auto Review judges a task for an outside agent like any send, and the
+/// destination it judges is the endpoint the card declared at connect.
+#[test]
+fn auto_review_judges_a_task_for_an_outside_agent_sent_to_its_declared_endpoint() {
+    on_big_stacks(async {
+        let s = server().await;
+        serve_checks(&s.k, Says { finding: None, review: Some("deny") }).await;
+        let f = fake::agent("", WORKING, WORKING).await;
+        fake::connect(&s, "mo", &f).await;
+        let r = run(&s, "r_review", false).await;
+        // Auto Review's verdicts are cached across the process: words no
+        // other test sends, so an allow cached there does not answer here.
+        let a = send(&r, 1, "Build the quote for part 9, which only this test asks for.");
+        assert_eq!(s.k.outside_destinations(&a), vec!["127.0.0.1".to_string()]);
+        let v = s.k.execute(a).await.unwrap();
+        assert!(!matches!(v, Verdict::Done { is_error: false, .. }), "a send Auto Review would not allow went");
+        assert_eq!(f.sends(), 0, "the agent received a task Auto Review held");
+        s.done().await;
+    });
+}
+
+/// A card whose signature does not verify is not connected, and nothing of
+/// it is kept.
+#[test]
+fn an_agent_whose_card_signature_does_not_verify_is_not_connected() {
+    on_big_stacks(async {
+        let s = server().await;
+        let f = fake::tampered().await;
+        let mo = s.token("mo").await;
+        let (st, v) = s.post(&mo, "/v1/outside-agents", json!({ "card_url": f.card_url(), "credential": fake::KEY })).await;
+        assert_eq!(st, 400, "{v}");
+        assert!(v.to_string().contains("does not verify"), "{v}");
+        assert!(s.k.read(|st| st.outside_agents.of("mo").is_empty()), "a card that does not verify was connected");
+        s.done().await;
+    });
+}
+
+/// What a verdict says, for a failing assertion.
+fn said(v: &Verdict) -> String {
+    match v {
+        Verdict::Done { text, is_error, .. } => format!("done (error: {is_error}): {text}"),
+        Verdict::Suspended => "suspended".into(),
+    }
 }

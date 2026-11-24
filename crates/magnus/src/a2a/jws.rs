@@ -88,6 +88,15 @@ pub fn ed25519_jwk(public: &[u8], kid: &str) -> Value {
     json!({ "kty": "OKP", "crv": "Ed25519", "x": B64.encode(public), "kid": kid, "alg": "EdDSA", "use": "sig" })
 }
 
+/// Sign `card` with the Ed25519 key made from `seed`: the signature and the
+/// key's public half, for an agent outside the kernel (the invariant tests'
+/// fake agents) that has no signing library of its own.
+pub fn sign_with_seed(card: &Value, seed: &[u8], kid: &str, jku: &str) -> Result<(Value, Value)> {
+    use ring::signature::KeyPair;
+    let key = signature::Ed25519KeyPair::from_seed_unchecked(seed).map_err(|_| anyhow!("an Ed25519 seed is 32 bytes"))?;
+    Ok((sign(card, &key, kid, jku), ed25519_jwk(key.public_key().as_ref(), kid)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
