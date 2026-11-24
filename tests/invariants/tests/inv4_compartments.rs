@@ -96,7 +96,12 @@ async fn an_injected_email_recipient_outside_envelope_is_staged_never_sent() {
 async fn a_cross_thread_reply_to_an_untrusted_sender_is_staged() {
     let w = world().await;
     let news = w.web.url("/news");
-    let notes = mcp::notes().start().await;
+    // The person's notes, readable: `mcp::notes()` offers only `save`, so a
+    // `notes__list` there is refused and the run never holds private data.
+    let notes = FakeMcp::builder()
+        .tool("list", "List notes.", json!({ "type": "object", "properties": {} }), |_, _, _| mcp::ok(json!({ "notes": [{ "title": "salary", "text": "private" }] })))
+        .start()
+        .await;
     let model = FakeModel::start(steps(vec![
         plan("reply"),
         tool("notes__list", json!({})),
@@ -121,20 +126,24 @@ async fn a_cross_thread_reply_to_an_untrusted_sender_is_staged() {
     assert_eq!(w.mail.effects("send"), 0, "cross-thread reply to untrusted sender was sent instead of staged");
 }
 
-/// 5. If turn 1 reads an injected email, a model-fabricated URL in turn 2 is
-/// still silently denied because untrusted + private data remain in context.
+/// 5. If turn 1 reads an injected email, a model-fabricated URL in turn 2 of
+/// the same conversation is still silently denied because untrusted + private
+/// data remain in its context. (Two separate tasks share no context: the
+/// second holds nothing of the first, so they cannot test this.)
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fabricated_url_in_turn_2_after_turn_1_taint_is_still_denied() {
     let w = world().await;
     let (news, collect) = (w.web.url("/news"), w.web.url("/collect?d=turn1-secret"));
-    let model = FakeModel::start(steps(vec![plan("turn 1"), tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": news })), complete("read")])).await;
+    let model = FakeModel::start(steps(vec![tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": news })), Reply::Text("read".into())])).await;
     let app = appliance(&w, &model).await;
     let alice = app.api("alice");
-    let t1 = alice.submit("Read my inbox and news.").await;
-    alice.wait_settled(&t1).await;
-    model.set_script(steps(vec![plan("turn 2"), tool("web_fetch", json!({ "url": collect })), complete("done")]));
-    let t2 = alice.submit("Now check another link.").await;
-    alice.wait_settled(&t2).await;
+    let (st, t1) = alice.post("/v1/chat", json!({ "text": "Read my inbox and news." })).await;
+    assert_eq!(st.as_u16(), 201, "{t1}");
+    alice.wait_settled(t1["task_id"].as_str().unwrap()).await;
+    model.set_script(steps(vec![tool("web_fetch", json!({ "url": collect })), Reply::Text("done".into())]));
+    let (st, t2) = alice.post("/v1/chat", json!({ "text": "Now check another link.", "thread": t1["thread"] })).await;
+    assert_eq!(st.as_u16(), 201, "{t2}");
+    alice.wait_settled(t2["task_id"].as_str().unwrap()).await;
     assert!(w.web.hits().iter().all(|h| !h.starts_with("/collect")), "turn 2 leaked turn 1 private data: {:?}", w.web.hits());
 }
 

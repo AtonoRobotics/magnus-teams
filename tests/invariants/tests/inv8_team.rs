@@ -58,7 +58,9 @@ async fn ask_team(who: &Api, ws: &str, channel: &str, text: &str) -> (reqwest::S
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
-    let clean_summary = canary("clean-shared-summary");
+    // Text that is posted must not look like a secret: the scrubber holds any
+    // 32-character letter-and-digit token, and a canary is one.
+    let clean_summary = "Blockers: none this week.".to_string();
     let model = FakeModel::start(steps(vec![plan("summarize"), complete(&clean_summary)])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
@@ -110,11 +112,11 @@ async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
     assert!(!msgs.to_string().contains(leaked_key), "flagged draft was posted to the shared room: {msgs}");
 
     // Scrubbing and releasing across the Airlock posts the clean update to the room.
-    let scrubbed = canary("scrubbed-deploy-note");
+    let scrubbed = "Deploy note, with the key taken out.";
     let (code, v) = alice.post(&format!("/v1/workspaces/{ws}/missions/{mission_id}/lanes/{lane_id}/release"), json!({ "contribution": scrubbed })).await;
     assert_eq!(code, 200, "owner could not release scrubbed draft: {v}");
     let (_, msgs) = bob.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
-    assert!(msgs.to_string().contains(&scrubbed), "released contribution did not reach the shared room: {msgs}");
+    assert!(msgs.to_string().contains(scrubbed), "released contribution did not reach the shared room: {msgs}");
 
     // Once removed, a former member cannot ask in the shared project.
     let (code, _) = alice.delete(&format!("/v1/workspaces/{ws}/members/bob")).await;
@@ -251,10 +253,13 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
     assert!(!reached, "the team agent read another project's knowledge base for someone not in it");
 
     // The agent working in the project's channel for a member has it, cited.
+    // Its own calls, not only the last one: a person's agent files memory
+    // after its run, in a call of its own.
     model.set_script(steps(vec![plan("k"), complete("done")]));
+    let before = model.requests().len();
     let (_, made) = ask_team(&alice, &ws, &channel, "What did we decide?").await;
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    let asked = model.requests().into_iter().last().unwrap().text();
+    let asked = model.requests()[before..].iter().map(|r| r.text()).collect::<Vec<_>>().join("\n");
     assert!(asked.contains(&secret), "the project's knowledge did not reach its agent");
     assert!(asked.contains(&entry) && asked.contains("cite"), "the agent was not told to cite the entries it relies on");
 
@@ -267,9 +272,11 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
     let (code, v) = alice.post(&in_team(&ws, &format!("knowledge/{entry}/retire")), json!({})).await;
     assert_eq!(code, 200, "{v}");
     model.set_script(steps(vec![plan("k"), complete("done")]));
+    let before = model.requests().len();
     let (_, made) = ask_team(&alice, &ws, &channel, "And now?").await;
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert!(!model.requests().into_iter().last().unwrap().text().contains(&secret), "a retired entry was read as current");
+    assert!(model.requests().len() > before, "the ask reached no model");
+    assert!(!model.requests()[before..].iter().any(|r| r.text().contains(&secret)), "a retired entry was read as current");
 
     // Deleting removes it from the record too.
     let (code, v) = alice.delete(&in_team(&ws, &format!("knowledge/{entry}"))).await;
@@ -346,7 +353,8 @@ async fn in_a_team_thread_only_the_person_who_asked_answers_an_ask() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_team_agents_own_work_reports_to_the_channel_and_asks_no_one() {
     let crm = mcp::crm().start().await;
-    let report = canary("routine-report");
+    // Posted text, so not secret-shaped (the scrubber would hold a canary).
+    let report = "Routine report: the records are in order.".to_string();
     let model = FakeModel::start(steps(vec![plan("r"), close_42(), complete(&report)])).await;
     let spec = Spec::default().app("crm", &crm, "internal", "principal", &[("update_record", "irreversible")]);
     let app = Appliance::start(spec, &model).await;

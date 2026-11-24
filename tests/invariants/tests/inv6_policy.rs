@@ -259,8 +259,17 @@ async fn an_expired_background_ask_runs_nothing() {
     assert!(alice.inbox().await.iter().all(|i| !(i["kind"] == "approval" && i["status"] == "open")), "the expired ask is still open");
     assert!(drafts.calls_to("send_draft").is_empty(), "an expired ask ran");
 
-    // An install waits with its ask.
-    let model = FakeModel::start(steps(vec![plan("install it"), tool("apps__install_app", json!({})), fail("not installed")])).await;
+    // An install waits with its ask. Its task goes on (the model holds its
+    // next turn): ending the task would close the ask with it
+    // (decisions/2026-11-23-a-card-answers-its-own-wait.md).
+    let model = FakeModel::start(script(|c| async move {
+        match c.turn() {
+            0 => plan("install it"),
+            1 => tool("apps__install_app", json!({})),
+            _ => std::future::pending().await,
+        }
+    }))
+    .await;
     model.set_reviewer(script(|_| async { review("ask", "a person should decide") }));
     let apps =
         FakeMcp::builder().tool("install_app", "Install an app.", json!({ "type": "object", "properties": {} }), |_, _, _| mcp::ok(json!({ "status": "installed" }))).start().await;
@@ -485,7 +494,8 @@ async fn an_image_is_made_behind_a_placeholder_and_goes_with_its_run() {
         complete("done"),
     ]))
     .await;
-    let mut spec = Spec::default().section("images", json!({ "url": web.url("/images"), "key": "images_key", "fast_model": "quick", "premium_model": "best" }));
+    let mut spec = Spec::default()
+        .section("images", json!({ "url": web.url("/images"), "key": "images_key", "fast_model": "quick", "premium_model": "best", "fast_usd": 0.04, "premium_usd": 0.17 }));
     let key = canary("image-key");
     spec.secrets.push(("images_key".into(), key.clone()));
     let (alice_token, bob_token) = (spec.token("alice"), spec.token("bob"));
