@@ -77,6 +77,11 @@ pub enum TeamMissionEvent {
         draft: String,
         #[serde(default)]
         scrub_flagged: bool,
+        /// Why a lane that would have posted itself waits for its owner
+        /// instead: a check held it (`team::lane_release`). Shown to the
+        /// owner only. Absent from events written before 2026-11-23.
+        #[serde(default)]
+        held_because: Option<String>,
     },
     LaneReleased {
         workspace: String,

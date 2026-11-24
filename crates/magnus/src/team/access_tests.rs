@@ -97,6 +97,7 @@ async fn drafted_lane(s: &Server, ws: &str, room: &str) {
         owner: "mo".into(),
         draft: "Revenue is up.".into(),
         scrub_flagged: false,
+        held_because: None,
     };
     s.k.emit("kernel", Ev::TeamMission(draft)).await.unwrap();
 }

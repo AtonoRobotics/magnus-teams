@@ -47,7 +47,9 @@ const TeamRooms = (() => {
     const isOwner = Boolean(lane.owner && lane.owner === ctx.me);
     let body = "";
     if (lane.status === "waiting_release" && isOwner && lane.private_draft) {
-      const warn = lane.scrub_flagged ? `<div class="small bad">Sensitive data was flagged — review before sharing.</div>` : "";
+      const warn = lane.held_because
+        ? `<div class="small bad">Held for you to check: ${esc(lane.held_because)}</div>`
+        : lane.scrub_flagged ? `<div class="small bad">Sensitive data was flagged — review before sharing.</div>` : "";
       body = `<div class="room-private-card" data-airlock-lane="${esc(lane.id)}">
         <div class="small room-private-head">Only you see this until you share</div>
         ${warn}

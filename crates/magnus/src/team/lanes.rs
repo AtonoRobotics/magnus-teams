@@ -3,6 +3,7 @@
 //! one lock), the watcher that follows a lane's worker, and the pass at
 //! boot that follows again the lanes a restart left working.
 
+use super::lane_release::Finished;
 use super::missions::LaneStep;
 use crate::compartment::query_gate::scrub_check;
 use crate::events::{Ev, TeamMissionEvent};
@@ -97,9 +98,10 @@ impl Kernel {
         }
     }
 
-    /// Detached async watcher that routes a finished lane either straight to
-    /// `LaneReleased` (when `auto_release` AND `scrub_check` passes) or into
-    /// the owner's private Release Airlock (`LaneDraftReady`).
+    /// Detached async watcher that routes a finished lane either through
+    /// the checks of an automatic release (`lane_release`), when
+    /// `auto_release`, or into the owner's private Release Airlock
+    /// (`LaneDraftReady`).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn spawn_lane_watcher(
         self: &Arc<Self>,
@@ -145,25 +147,20 @@ impl Kernel {
                     } else {
                         "(finished without a text summary)".to_string()
                     };
-                    let scrub_flagged = scrub_check(&summary).is_some();
-                    if auto_release && !scrub_flagged {
-                        let Some(credit) = k.read(|s| s.missions.release_credit(&mission, &lane)) else {
-                            return;
-                        };
-                        let released = TeamMissionEvent::LaneReleased {
+                    if auto_release {
+                        // Past the checks any send to other people gets, or held.
+                        k.release_automatically(Finished { workspace: workspace.clone(), mission: mission.clone(), lane: lane.clone(), owner, run: &r, summary, thread }).await;
+                    } else if let Some(owner) = owner {
+                        let scrub_flagged = scrub_check(&summary).is_some();
+                        let draft = TeamMissionEvent::LaneDraftReady {
                             workspace: workspace.clone(),
                             mission: mission.clone(),
                             lane: lane.clone(),
-                            contribution: summary.clone(),
-                            released_by: credit.clone(),
+                            owner,
+                            draft: summary,
+                            scrub_flagged,
+                            held_because: None,
                         };
-                        if k.move_lane("kernel", LaneStep::AutoRelease, released).await.unwrap_or(false) {
-                            k.post_released_contribution(&workspace, &mission, &credit, &summary, thread).await;
-                            k.refresh_mission_deliverable(&workspace, &mission).await;
-                        }
-                    } else if let Some(owner) = owner {
-                        let draft =
-                            TeamMissionEvent::LaneDraftReady { workspace: workspace.clone(), mission: mission.clone(), lane: lane.clone(), owner, draft: summary, scrub_flagged };
                         let _ = k.move_lane("kernel", LaneStep::Draft, draft).await;
                     } else {
                         // No one's Airlock to hold it in: it left the lane
