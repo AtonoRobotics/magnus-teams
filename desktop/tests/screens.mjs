@@ -66,7 +66,8 @@ await step("take control and hand back", async () => {
   assert.equal(await page.locator("#display-error").isHidden(), true);
   const held = await page.evaluate(id => Magnus.api("GET", `/v1/computers/${id}`), computer);
   assert.ok(held.controller, "nobody holds the screen");
-  await page.getByRole("button", { name: "I'm done" }).click();
+  // The control strip's button; the screen's hold overlay has its own (90cd678).
+  await page.locator("button[data-done]").click();
   await page.getByRole("button", { name: "Take control" }).waitFor();
   const after = await page.evaluate(id => Magnus.api("GET", `/v1/computers/${id}`), computer);
   assert.equal(after.controller, null, "the screen was not handed back");

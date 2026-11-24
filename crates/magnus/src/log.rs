@@ -756,7 +756,7 @@ impl Log {
 /// kind included: serde words both "unknown variant", and skipping the
 /// second would drop part of a run's history.
 pub fn parse_event(body: &Value) -> Result<Option<Ev>> {
-    let current = crate::events::current_lane_dispatched(body);
+    let current = crate::events::current_lane_dispatched(body).or_else(|| crate::staging::current_staged(body));
     let body = current.as_ref().unwrap_or(body);
     match serde_json::from_value::<Ev>(body.clone()) {
         Ok(ev) => Ok(Some(ev)),

@@ -249,3 +249,18 @@ async fn siblings_of_a_quarantined_tree_never_share_a_handle() {
     assert_ne!(told[0], told[1], "two siblings were given the same handle");
     s.done().await;
 }
+
+/// One kernel's reservations are its own. Before, every kernel in the
+/// process shared one table, and a kernel's sweep of the trees it did not
+/// know dropped another's: the next sibling there started again at `$q1`
+/// (the sibling test above failed so when other tests ran beside it).
+#[tokio::test(flavor = "multi_thread")]
+async fn another_kernels_sweep_keeps_this_kernels_handles() {
+    let (a, b) = (server_with("", |_| Router::new()).await, server_with("", |_| Router::new()).await);
+    let (here, there) = (quarantined_run(&a.k).await, quarantined_run(&b.k).await);
+    let first = a.k.reserve_handles(&here, 1);
+    b.k.reserve_handles(&there, 1);
+    assert_eq!(a.k.reserve_handles(&here, 1), first + 1, "another kernel's sweep gave a handle number out again");
+    a.done().await;
+    b.done().await;
+}

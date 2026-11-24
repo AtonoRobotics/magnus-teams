@@ -25,8 +25,7 @@ use crate::kernel::Kernel;
 use crate::state::{Run, Schedule, State};
 use crate::tools::Label;
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashMap};
-use std::sync::{Mutex, OnceLock};
+use std::collections::BTreeMap;
 
 const MAX_HANDLE_TEXT_BYTES: usize = 4096;
 
@@ -319,14 +318,6 @@ fn crossing(data: Option<Value>) -> (Option<Value>, bool) {
 /// The key, in a tool result's data, of a picture the planner is shown.
 const PICTURE_KEY: &str = "image_b64";
 
-/// The next free handle number of each quarantined tree, by its top run.
-/// A restart empties it; the numbers then continue after the handles the
-/// tree recorded.
-fn reserved() -> &'static Mutex<HashMap<String, usize>> {
-    static RESERVED: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
-    RESERVED.get_or_init(Default::default)
-}
-
 /// The highest handle number recorded in the tree under `root`, 0 for none.
 fn highest_handle(s: &State, root: &str) -> usize {
     handles_of(s, root).keys().filter_map(|h| h.strip_prefix("$q")?.parse().ok()).max().unwrap_or(0)
@@ -339,7 +330,11 @@ impl Kernel {
     /// one text, and a send carries only the text its handle stands for.
     /// Trees that have ended are let go.
     fn reserve_handles(&self, root: &str, count: usize) -> usize {
-        let mut m = reserved().lock().unwrap_or_else(|e| e.into_inner());
+        // The kernel's own: a restart empties it, and the numbers then
+        // continue after the handles the tree recorded. Kept per kernel, not
+        // per process: one kernel's sweep of the trees it does not know
+        // would drop another's reservations (two tests' kernels, before).
+        let mut m = self.handle_reservations.lock().unwrap_or_else(|e| e.into_inner());
         let (made, ended) = self.read(|s| {
             let ended: Vec<String> = m.keys().filter(|r| s.runs.get(*r).is_none_or(|x| x.status.terminal())).cloned().collect();
             (highest_handle(s, root), ended)
