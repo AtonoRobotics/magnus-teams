@@ -25,7 +25,7 @@ async fn hold(s: &Server, ws: &str, name: &str, text: &str) {
     let dir = held_dir(&s.k, ws, "mo");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(name), text).unwrap();
-    let file = File { name: name.into(), size: text.len() as u64, by: "mo".into() };
+    let file = File { name: name.into(), size: text.len() as u64, by: "mo".into(), coedit: false };
     s.k.emit("run:r", Ev::Team(Change::Held { workspace: ws.into(), person: "mo".into(), file })).await.unwrap();
 }
 

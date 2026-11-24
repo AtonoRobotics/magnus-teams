@@ -44,6 +44,21 @@ fn events() -> Vec<(Value, Option<&'static str>)> {
         (team(json!({ "change": "held", "person": "mo", "file": { "name": "mo.csv", "size": 1, "by": "mo" } })), Some("mo")),
         (team(json!({ "change": "released", "person": "mo", "name": "mo.csv" })), Some("mo")),
         (team(json!({ "change": "file", "file": { "name": "plan.md", "size": 1, "by": "mo" } })), None),
+        (
+            team(
+                json!({ "change": "coedit", "coedit": { "step": "version", "name": "sow.md", "number": 2, "base": 1, "author": { "person": "mo", "run": "r1" }, "at": AT, "data_b64": "", "sha256": "" } }),
+            ),
+            None,
+        ),
+        (
+            team(
+                json!({ "change": "coedit", "coedit": { "step": "proposed", "id": "e1", "name": "sow.md", "base": 1, "author": { "person": "mo", "run": "r1" }, "at": AT, "data_b64": "" } }),
+            ),
+            Some("mo"),
+        ),
+        (team(json!({ "change": "coedit", "coedit": { "step": "settled", "id": "e1", "version": 3 } })), None),
+        (team(json!({ "change": "coedit", "coedit": { "step": "checked_out", "name": "a.dwg", "person": "ana", "until": AT } })), Some("ana")),
+        (team(json!({ "change": "coedit", "coedit": { "step": "checked_in", "name": "a.dwg", "person": "ana" } })), Some("ana")),
     ]
 }
 

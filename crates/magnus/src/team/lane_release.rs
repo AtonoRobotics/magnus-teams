@@ -8,6 +8,11 @@
 //! by hand from the Airlock is their own act and does not come here
 //! (`mission_routes::release_lane`). See
 //! decisions/2026-11-23-lane-releases-pass-the-boundary.md.
+//!
+//! The lane's edits to co-edited files (`coedit`) are part of its result:
+//! the same checks see them, and they land, under the version check, only
+//! when the result is released. One that conflicts by then holds the lane
+//! for its owner, who sees both versions and decides.
 
 use super::missions::LaneStep;
 use crate::auto_review::Verdict;
@@ -76,7 +81,13 @@ impl Kernel {
     /// no one owns fails instead). Every automatic release comes here.
     pub(super) async fn release_automatically(self: &Arc<Self>, w: Finished<'_>) {
         let Finished { workspace, mission, lane, owner, run, summary, thread } = w;
-        match self.lane_release_checks(&workspace, &mission, &lane, owner.as_deref(), run, &summary).await {
+        let mut gate = self.lane_release_checks(&workspace, &mission, &lane, owner.as_deref(), run, &summary).await;
+        if gate == Gate::Post {
+            if let Some(why) = self.land_lane_edits(&workspace, &mission, &lane).await {
+                gate = hold(why);
+            }
+        }
+        match gate {
             Gate::Post => {
                 let Some(credit) = self.read(|s| s.missions.release_credit(&mission, &lane)) else {
                     return;
@@ -100,6 +111,21 @@ impl Kernel {
         }
     }
 
+    /// Land the lane's edits to co-edited files, or say why the lane waits.
+    async fn land_lane_edits(&self, workspace: &str, mission: &str, lane: &str) -> Option<String> {
+        match self.coedit_land_lane("kernel", workspace, mission, lane).await {
+            Ok(Ok(_)) => None,
+            Ok(Err(stuck)) => {
+                let names: Vec<String> = stuck.into_iter().map(|(_, name, _)| name).collect();
+                Some(format!("{} changed since your agent's edit, and parts of it conflict: decide them in your Airlock", names.join(", ")))
+            }
+            Err(e) => {
+                tracing::warn!("lane {lane} of mission {mission}: its edits: {e:#}");
+                Some("your agent's edits to shared files could not be landed".into())
+            }
+        }
+    }
+
     /// The checks, in order, each of which may only hold: the scrubber; the
     /// run's taint (it read content from outside while holding private
     /// data), which rests on no model's word; the outgoing classifier; and
@@ -107,6 +133,13 @@ impl Kernel {
     async fn lane_release_checks(&self, workspace: &str, mission: &str, lane: &str, owner: Option<&str>, run: &Run, summary: &str) -> Gate {
         if let Some(reason) = scrub_check(summary) {
             return Gate::Hold { why: format!("the scrubber flagged it: {reason}"), scrub_flagged: true };
+        }
+        // Its edits to co-edited files go out with it, and are judged with it.
+        let edits: Vec<(String, String)> = self.read(|s| {
+            s.team.workspace(workspace).map(|w| w.coedit.of_lane(mission, lane).into_iter().map(|o| (o.name.clone(), super::coedit::shown(&o.diff))).collect()).unwrap_or_default()
+        });
+        if let Some((name, reason)) = edits.iter().find_map(|(name, text)| scrub_check(text).map(|r| (name, r))) {
+            return Gate::Hold { why: format!("the scrubber flagged your agent's edit to {name}: {reason}"), scrub_flagged: true };
         }
         if run.outside && run.private {
             return hold(TAINTED);
@@ -127,11 +160,16 @@ impl Kernel {
         let Some((ws_name, room_name, readers, asked)) = place else {
             return hold("its room could not be found");
         };
-        let input = json!({ "workspace": ws_name, "room": room_name, "text": summary });
+        let mut input = json!({ "workspace": ws_name, "room": room_name, "text": summary });
+        if !edits.is_empty() {
+            input["edits"] = json!(edits.iter().map(|(file, changes)| json!({ "file": file, "changes": changes })).collect::<Vec<_>>());
+        }
         let action = Action { run: run.id.clone(), call_id: format!("release:{lane}"), step_id: String::new(), tool: RELEASE_TOOL.into(), input, issuer: Issuer::Model };
         let shown = Shown {
             recipients: [("room_members".to_string(), readers)].into(),
-            content: [("text".to_string(), Value::String(summary.to_string()))].into(),
+            content: std::iter::once(("text".to_string(), Value::String(summary.to_string())))
+                .chain(edits.iter().map(|(file, changes)| (format!("edit of {file}"), Value::String(changes.clone()))))
+                .collect(),
             bound: Default::default(),
         };
         let hash = shown.hash(RELEASE_TOOL, &action.input);
@@ -150,7 +188,12 @@ impl Kernel {
             remote: RELEASE_TOOL.into(),
             reaches_self: false,
         };
-        let verdict = self.auto_review_found(&action, &facts, run, Some(&shown), &hash, &asked.standing(), Some(None)).await;
+        let mut standing = asked.standing();
+        if !edits.is_empty() {
+            let files: Vec<&str> = edits.iter().map(|(f, _)| f.as_str()).collect();
+            standing.push_str(&format!("; with it go edits to co-edited files of the shared project ({}), which its members read and may send on", files.join(", ")));
+        }
+        let verdict = self.auto_review_found(&action, &facts, run, Some(&shown), &hash, &standing, Some(None)).await;
         match verdict {
             // As for any boundary action (`asks::settle`): an allow acts
             // alone where the owner's policy delegates, or where the person

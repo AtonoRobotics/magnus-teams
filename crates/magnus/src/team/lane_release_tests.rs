@@ -101,6 +101,7 @@ async fn finished_lane(k: &Arc<Kernel>, ws: &str, room: &str, mission: &str, own
         child_task: None,
         child_run: Some(run.clone()),
         thread: None,
+        routine: None,
     };
     k.emit("person:sam", Ev::TeamMission(dispatched)).await.unwrap();
     if read_outside {

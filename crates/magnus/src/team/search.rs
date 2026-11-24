@@ -96,7 +96,7 @@ mod tests {
         w.channels.insert("c".into(), Channel { name: "general".into(), messages: vec![said("1", "The launch date moved")], project: None });
         w.channels.insert("d".into(), Channel { name: String::new(), messages: vec![said("2", "launch secret")], project: None });
         w.chat.direct.insert("d".into(), Direct { people: vec!["ann".into()], agent: false });
-        w.files.insert("launch-plan.pdf".into(), File { name: "launch-plan.pdf".into(), size: 1, by: "ann".into() });
+        w.files.insert("launch-plan.pdf".into(), File { name: "launch-plan.pdf".into(), size: 1, by: "ann".into(), coedit: false });
         w.projects.insert("p".into(), Project { id: "p".into(), owner: "ann".into(), ..Default::default() });
         w.chat.tasks.insert("t".into(), Task { id: "t".into(), project: Some("p".into()), title: "Plan the launch".into(), ..Default::default() });
         w.knowledge.insert("k".into(), Entry { id: "k".into(), statement: "Launch is in March".into(), ..Default::default() });
