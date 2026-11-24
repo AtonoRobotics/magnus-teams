@@ -152,7 +152,8 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
         return refuse(StatusCode::FORBIDDEN, NOT_IN_ROOM);
     }
 
-    let prompt = format!("Revise your private draft for \"{objective}\" using the owner's instruction.\n\nCurrent draft:\n{prev_draft}\n\nOwner's edit:\n{instruction}");
+    // Told by how it begins, so it goes with the requester's words (`copies`).
+    let prompt = super::copies::steer_prompt(&objective, &prev_draft, instruction);
     // The objective is the requester's words and the draft came of them: as
     // untrusted as the lane's own run when someone else asked, and started
     // as that lane was, by the requester, so its words read as another's
