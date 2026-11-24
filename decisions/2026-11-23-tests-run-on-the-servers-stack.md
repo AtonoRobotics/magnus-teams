@@ -1,17 +1,16 @@
-# Tests run on the server's stack size
+# Deep tests run on the server's stack size
 
-**Choice.** `ci/fast.sh` sets `RUST_MIN_STACK` to 16 MiB, the
-stack the server gives its tokio workers (`cli.rs`, `WORKER_STACK_BYTES`),
-so every test thread has it. The tests that drive the whole tool pipeline
-or a batch of sub-agents also run their body on a 16 MiB worker
-(`on_big_stacks`), so they hold without the setting too.
+**Choice.** The tests that drive the whole tool pipeline or a batch of
+sub-agents (`boundary::finish_tests`, `sub_agents::batch_tests`) run their
+body on a tokio worker with the 16 MiB stack the server gives its workers
+(`cli.rs`, `WORKER_STACK_BYTES`), through `on_big_stacks`. They pass with the
+test thread's own stack cut to 1 MiB. No global stack floor is set.
 
 **Reason.** `boundary::finish_tests::a_resent_irreversible_send_is_read_back`
 overflowed the test thread's default 2 MiB on the GitHub runner, though not
 on Strix Beta, and the abort stopped the fast tier and the release of
-0c98f35. A test is meant to fail on its own assertion, not on a stack
-smaller than the one the code runs on in the server.
-
-It is set in `ci/fast.sh`, not in `.cargo/config.toml`'s `[env]`: cargo
-puts `[env]` in every crate's fingerprint, so the first try rebuilt every
-crate and the fast tier ran past its ten minutes (c685a99).
+0c98f35. A global floor was tried and dropped: in `.cargo/config.toml`'s
+`[env]` it is in every crate's fingerprint and rebuilt them all (c685a99);
+exported by `ci/fast.sh` (766dfae) it doubled the lib tests on the runner,
+157 s to 300 s, though not on Strix Beta, and both runs passed the fast
+tier's ten minutes.
