@@ -20,6 +20,8 @@ use crate::config::Person;
 use crate::events::Ev;
 use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
+use crate::spend::allowance::Owner;
+use crate::spend::paid::{no_usage, Bill, Failure, Payer, Quote, Refused};
 use crate::state::{KnowledgeEntry, Run};
 use anyhow::{Context, Result};
 use axum::extract::{Path, Query, State};
@@ -27,6 +29,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use magnus_adapter_proto::Usage;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -133,23 +136,57 @@ fn source_of(tool: &str, input: &Value) -> String {
     }
 }
 
+/// What an embedding's charge is for, as its record names it.
+const EMBEDDING_PURPOSE: &str = "embedding";
+/// What an embedding's record names the embedding server, which is no adapter.
+const EMBEDDINGS: &str = "embeddings";
+
 impl Kernel {
     /// A text's embedding from the configured server, as its model and a
-    /// vector literal; None without a server.
-    pub(crate) async fn embed(&self, text: &str) -> Result<Option<(String, String)>> {
+    /// vector literal; None without a server. Through the one paid call
+    /// (`spend::paid`), charged to `owner` at the server's price, at
+    /// nothing for a local one, so every embedding is on the ledger.
+    pub(crate) async fn embed(&self, owner: Owner, text: &str) -> Result<Option<(String, String)>> {
         let Some(e) = &self.cfg.knowledge.embeddings else { return Ok(None) };
-        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(e.timeout_s)).build()?;
-        let mut req = client.post(format!("{}/embeddings", e.url.trim_end_matches('/'))).json(&json!({ "model": e.model, "input": [text] }));
-        if let Some(name) = &e.credential {
-            if let Some(key) = self.vault.get(name)? {
-                req = req.bearer_auth(key.expose());
+        let estimate = magnus_adapter_proto::chars_to_tokens(text.len());
+        let price = |tokens: u64| e.usd_per_mtok.map(|p| tokens as f64 * p / 1_000_000.0);
+        let quote = price(estimate).map(|input_usd| Quote { input_tokens: estimate, input_usd, output_usd: 0.0 });
+        let key = match &e.credential {
+            Some(name) => self.vault.get(name)?.map(|k| k.expose().to_string()),
+            None => None,
+        };
+        let call = async {
+            let mut req = reqwest::Client::new().post(format!("{}/embeddings", e.url.trim_end_matches('/'))).json(&json!({ "model": e.model, "input": [text] }));
+            if let Some(key) = &key {
+                req = req.bearer_auth(key);
             }
+            let fail = |message: String| Failure { message, usage: None };
+            let v: Value = req.send().await.and_then(|r| r.error_for_status()).map_err(|e| fail(e.to_string()))?.json().await.map_err(|e| fail(e.to_string()))?;
+            let nums: Vec<String> = v["data"][0]["embedding"].as_array().into_iter().flatten().map(|x| x.as_f64().unwrap_or(0.0).to_string()).collect();
+            if nums.is_empty() {
+                return Err(fail("the embedding server returned no embedding".into()));
+            }
+            // What the server counted, else the estimate it was priced at.
+            let tokens = v["usage"]["prompt_tokens"].as_u64().unwrap_or(estimate);
+            let usage = Usage { input_tokens: tokens, cost_usd: price(tokens).unwrap_or_default(), ..no_usage() };
+            Ok((format!("[{}]", nums.join(",")), usage))
+        };
+        let bill = Bill {
+            payer: Payer::Owner(owner),
+            purpose: EMBEDDING_PURPOSE,
+            adapter: EMBEDDINGS,
+            model: &e.model,
+            servers_model: true,
+            timeout: Some(std::time::Duration::from_secs(e.timeout_s)),
+        };
+        // Boxed: indexing embeds while it follows a write, and the record
+        // is a write of its own (a charge touches no entry, so it is not
+        // followed in turn).
+        match Box::pin(self.pay(bill, quote, call, |_, _| None)).await {
+            Ok((vector, _)) => Ok(Some((e.model.clone(), vector))),
+            Err(Refused::Record(err)) => Err(err),
+            Err(why) => Err(anyhow::anyhow!("{why}")),
         }
-        let v: Value = req.send().await?.error_for_status()?.json().await?;
-        let nums: Vec<String> =
-            v["data"][0]["embedding"].as_array().context("the embedding server returned no embedding")?.iter().map(|x| x.as_f64().unwrap_or(0.0).to_string()).collect();
-        anyhow::ensure!(!nums.is_empty(), "the embedding server returned an empty embedding");
-        Ok(Some((e.model.clone(), format!("[{}]", nums.join(",")))))
     }
 
     /// An entry as it is shown, with what it says read from the content
@@ -164,7 +201,7 @@ impl Kernel {
         let embedding = if query.trim().is_empty() {
             None
         } else {
-            self.embed(query).await.unwrap_or_else(|e| {
+            self.embed(Owner::Person(p.id.clone()), query).await.unwrap_or_else(|e| {
                 tracing::warn!("embed a query: {e:#}");
                 None
             })

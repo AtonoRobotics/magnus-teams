@@ -9,6 +9,11 @@
 //! call is fitted to it, and the hold taken, so no two calls fit into the
 //! same dollars. The holds live in memory only: they are never in the log,
 //! and none outlives the call, so a replay has none to fold.
+//!
+//! A batch of calls a run makes at once holds its actions the same way
+//! (`reserve`): the batch is admitted in one step, and the actions it was
+//! given count against every other run of its tree until its own calls
+//! record them (decisions/2026-11-23-a-batch-of-sub-agents-is-counted-before-it-starts.md).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,6 +36,13 @@ pub struct Hold {
     pub workspace: Option<String>,
     pub channel: Option<String>,
     pub usd: f64,
+    /// Actions held for a batch of the run's (`runs[0]`) calls made at
+    /// once: they count against every other run whose limits the run
+    /// spends, never against the run's own calls, which they are for.
+    pub actions: u32,
+    /// The run's own action count when they were held: each action it has
+    /// recorded since used one of them (`spend::tree`).
+    pub actions_at: u32,
 }
 
 /// The holds of the calls in flight.
@@ -89,6 +101,22 @@ impl Holds {
                 continue;
             }
         }
+    }
+}
+
+impl Holds {
+    /// Hold actions for a batch of calls about to be made at once: `fit`
+    /// reads what is left given the holds now and gives what goes ahead
+    /// and the hold to take, in one step under the lock, so no two calls of
+    /// a batch, nor two batches, are fitted into the same actions. Dropping
+    /// the hold frees what the batch's calls did not use.
+    pub fn reserve<T>(&self, fit: impl FnOnce(&[Hold]) -> (T, Hold)) -> (T, Held<'_>) {
+        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        let now: Vec<Hold> = held.values().cloned().collect();
+        let (t, hold) = fit(&now);
+        let id = self.next.fetch_add(1, Ordering::SeqCst);
+        held.insert(id, hold);
+        (t, Held { holds: self, id })
     }
 }
 

@@ -17,6 +17,9 @@ impl Config {
             tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
         }
         cfg.images.as_ref().map(|i| i.check(&cfg.adapters)).transpose()?;
+        if let Some(usd) = cfg.knowledge.embeddings.as_ref().and_then(|e| e.usd_per_mtok).filter(|u| !u.is_finite() || *u < 0.0) {
+            anyhow::bail!("[knowledge.embeddings] usd_per_mtok is a number of US dollars, zero or more, not {usd}");
+        }
         cfg.relay.as_ref().map(|r| r.check()).transpose()?;
         for f in &cfg.model.fallbacks {
             let Some((a, _m)) = f.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) else {

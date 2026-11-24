@@ -89,10 +89,10 @@ impl Kernel {
         .to_string();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
         // Zero tools passed to the quarantined model call.
-        let reply = tokio::time::timeout(QUARANTINE_TIMEOUT, self.reviewer_call(run, "quarantined_extract", QUARANTINE_SYSTEM, messages, vec![])).await;
+        // The call owns its timeout, so one cut off is still booked.
+        let reply = self.reviewer_call_within(run, "quarantined_extract", QUARANTINE_SYSTEM, messages, vec![], Some(QUARANTINE_TIMEOUT)).await;
         let text = reply
             .ok()
-            .and_then(|r| r.ok())
             .flatten()
             .and_then(|blocks| {
                 blocks.into_iter().find_map(|b| match b {

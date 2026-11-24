@@ -67,6 +67,21 @@ impl Kernel {
     /// provider failed (what it charged is recorded): the reviewer then
     /// says nothing.
     pub(crate) async fn reviewer_call(&self, run: &Run, purpose: &str, system: &str, messages: Vec<Message>, tools: Vec<ToolSpec>) -> Result<Option<Vec<Block>>> {
+        self.reviewer_call_within(run, purpose, system, messages, tools, None).await
+    }
+
+    /// `reviewer_call`, cut off after `timeout`: the paid call owns its
+    /// timeout and books a call cut off, which a timeout around it could
+    /// not (`spend::paid`).
+    pub(crate) async fn reviewer_call_within(
+        &self,
+        run: &Run,
+        purpose: &str,
+        system: &str,
+        messages: Vec<Message>,
+        tools: Vec<ToolSpec>,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Option<Vec<Block>>> {
         let independent = self.cfg.safety.independent_reviewer();
         let (adapter, model) = independent.unwrap_or(run.model());
         let call = crate::spend::paid::Call {
@@ -79,7 +94,7 @@ impl Kernel {
             tools,
             max_tokens: run.config.max_tokens,
             servers_model: independent.is_some(),
-            timeout: None,
+            timeout,
         };
         let record = |out: &crate::adapters::TurnOut| {
             Some((

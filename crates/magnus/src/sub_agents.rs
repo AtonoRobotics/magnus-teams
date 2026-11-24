@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod batch;
 mod findings;
 pub(crate) use findings::render_deliverable;
 
@@ -81,6 +82,11 @@ impl Ledger {
     /// Why `run` may start no more sub-agents, if so: it is nested as deep
     /// as a sub-agent may be, or has started as many as one run may.
     pub fn may_start(&self, run: &str) -> std::result::Result<(), String> {
+        self.room(run).map(|_| ())
+    }
+
+    /// How many more sub-agents `run` may start, or why it may start none.
+    pub fn room(&self, run: &str) -> std::result::Result<usize, String> {
         if self.depth(run) >= MAX_DEPTH {
             return Err("Sub-agents cannot be nested this deeply.".to_string());
         }
@@ -88,7 +94,7 @@ impl Ledger {
         if started >= MAX_CHILDREN_PER_RUN {
             return Err(format!("This run has started {started} sub-agents, the most one run may start. Finish the work with them or yourself."));
         }
-        Ok(())
+        Ok(MAX_CHILDREN_PER_RUN - started)
     }
 
     /// The run at the top of a sub-agent's parents; None for a run that is
