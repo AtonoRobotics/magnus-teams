@@ -57,6 +57,11 @@ pub struct LaneSpec {
     /// server, never from a lane's body.
     #[serde(skip)]
     pub quarantine: Option<serde_json::Value>,
+    /// The routine this lane fires for, which makes it work that asks no
+    /// one (`State::background_asks`). Set only by the routine sweep, never
+    /// from a lane's body.
+    #[serde(skip)]
+    pub routine: Option<String>,
 }
 
 /// Whose agent a member lane runs: the member named, else the requester's own.
@@ -119,7 +124,7 @@ impl Kernel {
         pick: crate::say::Pick,
         hold: bool,
     ) -> Result<(String, String, String)> {
-        self.start_room_mission_picked(&format!("person:{requester}"), workspace, room, requester, objective, thread, None, pick, hold).await
+        self.start_room_mission_picked(&format!("person:{requester}"), workspace, room, requester, objective, thread, None, pick, hold, None).await
     }
 
     /// The same mission for a member, started by `actor`: the member, or
@@ -128,6 +133,8 @@ impl Kernel {
     /// and asks no one, on the model their own settings pick. `quarantine`:
     /// the schema its untrusted reads are quarantined under, when the one
     /// rule for unattended work says so (`Kernel::unattended_quarantine`).
+    /// `routine`: the routine it fires for, recorded on the lane before its
+    /// run wakes, so that run asks no one; a follow-up passes none.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn start_room_mission_as(
         self: &Arc<Self>,
@@ -139,9 +146,10 @@ impl Kernel {
         thread: Option<String>,
         quarantine: Option<serde_json::Value>,
         hold: bool,
+        routine: Option<String>,
     ) -> Result<(String, String, String)> {
         let pick = crate::say::Pick { model: None, reasoning: None };
-        self.start_room_mission_picked(actor, workspace, room, requester, objective, thread, quarantine, pick, hold).await
+        self.start_room_mission_picked(actor, workspace, room, requester, objective, thread, quarantine, pick, hold, routine).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -156,6 +164,7 @@ impl Kernel {
         quarantine: Option<serde_json::Value>,
         pick: crate::say::Pick,
         hold: bool,
+        routine: Option<String>,
     ) -> Result<(String, String, String)> {
         let spec = LaneSpec {
             kind: LaneKind::MemberAgent,
@@ -167,6 +176,7 @@ impl Kernel {
             hold,
             reasoning: pick.reasoning,
             quarantine,
+            routine,
         };
         self.check_lane(workspace, room, requester, &spec).await?;
         let mission_id = new_id("mission");
@@ -266,6 +276,7 @@ impl Kernel {
                         child_task: Some(child_task.clone()),
                         child_run: Some(child_run.clone()),
                         thread: spec.thread.clone(),
+                        routine: spec.routine.clone(),
                     }),
                 )
                 .await?;
@@ -305,6 +316,7 @@ impl Kernel {
                         child_task: Some(child_task.clone()),
                         child_run: Some(child_run.clone()),
                         thread: spec.thread.clone(),
+                        routine: None,
                     }),
                 )
                 .await?;

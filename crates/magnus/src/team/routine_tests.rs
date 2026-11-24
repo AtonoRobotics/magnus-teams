@@ -148,3 +148,31 @@ async fn a_routine_waits_out_its_authors_pause() {
     assert!(matches!(routine_now().fired.as_slice(), [Firing::Started(_)]), "the routine did not fire after the pause: {:?}", routine_now().fired);
     s.done().await;
 }
+
+/// A routine's lane asks no one: what would ask is refused, and it reports
+/// to the channel (2026-11-23-routine-lanes-ask-no-one). Its lane says so
+/// before its run wakes, so nothing waits on `RoutineRan`. A follow-up and
+/// an ordinary ask still ask their person.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_routines_lane_asks_no_one_and_a_follow_up_still_asks() {
+    let s = server_with("", |_| Router::new()).await;
+    room(&s, "w", "mo").await;
+    s.k.emit("test", Ev::Team(Change::Routine { workspace: "w".into(), id: "r".into(), routine: routine("mo") })).await.unwrap();
+    s.k.run_due_routines().await.unwrap();
+    let fired = s.k.read(|st| st.team.workspace("w").unwrap().routines["r"].fired.clone());
+    let [Firing::Started(task)] = fired.as_slice() else { panic!("the routine did not fire: {fired:?}") };
+    let run = own_background_run(&s, task, "mo");
+    assert!(s.k.read(|st| st.asks_no_one(&run.id)), "a routine's lane would wait on an ask of its author");
+
+    // Started as the sweep starts it, with no `RoutineRan` after it.
+    let (_, task, run) = s.k.start_room_mission_as("poll", "w", "c", "mo", "Count the open deals.", None, None, false, Some("r2".into())).await.unwrap();
+    own_background_run(&s, &task, "mo");
+    assert!(s.k.read(|st| st.asks_no_one(&run)), "a routine's lane asks until its firing is recorded");
+
+    let (_, task, run) = s.k.start_room_mission_as("poll", "w", "c", "mo", "Who has the deck?", Some("q".into()), None, true, None).await.unwrap();
+    own_background_run(&s, &task, "mo");
+    assert!(!s.k.read(|st| st.asks_no_one(&run)), "a follow-up no longer asks its person");
+    let (_, _, run) = s.k.start_personal_room_mission("w", "c", "mo", "Plan it.", None, Default::default(), false).await.unwrap();
+    assert!(!s.k.read(|st| st.asks_no_one(&run)), "an ordinary ask no longer asks its person");
+    s.done().await;
+}

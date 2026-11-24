@@ -72,6 +72,7 @@ async fn a_steers_objective_reads_as_another_members() {
         child_task: None,
         child_run: None,
         thread: None,
+        routine: None,
     };
     s.k.emit("person:sam", Ev::TeamMission(dispatched)).await.unwrap();
     let draft = TeamMissionEvent::LaneDraftReady {

@@ -88,6 +88,7 @@ async fn drafted_lane(s: &Server, ws: &str, room: &str) {
         child_task: None,
         child_run: None,
         thread: None,
+        routine: None,
     };
     s.k.emit("person:sam", Ev::TeamMission(dispatched)).await.unwrap();
     let draft = TeamMissionEvent::LaneDraftReady {

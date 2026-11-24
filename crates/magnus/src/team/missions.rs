@@ -92,6 +92,9 @@ pub struct Lane {
     /// The thread its result is posted to.
     #[serde(default)]
     pub thread: Option<String>,
+    /// The routine it fires for, if any.
+    #[serde(default)]
+    pub routine: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -211,7 +214,7 @@ impl MissionLedger {
                     },
                 );
             }
-            TeamMissionEvent::LaneDispatched { mission, lane, kind, target_member, objective, scope, auto_release, child_task, child_run, thread, .. } => {
+            TeamMissionEvent::LaneDispatched { mission, lane, kind, target_member, objective, scope, auto_release, child_task, child_run, thread, routine, .. } => {
                 if let Some(m) = self.missions.get_mut(mission) {
                     m.lanes.insert(
                         lane.clone(),
@@ -231,6 +234,7 @@ impl MissionLedger {
                             released_by: None,
                             failure_reason: None,
                             thread: thread.clone(),
+                            routine: routine.clone(),
                         },
                     );
                 }
@@ -301,6 +305,11 @@ impl MissionLedger {
     /// person's own agent asked in that mission's room.
     pub fn of_member_lane(&self, task: &str) -> Option<&Mission> {
         self.missions.values().find(|m| m.lanes.values().any(|l| l.kind == LaneKind::MemberAgent && l.child_task.as_deref() == Some(task)))
+    }
+
+    /// Whether `task` is the work of a lane a routine fired.
+    pub fn is_routine_lane(&self, task: &str) -> bool {
+        self.missions.values().flat_map(|m| m.lanes.values()).any(|l| l.routine.is_some() && l.child_task.as_deref() == Some(task))
     }
 
     /// Whether this lane can take `step` now (`LaneStatus::next`).
@@ -471,6 +480,7 @@ mod tests {
             child_task: Some("t_bob".into()),
             child_run: None,
             thread: None,
+            routine: None,
         };
         assert_eq!(ledger.content_owner(&lane).as_deref(), Some("alice"), "the objective is the requester's words");
         ledger.apply(&lane);
@@ -507,6 +517,7 @@ mod tests {
             child_task: None,
             child_run: Some("r".into()),
             thread: None,
+            routine: None,
         });
     }
 
@@ -577,6 +588,7 @@ mod tests {
             child_task: Some("t_bob".into()),
             child_run: Some("r_bob".into()),
             thread: None,
+            routine: None,
         });
         ledger.apply(&TeamMissionEvent::LaneDraftReady {
             workspace: "ws1".into(),

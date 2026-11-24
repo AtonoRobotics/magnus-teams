@@ -48,6 +48,7 @@ async fn dispatched(k: &Kernel, ws: &str, mission: &str, lane: &str, kind: LaneK
         child_task: None,
         child_run: run.map(String::from),
         thread: thread.map(String::from),
+        routine: None,
     };
     k.emit("person:sam", Ev::TeamMission(ev)).await.unwrap();
 }
