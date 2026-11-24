@@ -170,7 +170,7 @@ impl Kernel {
         // validated deterministically by the kernel against literal prompt tokens.
         if !prompt.trim().is_empty() {
             let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: prompt.clone() }], state: None }];
-            if let Ok(Ok(Some(blocks))) = tokio::time::timeout(EXTRACT_TIMEOUT, self.reviewer_call(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()])).await {
+            if let Ok(Some(blocks)) = self.reviewer_call_within(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()], Some(EXTRACT_TIMEOUT)).await {
                 if let Some((candidates, apps)) = parsed_from_model(&blocks) {
                     for c in candidates {
                         if let Some(d) = validate_model_candidate(&prompt, &c) {

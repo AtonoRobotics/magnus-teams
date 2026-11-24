@@ -236,8 +236,8 @@ impl Kernel {
         }
         let tool = review_tool();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(REVIEW_TIMEOUT, self.reviewer_call(run, "auto_review", SYSTEM, messages, vec![tool])).await;
-        let Some(verdict) = reply.ok().and_then(|r| r.ok()).flatten().and_then(|blocks| verdict_of(&blocks)) else {
+        let reply = self.reviewer_call_within(run, "auto_review", SYSTEM, messages, vec![tool], Some(REVIEW_TIMEOUT)).await;
+        let Some(verdict) = reply.ok().flatten().and_then(|blocks| verdict_of(&blocks)) else {
             return Ok(Verdict::Ask("Auto Review could not be reached".to_string()));
         };
         remember(key, &verdict);
