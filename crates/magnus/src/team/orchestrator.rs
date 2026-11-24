@@ -244,8 +244,11 @@ impl Kernel {
                 let prompt = format!(
                     "Room \"{room}\" in workspace \"{ws_name}\" requested this scoped update from your personal apps (requested by {requester}):\n\n{objective}\n\nReturn a concise, scrubbed summary containing only the requested facts—never raw credentials, private emails, or unrelated personal records."
                 );
-                // Clean label: untrusted only when requested by someone else; private always.
-                let label = Label { untrusted: super::owner::from_others(target, [requester]), private: true };
+                // Clean label: untrusted only when requested by someone else,
+                // or when the project base its prompt carries holds others'
+                // words (`index_for`); private always.
+                let others_base = self.read(|s| super::agent::lane_base_from_others(s, workspace, room, target, requester));
+                let label = Label { untrusted: super::owner::from_others(target, [requester]) || others_base, private: true };
                 let (child_task, child_run) = self
                     .create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, reasoning, quarantine: spec.quarantine.clone(), ..Default::default() })
                     .await?;

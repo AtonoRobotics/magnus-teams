@@ -297,6 +297,12 @@ impl MissionLedger {
         self.missions.get(id)
     }
 
+    /// The mission whose member's-agent lane `task` is the work of: a
+    /// person's own agent asked in that mission's room.
+    pub fn of_member_lane(&self, task: &str) -> Option<&Mission> {
+        self.missions.values().find(|m| m.lanes.values().any(|l| l.kind == LaneKind::MemberAgent && l.child_task.as_deref() == Some(task)))
+    }
+
     /// Whether this lane can take `step` now (`LaneStatus::next`).
     pub fn lane_can(&self, mission: &str, lane: &str, step: LaneStep) -> bool {
         self.missions.get(mission).and_then(|m| m.lanes.get(lane)).is_some_and(|l| l.status.next(step).is_some())
