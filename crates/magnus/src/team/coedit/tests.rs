@@ -226,6 +226,48 @@ async fn an_agent_edit_with_a_private_canary_after_an_injected_page_waits_in_the
     s.done().await;
 }
 
+/// An agent's edit the requester's own ask and no standing release cover
+/// waits with its lane's result in its owner's Airlock, and lands when they
+/// release it. One that conflicts with a version that landed meanwhile
+/// holds the lane there until they decide each part from both versions.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_uncovered_agent_edit_waits_for_its_owners_release_and_a_conflict_holds_it() {
+    let s = server_with("", |_| Router::new()).await;
+    serve_checks(&s.k, Says::ALLOWING).await;
+    let (ws, room) = project(&s).await;
+    share(&s, "sam", &ws, "sow.md", SOW.as_bytes()).await;
+    let mo = s.token("mo").await;
+    let run = lane(&s.k, &ws, &room, "m1", "mo", false).await;
+    assert!(!propose(&s.k, &run, &ws, "sow.md", 1, &SOW.replace("March", "May")).await.1);
+    finish(&s.k, &ws, "m1", "mo", &run, false).await;
+    assert_eq!(ended(&s.k, "m1").await.status, LaneStatus::WaitingRelease);
+    tokio::time::sleep(WAIT_TICK * 4).await;
+    assert_eq!(head(&s.k, &ws, "sow.md").await.0, 1, "an edit nobody released landed");
+    let (st, v) = s.post(&mo, &format!("/v1/workspaces/{ws}/missions/m1/lanes/l1/release"), json!({})).await;
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(head(&s.k, &ws, "sow.md").await, (2, SOW.replace("March", "May")));
+
+    // Covered, but a person changed the same paragraph before the result came.
+    let run = lane(&s.k, &ws, &room, "m2", "mo", true).await;
+    assert!(!propose(&s.k, &run, &ws, "sow.md", 2, &SOW.replace("March", "May").replace("40,000", "42,500")).await.1);
+    assert_eq!(write(&s, "sam", &ws, "sow.md", 2, SOW.replace("March", "May").replace("40,000", "39,000").as_bytes()).await.0, 200);
+    finish(&s.k, &ws, "m2", "mo", &run, true).await;
+    let l = s.k.read(|st| st.missions.mission("m2").map(|m| m.lanes["l1"].clone())).unwrap();
+    let l = if l.status == LaneStatus::Working { ended(&s.k, "m2").await } else { l };
+    assert_eq!(l.status, LaneStatus::WaitingRelease, "a conflicting edit's lane was not held: {l:?}");
+    assert!(l.held_because.is_some());
+    assert!(head(&s.k, &ws, "sow.md").await.1.contains("39,000"), "the version that landed was overwritten");
+    let (st, v) = s.post(&mo, &format!("/v1/workspaces/{ws}/missions/m2/lanes/l1/release"), json!({})).await;
+    assert_eq!(st, 409, "{v}");
+    let change = v["changes"][0]["change"].as_str().unwrap().to_string();
+    assert_eq!(v["changes"][0]["conflicts"][0]["mine"], "Price: 42,500.");
+    let (st, landed) = s.post(&mo, &format!("/v1/workspaces/{ws}/coedit-changes/{change}/land"), json!({ "choices": { "paragraph 2": "mine" } })).await;
+    assert_eq!(st, 200, "{landed}");
+    assert_eq!(s.post(&mo, &format!("/v1/workspaces/{ws}/missions/m2/lanes/l1/release"), json!({})).await.0, 200);
+    assert!(head(&s.k, &ws, "sow.md").await.1.contains("42,500"));
+    s.done().await;
+}
+
 /// The owner's test: a drawing checked out by Alice refuses Bob's write
 /// until she checks it in or the lease expires. Others read the last version.
 #[tokio::test(flavor = "multi_thread")]
