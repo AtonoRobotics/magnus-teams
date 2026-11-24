@@ -497,3 +497,75 @@ fn a_versions_author_and_bytes_are_content() {
     assert!(!record.to_string().contains("bob") && !record.to_string().contains("U2NvcGU="), "{record}");
     assert_eq!(content.unwrap().body["coedit"]["author"]["person"], "bob");
 }
+
+/// A member who left the project lands nothing of theirs on its file: not a
+/// change they kept, not their agent's edit with its lane's release; and no
+/// answer shows them the file as it is now.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_who_left_the_project_lands_nothing_and_reads_nothing_of_it() {
+    let s = server_with("", |_| Router::new()).await;
+    serve_checks(&s.k, Says::ALLOWING).await;
+    let (ws, room) = project(&s).await;
+    let (sam, mo) = (s.token("sam").await, s.token("mo").await);
+    let (st, made) = s.post(&sam, &format!("/v1/workspaces/{ws}/projects"), json!({ "name": "East wing", "members": ["mo"] })).await;
+    assert_eq!(st, 200, "{made}");
+    let p = made["id"].as_str().unwrap().to_string();
+    assert_eq!(put(&s, "sam", &format!("/v1/workspaces/{ws}/files/sow.md?share=coedit&project={p}"), SOW.as_bytes()).await.0, 200);
+    assert!(s.k.read(|st| st.team.workspace(&ws).unwrap().sees_file("sow.md", "mo")));
+    // mo's agent edits the price; then sam does; then mo, on the old version.
+    let run = lane(&s.k, &ws, &room, "m1", "mo", false).await;
+    assert!(!propose(&s.k, &run, &ws, "sow.md", 1, &SOW.replace("40,000", "45,000")).await.1);
+    assert_eq!(write(&s, "sam", &ws, "sow.md", 1, SOW.replace("40,000", "39,000").as_bytes()).await.0, 200);
+    let (st, v) = write(&s, "mo", &ws, "sow.md", 1, SOW.replace("40,000", "41,000").as_bytes()).await;
+    assert_eq!(st, 409, "{v}");
+    let kept = v["change"].as_str().unwrap().to_string();
+
+    // mo leaves the project, and the price changes again.
+    assert_eq!(s.call(&sam, reqwest::Method::PUT, &format!("/v1/workspaces/{ws}/projects/{p}"), Some(json!({ "members": [] }))).await.0, 200);
+    assert!(!s.k.read(|st| st.team.workspace(&ws).unwrap().sees_file("sow.md", "mo")));
+    let secret = SOW.replace("40,000", "38,500 (SECRET-7731)");
+    assert_eq!(write(&s, "sam", &ws, "sow.md", 2, secret.as_bytes()).await.0, 200);
+
+    let (st, v) = s.post(&mo, &format!("/v1/workspaces/{ws}/coedit-changes/{kept}/land"), json!({ "choices": { "paragraph 2": "mine" } })).await;
+    assert!(st != 200 && !v.to_string().contains("SECRET"), "{st} {v}");
+    finish(&s.k, &ws, "m1", "mo", &run, false).await;
+    assert_eq!(ended(&s.k, "m1").await.status, LaneStatus::WaitingRelease);
+    let (_, v) = s.post(&mo, &format!("/v1/workspaces/{ws}/missions/m1/lanes/l1/release"), json!({})).await;
+    assert!(!v.to_string().contains("SECRET"), "the release showed the file as it is now: {v}");
+    assert_eq!(head(&s.k, &ws, "sow.md").await, (3, secret), "a change of one who left landed");
+    assert!(s.k.read(|st| st.team.workspace(&ws).unwrap().coedit.of_person("mo").next().is_none()), "their changes are still kept");
+    s.done().await;
+}
+
+/// Many shares of one new name at once: exactly one lands, and its
+/// history holds only that sharer's file.
+#[tokio::test(flavor = "multi_thread")]
+async fn shares_of_one_new_name_at_once_never_both_land() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, _) = project(&s).await;
+    let who = ["sam", "mo", "bob", "sam", "mo", "bob", "sam", "mo"];
+    let tries = who.iter().enumerate().map(|(i, p)| {
+        let (s, ws) = (&s, ws.clone());
+        async move { (i, share(s, p, &ws, "plan.md", format!("Plan {i}.\n").as_bytes()).await.0) }
+    });
+    let done = futures::future::join_all(tries).await;
+    let won: Vec<usize> = done.iter().filter(|(_, st)| *st == 200).map(|(i, _)| *i).collect();
+    assert_eq!(won.len(), 1, "{done:?}");
+    let f = s.k.read(|st| st.team.workspace(&ws).unwrap().coedit.files["plan.md"].clone());
+    assert_eq!(f.versions.len(), 1, "a share's version was written over another's");
+    assert_eq!(head(&s.k, &ws, "plan.md").await.1, format!("Plan {}.\n", won[0]));
+    s.done().await;
+}
+
+/// An erasure writes an old version again: the file's size stays its head's.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_an_erasure_a_files_size_is_still_its_heads() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, _) = project(&s).await;
+    share(&s, "bob", &ws, "sow.md", b"Short.\n").await;
+    let longer = "A much longer statement of work than the first.\n";
+    assert_eq!(write(&s, "sam", &ws, "sow.md", 1, longer.as_bytes()).await.0, 200);
+    s.k.erase_person("person:sam", "bob").await.unwrap();
+    assert_eq!(s.k.read(|st| st.team.workspace(&ws).unwrap().files["sow.md"].size), longer.len() as u64);
+    s.done().await;
+}

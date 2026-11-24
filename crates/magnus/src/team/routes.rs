@@ -363,6 +363,12 @@ async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, P
         Ok(b) => b,
         Err(e) => return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     };
+    let to_coedit = q.get("share").map(String::as_str) == Some(super::coedit::routes::CO_EDIT);
+    // A share to co-edit finds the name free and records the share in one step.
+    let held = if to_coedit { Some(super::coedit::share_lock().await) } else { None };
+    if held.is_some() && k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.coedit.files.contains_key(&name) || super::keep::someone_elses(w, &name, &p.id))) {
+        return refuse(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
+    }
     let shared = match q.get("share").map(String::as_str) {
         Some(super::coedit::routes::CO_EDIT) => match k.coedit_share(&ws, &p.id, &name, &bytes) {
             Ok(evs) => evs,
@@ -384,6 +390,7 @@ async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     }
     let actor = format!("person:{}", p.id);
     k.emit_all(shared.into_iter().map(|e| (actor.as_str(), e)).collect()).await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    drop(held);
     send(&k, &p, Change::Released { workspace: ws, person: p.id.clone(), name }).await?;
     Ok(Json(json!({ "ok": true })).into_response())
 }

@@ -59,6 +59,37 @@ stays in GitHub. The kernel is `crates/magnus/src/team/coedit/`.
   check-outs are theirs (`content_owner`), so they go with them. A version
   is no one's content, so nobody else's erasure takes it.
 
+- **Limits, and what a merge keeps (review, 2026-11-23).** A co-edited
+  sheet has at most `MAX_SHEET_ROWS` rows (20,000), `MAX_SHEET_COLUMNS`
+  columns (1,000) and `MAX_SHEET_CELLS` cells (200,000); a bigger one is
+  refused when written, since its merge and diff run while every other
+  co-edit write waits. A merge or diff walks only the cells some version
+  has. A formula goes at most `MAX_FORMULA_DEPTH` (256) steps deep, its
+  parentheses, signs, calls and the references it follows counted
+  together, and shows `#DEPTH!` past it: before, a cell of 50,000
+  parentheses overflowed the stack and took the server down on every read.
+  Working out one sheet's values reads at most `MAX_RANGE_READS` range
+  cells in all; formulas past it show `#LIMIT!`. Records are found by id in
+  one step, so a merge of many is linear. A text merge keeps every byte it
+  did not change: each paragraph carries its own line endings and the blank
+  lines after it, an untouched one is written as the head has it, and a
+  blank line is added only where two paragraphs would otherwise run
+  together.
+- **Who may land a change.** A change lands only while its author still
+  sees the file (`sees_file`): a member who left the project, or the
+  workspace, lands neither a change they kept nor their agent's edit with
+  its lane, and such a change is dropped instead, so no answer shows them
+  the file as it is now. A new name is found free and the file shared under
+  it in one step, under the same lock as every co-edit write. A file's size
+  is its head version's; an erasure's rewrite of an old version leaves it.
+- **Records' numbers.** A records file is read and written as JSON values
+  (`serde_json` without arbitrary precision), so an integer beyond 64 bits,
+  or a float written with more digits than a double holds, comes back
+  rounded after a merge, and the merged file is pretty-printed. Only a stale
+  merge rewrites the file; a change made on the head lands byte for byte.
+  Keeping such numbers exactly would mean merging the JSON as text, which
+  is left for when a project needs it.
+
 **Reason.** The owner's design, Co-editing shared files. Versions in the
 log make a co-edited file's history whole and every change attributable,
 and a stale change that is rejected rather than overwritten is the only

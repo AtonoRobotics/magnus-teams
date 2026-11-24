@@ -9,10 +9,20 @@
 use super::merge::{pick, Choices, Conflict, Edit, Keep, Merged};
 use std::collections::HashMap;
 
-/// How many references deep a formula is followed before it is an error.
-const MAX_FORMULA_NESTED_REFS: usize = 256;
+/// How deep a formula may go, its parentheses, signs, calls and the
+/// references it follows counted together, before it is an error: each is a
+/// step down the stack, which a deeper one would overflow.
+const MAX_FORMULA_DEPTH: usize = 256;
 /// How many cells a range in a formula may cover.
 const MAX_RANGE_CELLS: usize = 100_000;
+/// How many range cells working out one sheet's values may read in all;
+/// past it a formula shows `#LIMIT!`.
+const MAX_RANGE_READS: usize = 2_000_000;
+/// The most rows, columns and cells a co-edited sheet may have: its merge,
+/// diff and values each walk its cells while a write waits.
+pub(super) const MAX_SHEET_ROWS: usize = 20_000;
+pub(super) const MAX_SHEET_COLUMNS: usize = 1_000;
+pub(super) const MAX_SHEET_CELLS: usize = 200_000;
 
 fn separator(s: &str) -> char {
     let first = s.lines().next().unwrap_or_default();
@@ -52,6 +62,14 @@ fn parse(s: &str, sep: char) -> Vec<Vec<String>> {
     rows
 }
 
+/// Why a sheet is too big to co-edit, if it is.
+pub(super) fn refusal(s: &str) -> Option<String> {
+    let rows = parse(s, separator(s));
+    let (widest, cells) = (rows.iter().map(Vec::len).max().unwrap_or(0), rows.iter().map(Vec::len).sum::<usize>());
+    (rows.len() > MAX_SHEET_ROWS || widest > MAX_SHEET_COLUMNS || cells > MAX_SHEET_CELLS)
+        .then(|| format!("a co-edited sheet has at most {MAX_SHEET_ROWS} rows, {MAX_SHEET_COLUMNS} columns and {MAX_SHEET_CELLS} cells; this one has {} rows, {widest} columns and {cells} cells", rows.len()))
+}
+
 fn write(rows: &[Vec<String>], sep: char) -> String {
     let quote = |c: &String| {
         if c.contains(sep) || c.contains('"') || c.contains('\n') {
@@ -78,16 +96,20 @@ fn cell(rows: &[Vec<String>], r: usize, c: usize) -> &str {
     rows.get(r).and_then(|row| row.get(c)).map_or("", String::as_str)
 }
 
+fn width(rows: &[Vec<String>], r: usize) -> usize {
+    rows.get(r).map_or(0, Vec::len)
+}
+
 /// Every cell of the three, each changed one taken by the three-way rule.
 pub(super) fn merge(base: &str, mine: &str, theirs: &str, choices: &Choices) -> Merged {
     let sep = separator(theirs);
     let (b, m, t) = (parse(base, sep), parse(mine, sep), parse(theirs, sep));
     let rows = b.len().max(m.len()).max(t.len());
-    let cols = [&b, &m, &t].iter().flat_map(|g| g.iter().map(Vec::len)).max().unwrap_or(0);
     let (mut out, mut conflicts) = (vec![], vec![]);
+    // Only the cells some version has.
     for r in 0..rows {
         let mut row = vec![];
-        for c in 0..cols {
+        for c in 0..width(&b, r).max(width(&m, r)).max(width(&t, r)) {
             let (bc, mc, tc) = (cell(&b, r, c), cell(&m, r, c), cell(&t, r, c));
             let at = name(r, c);
             let got = match (pick(Some(bc), Some(mc), Some(tc)), choices.get(&at)) {
@@ -102,6 +124,7 @@ pub(super) fn merge(base: &str, mine: &str, theirs: &str, choices: &Choices) -> 
             };
             row.push(got.to_string());
         }
+        row.truncate(width(&m, r).max(width(&t, r)));
         out.push(row);
     }
     if !conflicts.is_empty() {
@@ -109,10 +132,6 @@ pub(super) fn merge(base: &str, mine: &str, theirs: &str, choices: &Choices) -> 
     }
     while out.last().is_some_and(|r| r.iter().all(String::is_empty)) {
         out.pop();
-    }
-    let width = [&m, &t].iter().flat_map(|g| g.iter().map(Vec::len)).max().unwrap_or(0);
-    for r in &mut out {
-        r.truncate(width);
     }
     Merged::Clean(write(&out, sep).into_bytes())
 }
@@ -122,11 +141,10 @@ pub(super) fn diff(before: &str, after: &str) -> Vec<Edit> {
     let sep = separator(after);
     let (b, a) = (parse(before, sep), parse(after, sep));
     let rows = b.len().max(a.len());
-    let cols = b.iter().chain(&a).map(Vec::len).max().unwrap_or(0);
     let some = |v: &str| (!v.is_empty()).then(|| v.to_string());
     let mut out = vec![];
     for r in 0..rows {
-        for c in 0..cols {
+        for c in 0..width(&b, r).max(width(&a, r)) {
             let (x, y) = (cell(&b, r, c), cell(&a, r, c));
             if x != y {
                 out.push(Edit { at: name(r, c), before: some(x), after: some(y) });
@@ -140,7 +158,7 @@ pub(super) fn diff(before: &str, after: &str) -> Vec<Edit> {
 pub(super) fn values(s: &str) -> String {
     let sep = separator(s);
     let rows = parse(s, sep);
-    let mut sheet = Sheet { rows: &rows, done: HashMap::new() };
+    let mut sheet = Sheet { rows: &rows, done: HashMap::new(), reads: 0 };
     let out: Vec<Vec<String>> = rows.iter().enumerate().map(|(r, row)| (0..row.len()).map(|c| sheet.shown(r, c)).collect()).collect();
     write(&out, sep)
 }
@@ -152,6 +170,8 @@ struct Sheet<'a> {
     rows: &'a [Vec<String>],
     /// Worked out already: `None` while being worked out (a cycle).
     done: HashMap<(usize, usize), Option<Value>>,
+    /// Range cells read so far.
+    reads: usize,
 }
 
 impl Sheet<'_> {
@@ -173,7 +193,7 @@ impl Sheet<'_> {
         let Some(formula) = raw.strip_prefix('=') else {
             return if raw.is_empty() { Ok(0.0) } else { raw.replace(',', "").parse().map_err(|_| "#VALUE!") };
         };
-        if depth > MAX_FORMULA_NESTED_REFS {
+        if depth > MAX_FORMULA_DEPTH {
             return Err("#DEPTH!");
         }
         match self.done.get(&(r, c)) {
@@ -227,17 +247,31 @@ impl Parser<'_> {
         Ok(v)
     }
 
+    /// One step deeper, for a parenthesis, a sign or a call: an error past
+    /// `MAX_FORMULA_DEPTH`, so a formula nested deep cannot overflow the stack.
+    fn deeper(&mut self, s: &mut Sheet, f: impl FnOnce(&mut Self, &mut Sheet) -> Value) -> Value {
+        if self.depth >= MAX_FORMULA_DEPTH {
+            return Err("#DEPTH!");
+        }
+        self.depth += 1;
+        let v = f(self, s);
+        self.depth -= 1;
+        v
+    }
+
     fn factor(&mut self, s: &mut Sheet) -> Value {
         match self.peek() {
             Some('-') => {
                 self.at += 1;
-                Ok(-self.factor(s)?)
+                self.deeper(s, |p, s| Ok(-p.factor(s)?))
             }
             Some('(') => {
                 self.at += 1;
-                let v = self.expr(s)?;
-                self.eat(')')?;
-                Ok(v)
+                self.deeper(s, |p, s| {
+                    let v = p.expr(s)?;
+                    p.eat(')')?;
+                    Ok(v)
+                })
             }
             Some(c) if c.is_ascii_digit() || c == '.' => {
                 let start = self.at;
@@ -250,7 +284,8 @@ impl Parser<'_> {
                 let word = self.word();
                 if self.peek() == Some('(') {
                     self.at += 1;
-                    return self.call(&word.to_ascii_uppercase(), s);
+                    let f = word.to_ascii_uppercase();
+                    return self.deeper(s, |p, s| p.call(&f, s));
                 }
                 let (r, c) = at(&word).ok_or("#REF!")?;
                 s.value(r, c, self.depth + 1)
@@ -290,8 +325,13 @@ impl Parser<'_> {
                 if rs.clone().count().saturating_mul(cs.clone().count()) > MAX_RANGE_CELLS {
                     return Err("#REF!");
                 }
-                for r in rs {
-                    for c in cs.clone() {
+                // Only the cells that exist: an empty one counts for nothing.
+                for r in rs.filter(|r| *r < s.rows.len()) {
+                    for c in cs.clone().filter(|c| *c < width(s.rows, r)) {
+                        s.reads += 1;
+                        if s.reads > MAX_RANGE_READS {
+                            return Err("#LIMIT!");
+                        }
                         // A range counts the numbers in it; words are left out.
                         if let Ok(v) = s.value(r, c, self.depth + 1) {
                             if !cell(s.rows, r, c).trim().is_empty() {
@@ -376,5 +416,45 @@ mod tests {
         assert_eq!(values("=A1\n=B1/0\n=FOO(1)\n=A9+\n"), "#CYCLE!\n#DIV/0!\n#NAME?\n#ERROR!\n");
         assert_eq!(values("\"a, b\",\"=MAX(1,3)\"\n"), "\"a, b\",3\n", "a quoted cell is one cell");
         assert_eq!((name(0, 0), name(9, 27), at("AB10")), ("A1".to_string(), "AB10".to_string(), Some((9, 27))));
+    }
+
+    /// A formula nested far deeper than any sheet needs, or a long run of
+    /// signs, is an error, never a stack overflow; so is a long chain of
+    /// references, each nested.
+    #[test]
+    fn a_formula_nested_deep_is_an_error_not_an_overflow() {
+        let deep = format!("={}1{}\n", "(".repeat(50_000), ")".repeat(50_000));
+        assert_eq!(values(&deep), "#DEPTH!\n");
+        assert_eq!(values(&format!("={}1\n", "-".repeat(50_000))), "#DEPTH!\n");
+        assert_eq!(values(&format!("={}1\n", "SUM(".repeat(20_000))), "#DEPTH!\n");
+        // Each cell refers to the next, inside parentheses; worked out from the last row up.
+        let chain: String = (1..=2_000).map(|r| format!("=((((((A{}+1))))))\n", r + 1)).collect();
+        let got = values(&chain);
+        assert!(got.starts_with("#DEPTH!"), "{}", &got[..40]);
+        assert_eq!(values("=(((1)))+-2\n"), "-1\n", "a formula within the depth works out");
+    }
+
+    /// A sheet too big to merge in reasonable time is refused, and a merge
+    /// or diff walks only the cells there are.
+    #[test]
+    fn a_huge_sheet_is_refused_and_a_ragged_one_merges_by_its_cells() {
+        let wide = format!("{}\n", ",".repeat(MAX_SHEET_COLUMNS));
+        assert!(refusal(&wide).is_some_and(|w| w.contains("columns")));
+        let long = "a\n".repeat(MAX_SHEET_ROWS + 1);
+        assert!(refusal(&long).is_some());
+        assert_eq!(refusal(BASE), None);
+        // One very wide row over many short ones: work by the cells, not rows times the widest.
+        let base = format!("{}\n{}", ",".repeat(999), "x\n".repeat(19_000));
+        let mine = base.replacen("x\n", "y\n", 1);
+        let theirs = format!("{base}z\n");
+        let started = std::time::Instant::now();
+        let got = clean(merge(&base, &mine, &theirs, &Choices::new()));
+        assert!(got.ends_with("x\nz\n") && got.contains("\ny\n"));
+        assert_eq!(diff(&base, &mine).len(), 1);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+        // SUM over a range read again by many formulas stops at the limit.
+        let rows: String = (0..2_000).map(|_| "1,=SUM(A1:A100000)\n").chain((0..3_000).map(|_| "1\n")).collect();
+        let got = values(&rows);
+        assert!(got.starts_with("1,5000\n") && got.contains("1,#LIMIT!\n"), "{}", &got[..40]);
     }
 }

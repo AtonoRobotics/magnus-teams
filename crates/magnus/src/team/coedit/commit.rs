@@ -17,8 +17,12 @@ use base64::Engine;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 
-/// Held from reading a file's head to writing the version on it.
+/// Held from reading a file's head to writing the version on it, and from
+/// finding a new name free to sharing a file under it.
 static WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Why a change of someone who no longer sees the file does not land.
+const NOT_OPEN: &str = "that file is no longer open to you, so your change to it does not land";
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
@@ -34,6 +38,12 @@ pub enum Landed {
     Rejected { id: String, head: u32, conflicts: Vec<Conflict> },
     /// It cannot land as it is, and why.
     Refused(String),
+}
+
+/// Co-editing's writes, held while a new name is found free and a file
+/// shared under it, so two shares of one name never both land.
+pub(in crate::team) async fn share_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    WRITES.lock().await
 }
 
 fn coedit(workspace: &str, step: Step) -> Ev {
@@ -96,6 +106,11 @@ impl Kernel {
     /// `WRITES` is held.
     async fn land(&self, actor: &str, c: &Draft<'_>, choices: &Choices, proposal: Option<&Open>) -> Result<Landed> {
         let now = Utc::now();
+        // Its author must still see the file: one who left the project, or
+        // the workspace, writes nothing to it and reads nothing of it.
+        if !self.sees(c.ws, c.name, &c.author.person) {
+            return Ok(Landed::Refused(NOT_OPEN.into()));
+        }
         let file = self.read(|s| s.team.workspace(c.ws).and_then(|w| w.coedit.files.get(c.name)).map(|f| (f.format, f.head().map_or(0, |h| h.number), f.held(now).cloned())));
         let Some((format, head, lease)) = file else { return Ok(Landed::Refused(format!("{} is not a co-edited file here", c.name))) };
         if c.base == 0 || c.base > head {
@@ -239,18 +254,33 @@ impl Kernel {
         self.land(actor, &c, choices, Some(open)).await
     }
 
+    fn sees(&self, ws: &str, name: &str, person: &str) -> bool {
+        self.read(|s| s.team.workspace(ws).is_some_and(|w| w.sees_file(name, person)))
+    }
+
+    /// `person`'s open proposal `id`, while they still see its file. One
+    /// whose file they no longer see is dropped: it can never land.
+    async fn own_open(&self, actor: &str, ws: &str, person: &str, id: &str) -> Result<Option<Open>> {
+        let open = self.read(|s| s.team.workspace(ws).and_then(|w| w.coedit.open.get(id)).filter(|o| o.author.person == person).cloned());
+        let Some(open) = open else { return Ok(None) };
+        if !self.sees(ws, &open.name, person) {
+            self.emit(actor, coedit(ws, Step::Settled { id: id.into(), version: None })).await?;
+            return Ok(None);
+        }
+        Ok(Some(open))
+    }
+
     /// `person` lands their open proposal `id` (theirs, or their agent's).
     pub(in crate::team) async fn coedit_settle(&self, actor: &str, ws: &str, person: &str, id: &str, choices: &Choices) -> Result<Landed> {
         let _held = WRITES.lock().await;
-        let open = self.read(|s| s.team.workspace(ws).and_then(|w| w.coedit.open.get(id)).filter(|o| o.author.person == person).cloned());
-        let Some(open) = open else { return Ok(Landed::Refused("you have no such open change".into())) };
+        let Some(open) = self.own_open(actor, ws, person, id).await? else { return Ok(Landed::Refused("you have no such open change".into())) };
         self.land_open(actor, ws, &open, choices).await
     }
 
     /// `person` throws their open proposal `id` away.
     pub(in crate::team) async fn coedit_discard(&self, actor: &str, ws: &str, person: &str, id: &str) -> Result<bool> {
         let _held = WRITES.lock().await;
-        if !self.read(|s| s.team.workspace(ws).and_then(|w| w.coedit.open.get(id)).is_some_and(|o| o.author.person == person)) {
+        if self.own_open(actor, ws, person, id).await?.is_none() {
             return Ok(false);
         }
         self.emit(actor, coedit(ws, Step::Settled { id: id.into(), version: None })).await?;
@@ -271,6 +301,12 @@ impl Kernel {
         let waiting: Vec<Open> = self.read(|s| s.team.workspace(ws).map(|w| w.coedit.of_lane(mission, lane).into_iter().cloned().collect()).unwrap_or_default());
         let (mut landed, mut stuck) = (vec![], vec![]);
         for open in waiting {
+            // An edit whose person no longer sees its file never lands, and
+            // its conflicts (the file as it is now) are not shown to them.
+            if !self.sees(ws, &open.name, &open.author.person) {
+                self.emit(actor, coedit(ws, Step::Settled { id: open.id.clone(), version: None })).await?;
+                continue;
+            }
             if !open.conflicts.is_empty() {
                 stuck.push((open.id.clone(), open.name.clone(), open.conflicts.clone()));
                 continue;

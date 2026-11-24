@@ -74,15 +74,19 @@ pub(in crate::team) async fn write(k: &Kernel, p: &Person, ws: &str, name: &str,
         let landed = k.coedit_write(&actor(p), Draft { ws, name, base, mine: body, author: &author }).await?;
         return Ok(Some(answer(landed)));
     }
-    if q.get("share").map(String::as_str) != Some(CO_EDIT) || k.read(|s| s.team.workspace(ws).is_some_and(|w| w.files.contains_key(name))) {
+    let taken = |k: &Kernel| k.read(|s| s.team.workspace(ws).is_some_and(|w| w.files.contains_key(name)));
+    if q.get("share").map(String::as_str) != Some(CO_EDIT) || taken(k) {
         return Ok(None);
     }
     let evs = match k.coedit_share(ws, &p.id, name, body) {
         Ok(evs) => evs,
         Err(why) => return refuse(StatusCode::BAD_REQUEST, format!("{why}; share a copy instead, or fix the file")),
     };
-    // The sharer keeps their own copy, as it was when shared.
-    k.keep_in_library(&actor(p), &p.id, name, body).await?;
+    // The name is found free and the file shared under it in one step.
+    let held = super::share_lock().await;
+    if taken(k) {
+        return refuse(StatusCode::CONFLICT, format!("{name} was shared by someone else a moment ago; open it, and make your change on its version"));
+    }
     let dir = crate::team::agent::volume_dir(k, ws);
     if let Err(e) = async {
         tokio::fs::create_dir_all(&dir).await?;
@@ -94,6 +98,9 @@ pub(in crate::team) async fn write(k: &Kernel, p: &Person, ws: &str, name: &str,
     }
     let a = actor(p);
     k.emit_all(evs.into_iter().map(|e| (a.as_str(), e)).collect()).await?;
+    drop(held);
+    // The sharer keeps their own copy, as it was when shared.
+    k.keep_in_library(&a, &p.id, name, body).await?;
     let project = q.get("project").filter(|id| k.read(|s| s.team.workspace(ws).is_some_and(|w| w.projects.get(*id).is_some_and(|d| d.may_read(&p.id))))).cloned();
     if project.is_some() {
         send(k, p, crate::team::Change::Chat { workspace: ws.into(), chat: Chat::FileIn { name: name.into(), project } }).await?;

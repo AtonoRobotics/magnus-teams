@@ -47,7 +47,11 @@ impl Format {
         let text = || std::str::from_utf8(bytes).map_err(|_| format!("{name} is co-edited as text, and this is not UTF-8 text"));
         match self {
             Format::Binary => None,
-            Format::Text | Format::Sheet => text().err(),
+            Format::Text => text().err(),
+            Format::Sheet => match text() {
+                Err(e) => Some(e),
+                Ok(t) => super::sheet::refusal(t).map(|why| format!("{name}: {why}")),
+            },
             Format::Records => match text() {
                 Err(e) => Some(e),
                 Ok(t) => serde_json::from_str::<serde_json::Value>(t).err().map(|e| format!("{name} is co-edited as records, and this is not JSON: {e}")),

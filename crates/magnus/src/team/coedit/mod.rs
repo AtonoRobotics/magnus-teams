@@ -29,6 +29,7 @@ mod tests;
 mod text;
 mod tool;
 
+pub(super) use commit::share_lock;
 pub use commit::Landed;
 pub use merge::{Conflict, Edit, Format};
 pub(crate) use tool::versions_sent;
@@ -276,7 +277,10 @@ pub(super) fn apply(w: &mut Workspace, step: &Step, seq: i64) {
         Step::Version(v) | Step::Reattributed(v) => {
             if let Some(f) = c.files.get_mut(&v.name) {
                 f.versions.insert(v.number, meta(v, seq));
-                if let Some(file) = w.files.get_mut(&v.name) {
+                // The file's size is its head's: an old version written
+                // again (an erasure's) leaves it as it is.
+                let head = f.head().is_some_and(|h| h.number == v.number);
+                if let Some(file) = w.files.get_mut(&v.name).filter(|_| head) {
                     file.size = v.size;
                 }
             }

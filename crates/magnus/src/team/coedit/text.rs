@@ -13,29 +13,77 @@ use super::merge::{Choices, Conflict, Edit, Keep, Merged};
 /// long document still merges where its edges are untouched.
 const MAX_DIFF_CELLS: usize = 4_000_000;
 
-/// A document's paragraphs: what lies between blank lines.
-fn paragraphs(s: &str) -> Vec<String> {
-    let mut out = vec![];
-    let mut cur: Vec<&str> = vec![];
-    for line in s.lines() {
-        if line.trim().is_empty() {
-            if !cur.is_empty() {
-                out.push(cur.join("\n"));
-                cur.clear();
+/// A paragraph: its lines as written (`raw`, line endings and the blank
+/// lines after it included, so a merge gives back every byte it did not
+/// change), and what it says (`key`: its lines without their endings),
+/// which is what two versions are compared by.
+#[derive(Clone, Debug)]
+struct Para {
+    key: String,
+    raw: String,
+}
+
+impl PartialEq for Para {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+fn blank(line: &str) -> bool {
+    line.trim().is_empty()
+}
+
+/// A document's paragraphs: what lies between blank lines. The blank lines
+/// before the first are its own (the first value).
+fn split(s: &str) -> (String, Vec<Para>) {
+    let (mut lead, mut out) = (String::new(), Vec::<Para>::new());
+    let mut open = false;
+    for line in s.split_inclusive('\n') {
+        let text = line.strip_suffix('\n').map_or(line, |l| l.strip_suffix('\r').unwrap_or(l));
+        match (blank(line), out.last_mut()) {
+            (true, None) => lead.push_str(line),
+            (true, Some(p)) => {
+                p.raw.push_str(line);
+                open = false;
             }
-        } else {
-            cur.push(line);
+            (false, Some(p)) if open => {
+                p.key.push('\n');
+                p.key.push_str(text);
+                p.raw.push_str(line);
+            }
+            (false, _) => {
+                out.push(Para { key: text.to_string(), raw: line.to_string() });
+                open = true;
+            }
         }
     }
-    if !cur.is_empty() {
-        out.push(cur.join("\n"));
+    (lead, out)
+}
+
+fn paragraphs(s: &str) -> Vec<Para> {
+    split(s).1
+}
+
+/// The paragraphs written one after another, each set apart from the next
+/// by a blank line where its own raw text has none (`nl`, the document's
+/// line ending).
+fn write(lead: &str, ps: &[Para], nl: &str) -> String {
+    let mut text = lead.to_string();
+    for (i, p) in ps.iter().enumerate() {
+        text.push_str(&p.raw);
+        if i + 1 < ps.len() && !p.raw.split_inclusive('\n').last().is_some_and(|l| l.ends_with('\n') && blank(l) && p.raw.lines().count() > 1) {
+            if !p.raw.ends_with('\n') {
+                text.push_str(nl);
+            }
+            text.push_str(nl);
+        }
     }
-    out
+    text
 }
 
 /// Which index pairs of `a` and `b` hold the same paragraph, in order: a
 /// longest common subsequence, after the ends both share.
-fn matched(a: &[String], b: &[String]) -> Vec<(usize, usize)> {
+fn matched(a: &[Para], b: &[Para]) -> Vec<(usize, usize)> {
     let head = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let tail = a[head..].iter().rev().zip(b[head..].iter().rev()).take_while(|(x, y)| x == y).count();
     let (am, bm) = (&a[head..a.len() - tail], &b[head..b.len() - tail]);
@@ -72,14 +120,14 @@ fn matched(a: &[String], b: &[String]) -> Vec<(usize, usize)> {
 struct Hunk {
     start: usize,
     end: usize,
-    with: Vec<String>,
+    with: Vec<Para>,
     mine: bool,
 }
 
 /// One side's change against the base, as hunks. A run replaced by as
 /// many paragraphs is one hunk per paragraph, so a change to the next
 /// paragraph is a different paragraph.
-fn hunks(base: &[String], side: &[String], mine: bool) -> Vec<Hunk> {
+fn hunks(base: &[Para], side: &[Para], mine: bool) -> Vec<Hunk> {
     let mut out = vec![];
     let (mut bi, mut si) = (0, 0);
     for (i, j) in matched(base, side).into_iter().chain(std::iter::once((base.len(), side.len()))) {
@@ -107,7 +155,7 @@ fn touch(a: &Hunk, b: &Hunk) -> bool {
 }
 
 /// The base's paragraphs `start..end` with one side's hunks in them applied.
-fn side_text(base: &[String], start: usize, end: usize, hs: &[&Hunk]) -> Vec<String> {
+fn side_text(base: &[Para], start: usize, end: usize, hs: &[&Hunk]) -> Vec<Para> {
     let mut out = vec![];
     let mut pos = start;
     for h in hs {
@@ -119,13 +167,18 @@ fn side_text(base: &[String], start: usize, end: usize, hs: &[&Hunk]) -> Vec<Str
     out
 }
 
-fn joined(ps: &[String]) -> Option<String> {
-    (!ps.is_empty()).then(|| ps.join("\n\n"))
+fn joined(ps: &[Para]) -> Option<String> {
+    (!ps.is_empty()).then(|| ps.iter().map(|p| p.key.as_str()).collect::<Vec<_>>().join("\n\n"))
 }
 
 /// The three-way merge of `mine` and `theirs`, both made on `base`.
 pub(super) fn merge(base: &str, mine: &str, theirs: &str, choices: &Choices) -> Merged {
-    let (b, m, t) = (paragraphs(base), paragraphs(mine), paragraphs(theirs));
+    let (lead, t) = split(theirs);
+    let (mut b, m) = (paragraphs(base), paragraphs(mine));
+    // A paragraph neither side changed is written as the head has it.
+    for (i, j) in matched(&b, &t) {
+        b[i].raw.clone_from(&t[j].raw);
+    }
     let mut all: Vec<Hunk> = hunks(&b, &m, true).into_iter().chain(hunks(&b, &t, false)).collect();
     // Insertions before replacements at a place; the head's first.
     all.sort_by_key(|h| (h.start, h.end, h.mine));
@@ -166,7 +219,7 @@ pub(super) fn merge(base: &str, mine: &str, theirs: &str, choices: &Choices) -> 
     if !conflicts.is_empty() {
         return Merged::Conflicts(conflicts);
     }
-    let mut out: Vec<String> = vec![];
+    let mut out: Vec<Para> = vec![];
     let mut pos = 0;
     for (start, end, with) in replaced {
         out.extend(b[pos..start.max(pos)].iter().cloned());
@@ -174,11 +227,8 @@ pub(super) fn merge(base: &str, mine: &str, theirs: &str, choices: &Choices) -> 
         pos = pos.max(end);
     }
     out.extend(b[pos..].iter().cloned());
-    let mut text = out.join("\n\n");
-    if mine.ends_with('\n') && !text.is_empty() {
-        text.push('\n');
-    }
-    Merged::Clean(text.into_bytes())
+    let nl = if theirs.contains("\r\n") { "\r\n" } else { "\n" };
+    Merged::Clean(write(&lead, &out, nl).into_bytes())
 }
 
 /// The paragraphs `after` changed against `before`.
@@ -228,6 +278,19 @@ mod tests {
         let got = clean(merge(BASE, &mine, &theirs, &Choices::new()));
         assert!(got.ends_with("Payment: 30 days.\n\nWarranty: one year.\n"), "{got}");
         assert_eq!(diff(BASE, &mine), vec![Edit { at: "paragraph 4".into(), before: None, after: Some("Warranty: one year.".into()) }]);
+    }
+
+    #[test]
+    fn a_merge_keeps_every_byte_it_did_not_change() {
+        // Line endings, runs of blank lines, and a blank line in a code block.
+        let base = "Intro.\r\n\r\n```\r\nlet a = 1;\r\n\r\n\r\nlet b = 2;\r\n```\r\n\r\n\r\nEnd.\r\n";
+        let mine = base.replace("Intro.", "Intro, again.");
+        let theirs = base.replace("End.", "The end.");
+        assert_eq!(clean(merge(base, &mine, &theirs, &Choices::new())), base.replace("Intro.", "Intro, again.").replace("End.", "The end."));
+        // A paragraph put after the last, which had no line ending.
+        let base = "One.\n\nTwo.";
+        assert_eq!(clean(merge(base, "One!\n\nTwo.", "One.\n\nTwo.\n\nThree.", &Choices::new())), "One!\n\nTwo.\n\nThree.");
+        assert_eq!(clean(merge(base, "One.\n\nTwo.\n\nThree.", "One.\n\nTwo, said twice.", &Choices::new())), "One.\n\nTwo, said twice.\n\nThree.");
     }
 
     #[test]

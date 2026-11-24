@@ -7,6 +7,7 @@
 
 use super::merge::{pick, Choices, Conflict, Edit, Keep, Merged};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 
 fn parse(s: &str) -> Option<Value> {
     serde_json::from_str(s).ok()
@@ -29,9 +30,10 @@ fn id_of(r: &Value) -> Option<String> {
     }
 }
 
-/// The record with `id` in a list of them.
-fn find<'a>(list: &[(String, &'a Value)], id: &str) -> Option<&'a Value> {
-    list.iter().find(|(i, _)| i == id).map(|(_, r)| *r)
+/// A list of records by id, so each is found in one step: a merge of
+/// thousands of records stays linear.
+fn index<'a>(list: &'a [(String, &'a Value)]) -> HashMap<&'a str, &'a Value> {
+    list.iter().map(|(i, r)| (i.as_str(), *r)).collect()
 }
 
 fn key(path: &str, k: &str) -> String {
@@ -68,9 +70,13 @@ fn merge_at(path: &str, b: Option<&Value>, m: Option<&Value>, t: Option<&Value>,
     }
     if let (Some(mr), Some(tr)) = (m.and_then(records), t.and_then(records)) {
         let br = b.and_then(records).unwrap_or_default();
-        let ids: Vec<String> = tr.iter().map(|(i, _)| i.clone()).chain(mr.iter().filter(|(i, _)| find(&tr, i).is_none()).map(|(i, _)| i.clone())).collect();
-        let ids = ids.into_iter().chain(br.iter().filter(|(i, _)| find(&tr, i).is_none() && find(&mr, i).is_none()).map(|(i, _)| i.clone()));
-        let out: Vec<Value> = ids.filter_map(|id| merge_at(&format!("{path}[{id}]"), find(&br, &id), find(&mr, &id), find(&tr, &id), choices, conflicts)).collect();
+        let (bi, mi, ti) = (index(&br), index(&mr), index(&tr));
+        let ids = tr.iter().map(|(i, _)| i).chain(mr.iter().filter(|(i, _)| !ti.contains_key(i.as_str())).map(|(i, _)| i));
+        let ids: Vec<&String> = ids.chain(br.iter().filter(|(i, _)| !ti.contains_key(i.as_str()) && !mi.contains_key(i.as_str())).map(|(i, _)| i)).collect();
+        let out: Vec<Value> = ids
+            .into_iter()
+            .filter_map(|id| merge_at(&format!("{path}[{id}]"), bi.get(id.as_str()).copied(), mi.get(id.as_str()).copied(), ti.get(id.as_str()).copied(), choices, conflicts))
+            .collect();
         return Some(Value::Array(out));
     }
     let at = if path.is_empty() { super::merge::WHOLE_FILE.to_string() } else { path.to_string() };
@@ -107,10 +113,11 @@ fn diff_at(path: &str, b: Option<&Value>, a: Option<&Value>, out: &mut Vec<Edit>
         return;
     }
     if let (Some(br), Some(ar)) = (b.and_then(records), a.and_then(records)) {
+        let (bi, ai) = (index(&br), index(&ar));
         for (id, r) in &ar {
-            diff_at(&format!("{path}[{id}]"), find(&br, id), Some(r), out);
+            diff_at(&format!("{path}[{id}]"), bi.get(id.as_str()).copied(), Some(r), out);
         }
-        for (id, r) in br.iter().filter(|(i, _)| find(&ar, i).is_none()) {
+        for (id, r) in br.iter().filter(|(i, _)| !ai.contains_key(i.as_str())) {
             diff_at(&format!("{path}[{id}]"), Some(r), None, out);
         }
         return;
@@ -175,5 +182,20 @@ mod tests {
         // Removed by one, untouched by the other: it goes.
         let same = quote(json!([{ "id": "l1", "qty": 11 }, { "id": "l2", "qty": 1 }]));
         assert_eq!(clean(merge(&base, &mine, &same, &Choices::new()))["lines"], json!([{ "id": "l1", "qty": 11 }]));
+    }
+
+    /// Many records merge by id in linear time, not one search per record.
+    #[test]
+    fn many_records_merge_in_linear_time() {
+        let list = |f: &dyn Fn(usize) -> usize| {
+            serde_json::json!({ "lines": (0..50_000).map(|i| serde_json::json!({ "id": format!("l{i}"), "qty": f(i) })).collect::<Vec<_>>() }).to_string()
+        };
+        let (base, mine, theirs) = (list(&|_| 1), list(&|i| if i == 7 { 2 } else { 1 }), list(&|i| if i == 49_000 { 3 } else { 1 }));
+        let started = std::time::Instant::now();
+        let Merged::Clean(got) = merge(&base, &mine, &theirs, &Choices::new()) else { panic!("conflicted") };
+        let got: Value = serde_json::from_slice(&got).unwrap();
+        assert_eq!((got["lines"][7]["qty"].as_u64(), got["lines"][49_000]["qty"].as_u64()), (Some(2), Some(3)));
+        assert_eq!(diff(&base, &mine).len(), 1);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 }
