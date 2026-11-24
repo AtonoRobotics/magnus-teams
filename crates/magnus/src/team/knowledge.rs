@@ -71,7 +71,8 @@ impl Entry {
     pub fn line(&self) -> String {
         let outside = if self.weight == Weight::Outside { "; from outside the workspace" } else { "" };
         let flagged = if self.flags.is_empty() { "" } else { "; flagged as possibly wrong" };
-        format!("- [{}] ({}; source: {}{outside}{flagged}) {}\n", self.id, self.kind, self.source, self.statement)
+        let edited = self.edited_by.as_ref().map(|by| format!("; last written by {by}")).unwrap_or_default();
+        format!("- [{}] ({}; source: {}{edited}{outside}{flagged}) {}\n", self.id, self.kind, self.source, self.statement)
     }
 }
 
@@ -203,6 +204,16 @@ mod tests {
             retired: None,
             edited_by: None,
         }
+    }
+
+    /// A corrected entry's line kept only its first source, so the model
+    /// was told its author wrote the corrector's words.
+    #[test]
+    fn a_corrected_entrys_line_names_its_last_writer() {
+        let mut e = entry(Weight::Member);
+        assert!(!e.line().contains("last written by"));
+        e.edited_by = Some("sam".into());
+        assert!(e.line().contains("source: thread; last written by sam"), "{}", e.line());
     }
 
     #[test]
