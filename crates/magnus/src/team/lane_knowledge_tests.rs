@@ -79,3 +79,29 @@ async fn a_lane_in_a_projects_channel_has_its_knowledge_only_while_its_people_ma
     let told = index(&s, &mos);
     assert!(!told.contains(fact) && !told.contains(theirs), "a project's knowledge reached someone no longer in it: {told}");
 }
+
+/// What a person's agent does in a project's channel is the project's, and
+/// is not filed into their own memory, which outlasts their place in it
+/// (2026-11-23-project-lanes-file-no-memory). Elsewhere it still is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_persons_agent_in_a_projects_channel_files_nothing_into_their_memory() {
+    let s = server_with("", |_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let ws = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await.1["id"].as_str().unwrap().to_string();
+    let general = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    let project = s.post(&sam, &format!("/v1/workspaces/{ws}/projects"), json!({ "name": "Apollo" })).await.1["id"].as_str().unwrap().to_string();
+    let deal = s.post(&sam, &format!("/v1/workspaces/{ws}/channels"), json!({ "name": "deal" })).await.1["id"].as_str().unwrap().to_string();
+    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{deal}/project"), json!({ "project": project })).await.0, 200);
+    let in_project = |task: &str| {
+        let run = run_of(&s, task);
+        s.k.read(|st| st.in_project_channel(&run.id))
+    };
+
+    let here = ask(&s, &sam, &ws, &deal, "What did we decide?").await;
+    assert!(in_project(&here), "a lane in a project's channel would file into its person's memory");
+    let (st, v) = s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{deal}/messages"), json!({ "text": "Just between us?", "whisper": true })).await;
+    assert_eq!(st, 200, "{v}");
+    assert!(in_project(v["task_id"].as_str().unwrap()), "a whisper in a project's channel would file into its person's memory");
+    let elsewhere = ask(&s, &sam, &ws, &general, "What did we decide?").await;
+    assert!(!in_project(&elsewhere), "a lane outside any project lost its memory pass");
+}

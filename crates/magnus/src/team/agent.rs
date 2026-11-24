@@ -91,6 +91,24 @@ pub(super) fn lane_project(s: &State, workspace: &str, room: &str, person: &str,
     (w.may_read(Some(&p), person) && w.may_read(Some(&p), requester)).then_some(p)
 }
 
+impl State {
+    /// Whether `run`, or the run it is a sub-agent of, is a person's own
+    /// agent at work in a project's channel: a member's lane asked there, or
+    /// a whisper there. What it learns is the project's, which only its
+    /// people read, so none of it is filed into the person's own memory
+    /// (2026-11-23-project-lanes-file-no-memory).
+    pub(crate) fn in_project_channel(&self, run: &str) -> bool {
+        let top = self.sub_agents.top(run).unwrap_or_else(|| run.to_string());
+        let Some(task) = self.runs.get(&top).map(|r| r.task.as_str()) else { return false };
+        let room = match (self.missions.of_member_lane(task), self.team.whisper_of(task)) {
+            (Some(m), _) => Some((m.workspace.as_str(), m.room.as_str())),
+            (None, Some(w)) => Some((w.workspace.as_str(), w.channel.as_str())),
+            (None, None) => None,
+        };
+        room.and_then(|(ws, room)| self.team.workspace(ws)?.channels.get(room)).is_some_and(|c| c.project.is_some())
+    }
+}
+
 /// Whether the base of the project a lane in `room` is shown holds words
 /// written by anyone but `person`: their agent then reads others' words.
 pub(super) fn lane_base_from_others(s: &State, workspace: &str, room: &str, person: &str, requester: &str) -> bool {
