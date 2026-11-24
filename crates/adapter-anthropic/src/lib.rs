@@ -252,7 +252,7 @@ async fn complete(http: &reqwest::Client, p: proto::CompleteParams, sink: &mut S
         while let Some(chunk) = stream.next().await {
             let chunk = match chunk {
                 Ok(c) => c,
-                Err(e) => return sink.error(ErrorClass::Unavailable, format!("stream broke: {e}")).await,
+                Err(e) => return turn.fail(&p.model, &p.settings, sink, ErrorClass::Unavailable, format!("stream broke: {e}")).await,
             };
             buf.push_str(&String::from_utf8_lossy(&chunk));
             while let Some(i) = buf.find("\n\n") {
@@ -262,10 +262,10 @@ async fn complete(http: &reqwest::Client, p: proto::CompleteParams, sink: &mut S
                     continue;
                 }
                 let Ok(ev) = serde_json::from_str::<Value>(&data) else {
-                    return sink.error(ErrorClass::Malformed, "unparseable stream event").await;
+                    return turn.fail(&p.model, &p.settings, sink, ErrorClass::Malformed, "unparseable stream event").await;
                 };
                 if let Err(msg) = turn.apply(&ev, sink).await? {
-                    return sink.error(msg.0, msg.1).await;
+                    return turn.fail(&p.model, &p.settings, sink, msg.0, msg.1).await;
                 }
             }
         }
@@ -377,6 +377,21 @@ impl Turn {
         self.usage.3 = self.usage.3.max(g("cache_creation_input_tokens"));
     }
 
+    /// What the turn has used so far, at the model's prices.
+    fn priced(&self, model: &str, settings: &Value) -> Usage {
+        let (i, o, cr, cw) = self.usage;
+        let (pi, po, pcr, pcw) = prices(model, settings);
+        let cost = (i as f64 * pi + o as f64 * po + cr as f64 * pcr + cw as f64 * pcw) / 1_000_000.0;
+        Usage { input_tokens: i, output_tokens: o, cache_read_tokens: cr, cache_write_tokens: cw, cost_usd: cost }
+    }
+
+    /// End a turn that failed partway: what Anthropic charged so far (the
+    /// prompt counted at `message_start`, the output since) goes with the
+    /// error, so the failed call is booked.
+    async fn fail(&self, model: &str, settings: &Value, sink: &mut Sink, class: ErrorClass, message: impl Into<String>) -> anyhow::Result<()> {
+        sink.charged_error(&self.priced(model, settings), class, message).await
+    }
+
     async fn finish(self, model: &str, settings: &Value, sink: &mut Sink) -> anyhow::Result<()> {
         let mut thinking = vec![];
         for b in &self.blocks {
@@ -396,10 +411,7 @@ impl Turn {
         if !thinking.is_empty() {
             sink.send(&Event::State { state: json!({ "thinking": thinking }) }).await?;
         }
-        let (i, o, cr, cw) = self.usage;
-        let (pi, po, pcr, pcw) = prices(model, settings);
-        let cost = (i as f64 * pi + o as f64 * po + cr as f64 * pcr + cw as f64 * pcw) / 1_000_000.0;
-        sink.send(&Event::Usage(Usage { input_tokens: i, output_tokens: o, cache_read_tokens: cr, cache_write_tokens: cw, cost_usd: cost })).await?;
+        sink.send(&Event::Usage(self.priced(model, settings))).await?;
         let Some(served) = self.served else {
             return sink.error(ErrorClass::Malformed, "the response did not name its model").await;
         };
@@ -407,3 +419,6 @@ impl Turn {
         sink.send(&Event::Done { stop: self.stop.unwrap_or_else(|| "end_turn".into()) }).await
     }
 }
+
+#[cfg(test)]
+mod tests;

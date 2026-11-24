@@ -349,6 +349,16 @@ pub(crate) fn parse_catalog(v: &Value, settings: &Value) -> Vec<ModelInfo> {
 }
 
 /// Emit the end of a turn: usage with cost, the served model, done.
+/// End a turn that failed after the provider counted what it used (a
+/// reply whose tool arguments are not JSON, a stream that broke after its
+/// usage came): priced as `finish` prices it and sent before the error, so
+/// the failed call is booked.
+pub(crate) async fn fail(sink: &mut Sink, settings: &Value, model: &str, usage: &Usage, served: Option<&str>, class: ErrorClass, message: impl Into<String>) -> anyhow::Result<()> {
+    let mut usage = usage.clone();
+    usage.cost_usd = served.and_then(|m| cost(settings, m, &usage)).or_else(|| cost(settings, model, &usage)).unwrap_or_default();
+    sink.charged_error(&usage, class, message).await
+}
+
 pub(crate) async fn finish(sink: &mut Sink, settings: &Value, model: &str, mut usage: Usage, served: Option<String>, stop: &str) -> anyhow::Result<()> {
     // The served model's price, else the asked one's: the kernel quoted the
     // asked model before the call, so one of them is priced.
@@ -469,3 +479,6 @@ mod billing_tests {
         assert!(msg.contains("INVALID_ARGUMENT") && msg.contains("API key not valid"), "{msg}");
     }
 }
+
+#[cfg(test)]
+mod charged_tests;
