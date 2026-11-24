@@ -75,6 +75,8 @@ pub mod inbox;
 mod inbox_admit_tests;
 #[cfg(test)]
 mod inbox_typed_tests;
+#[cfg(test)]
+mod inbox_wait_tests;
 pub mod invitations;
 pub mod issuers;
 pub mod kernel;

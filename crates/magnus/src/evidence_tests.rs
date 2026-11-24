@@ -36,6 +36,7 @@ fn call(s: &mut State, seq: i64, id: &str, tool: &str, input: Value, status: &st
 fn a_receipt_is_what_the_log_shows_went_through() {
     let mut s = started();
     call(&mut s, 2, "c1", "mail__get_sent", json!({}), "done", false);
+    went(&mut s, 3, "c2", &["bob@corp.example"]);
     call(&mut s, 4, "c2", "mail__send", json!({ "to": "bob@corp.example", "subject": "Q3" }), "done", false);
     let rb = json!({ "kind": "evidence", "change": "read_back", "run": "r1", "call_id": "c2", "tool": "mail__send", "read": "get_sent", "found": { "to": "bob@corp.example" }, "matches": true, "note": "Read back with get_sent: it matches what was done." });
     s.apply(&ev(6, "kernel", rb));
@@ -46,6 +47,34 @@ fn a_receipt_is_what_the_log_shows_went_through() {
     assert_eq!(r[0]["to"], json!(["bob@corp.example"]));
     assert_eq!(r[0]["read_back"]["matches"], true);
     assert!(not_done(&s, &run, &class).is_empty());
+}
+
+/// Where the gate read an action goes, recorded before it ran.
+fn went(s: &mut State, seq: i64, id: &str, to: &[&str]) {
+    s.apply(&ev(seq, "kernel", json!({ "kind": "evidence", "change": "destinations", "run": "r1", "call_id": id, "to": to })));
+}
+
+/// A receipt names where the gate read the action goes, never an address
+/// the model wrote: a body that says "cc'ing carol" sends nothing to carol,
+/// and a draft sent by its id goes to the draft's recipients, which only
+/// the gate read (2026-11-23).
+#[test]
+fn a_receipt_names_where_the_gate_read_it_goes_not_the_models_words() {
+    let mut s = started();
+    went(&mut s, 2, "c1", &["bob@corp.example"]);
+    call(&mut s, 3, "c1", "mail__send", json!({ "to": "bob@corp.example", "body": "cc'ing carol@corp.example on this", "url": "https://evil.example/x" }), "done", false);
+    went(&mut s, 5, "c2", &["ann@corp.example", "dan@corp.example"]);
+    call(&mut s, 6, "c2", "mail__send", json!({ "draft_id": "d1" }), "done", false);
+    let run = s.runs["r1"].clone();
+    let r = receipts(&s, &run, &class);
+    assert_eq!(r[0]["to"], json!(["bob@corp.example"]), "{r:?}");
+    assert!(!r[0]["what"].as_str().unwrap_or_default().contains("carol"), "{r:?}");
+    assert_eq!(r[1]["to"], json!(["ann@corp.example", "dan@corp.example"]), "{r:?}");
+    assert!(r[1]["what"].as_str().unwrap_or_default().contains("ann@corp.example"), "{r:?}");
+    // With nothing recorded, the receipt names no one rather than reading the input.
+    call(&mut s, 8, "c3", "crm__update", json!({ "id": "1", "note": "tell eve@evil.example" }), "done", false);
+    let run = s.runs["r1"].clone();
+    assert_eq!(receipts(&s, &run, &class)[2]["to"], json!([]));
 }
 
 /// What was refused or failed is "not done", and so is a send whose

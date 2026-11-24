@@ -366,6 +366,9 @@ pub(crate) fn timeline_of(run: &Run, redact_private: bool) -> Value {
 }
 
 pub(super) async fn resume(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    // Under the lock cards are answered under: an answer to the card the
+    // run stopped on sees it resumed, and resumes or extends nothing more.
+    let _decide = k.decide.lock().await;
     let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     if run.status != Status::Suspended {
         return refuse(StatusCode::CONFLICT, "the task is not paused");

@@ -6,7 +6,8 @@
 // - a passive box (done, up next, new files, recent work) slides in when it
 //   appears or changes content, and leaves after SHOWN_FOR_MS;
 // - a box the pointer is on stays, and its time starts again when it goes;
-// - Close puts a box away until it changes (state, title, or count),
+// - Close puts a box away until it changes (state, title, or count; a
+//   decision's box by its decision alone, never by how many others wait),
 //   remembered in this browser for the person signed in and no one else, and
 //   a browser that keeps nothing still closes it for the page;
 // - touchedAt tracks live content updates so dynamic reordering promotes the
@@ -91,6 +92,21 @@ const T = 1_000_000;
   assert.deepEqual(keys(load(store).shown([ask(), run()], T)), [], "a new page remembers what was closed");
   for (let i = 0; i < 250; i++) B.close(`x${i}|run|t`);
   assert.equal(JSON.parse(store.get(ANA)).length, 200, "it remembers the latest closed, not every one");
+}
+
+// A closed decision stays closed when how many others wait changes: its box
+// is known by its decision alone, and only the first box carries the count
+// (aurora-stage.js), so it comes and goes as others are answered.
+{
+  const B = load();
+  B.close(B.sign(ask({ count: 3 })));
+  assert.deepEqual(keys(B.shown([ask({ count: 4 })], T)), [], "a closed decision came back when another arrived");
+  assert.deepEqual(keys(B.shown([ask({ count: 2 })], T)), [], "a closed decision came back when another was answered");
+  assert.deepEqual(keys(B.shown([ask()], T)), [], "a closed decision came back once it was the only one");
+  assert.ok(B.isClosed(ask({ count: 5 })), "the stage sees the closed decision as open");
+  // Messages are still known by how many there are: one more is new.
+  B.close(B.sign({ key: "messages", tone: "talk", title: "Dana", count: 2 }));
+  assert.deepEqual(keys(B.shown([{ key: "messages", tone: "talk", title: "Dana", count: 3 }], T)), ["messages:talk"], "a new message stayed closed");
 }
 
 // What one person closed is theirs: another person signing in on this

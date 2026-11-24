@@ -51,7 +51,8 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button[data-item]");
   if (!b || b.disabled) return;
   b.disabled = true;
-  setTimeout(() => { FX.pending = FX.pending.filter(i => i.id !== b.dataset.item); drawThread(); drawPanel(); toast("Allowed."); }, 60);
+  // As app.js's respond(): the answer is told once the server took it, then redrawn.
+  setTimeout(() => { document.dispatchEvent(new CustomEvent("magnus:answered", { detail: { item: b.dataset.item, decision: b.dataset.decision.split(":")[0], button: b } })); FX.pending = FX.pending.filter(i => i.id !== b.dataset.item); drawThread(); drawPanel(); toast("Allowed."); }, 60);
 });`;
 
 export const ask = (id, thread, sentence) => ({ id, thread, kind: "approval", can_respond: true, summary: sentence, ask: { sentence, offers: ["allow", "dont_allow"] } });

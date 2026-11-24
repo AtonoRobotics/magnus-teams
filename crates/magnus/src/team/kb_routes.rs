@@ -190,6 +190,7 @@ async fn add(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws)
         relations: b.relations,
         flags: vec![],
         retired: None,
+        edited_by: None,
     };
     send(&k, &p, Change::Entry { workspace: ws, id: id.clone(), entry }).await?;
     Ok(Json(json!({ "id": id })).into_response())
@@ -237,7 +238,8 @@ struct Correction {
     relations: Option<Vec<Relation>>,
 }
 
-/// Corrected and looked at just now, so its flags are answered.
+/// Corrected and looked at just now, so its flags are answered. Whoever
+/// changed its words or its type wrote it last (`Entry::edited_by`).
 async fn correct(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>, Json(b): Json<Correction>) -> ApiResult {
     let (w, mut e) = curated(&k, &ws, &id, &p)?;
     if b.statement.as_deref().is_some_and(|t| !fits(t)) {
@@ -247,8 +249,11 @@ async fn correct(State(k): K, Member { person: p, .. }: Member<at::Member>, Path
     if b.kind.as_deref().is_some_and(|t| !w.allows_kind(project.as_deref(), t)) || b.relations.iter().flatten().any(|r| !w.allows_relation(project.as_deref(), &r.kind)) {
         return refuse(StatusCode::BAD_REQUEST, "this project does not use that type or relation");
     }
-    e.statement = b.statement.unwrap_or(e.statement);
-    e.kind = b.kind.unwrap_or(e.kind);
+    let (statement, kind) = (b.statement.unwrap_or_else(|| e.statement.clone()), b.kind.unwrap_or_else(|| e.kind.clone()));
+    if statement != e.statement || kind != e.kind {
+        e.edited_by = Some(p.id.clone());
+    }
+    (e.statement, e.kind) = (statement, kind);
     e.relations = b.relations.unwrap_or(e.relations);
     e.flags.clear();
     e.reviewed_at = chrono::Utc::now();

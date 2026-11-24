@@ -1,8 +1,9 @@
 //! Where an item's text was read into a run, so removing the item reaches
 //! it there too (decisions/2026-11-23-removing-an-item-reaches-the-runs-that-read-it.md).
 //!
-//! A memory search, a knowledge search, a project file read and a playbook
-//! search return the items' full text into the run's tool result. Each of
+//! A memory search, a knowledge search, a project file read, a playbook
+//! search and a read of a team knowledge base return the items' full text
+//! into the run's tool result. Each of
 //! those results says which items it returned, in its data's `read_items`
 //! (`read_data`); a knowledge search said it before in `entries`, and a
 //! project file read in `file`. Removing a memory, a knowledge entry or a

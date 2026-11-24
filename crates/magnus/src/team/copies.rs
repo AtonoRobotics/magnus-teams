@@ -21,6 +21,13 @@
 //! its requester's (`MissionLedger::content_owner`), and the deliverable
 //! rows go with any contributor.
 //!
+//! A lane's objective is copied once more into each task that works on it:
+//! the lane's own task and every steer of the lane, which are the lane
+//! owner's tasks. They go with the requester's erasure and with the ask
+//! that started the mission (`Kernel::lane_copies`). A steer is told by the
+//! opening of its text (`steer_prompt`), which older releases wrote the
+//! same, as nothing else ties it to its lane.
+//!
 //! The events found here are named in the erasure's or the delete's
 //! `Removed`, so their content leaves the log and the backups, and
 //! `State::drop_copies` takes out what they put in the state when that
@@ -34,6 +41,16 @@ use crate::events::TeamMissionEvent;
 use crate::kernel::Kernel;
 use crate::state::State;
 use std::collections::{BTreeMap, BTreeSet};
+
+/// A steer's text: the lane's objective, the owner's draft and their edit.
+pub(super) fn steer_prompt(objective: &str, draft: &str, instruction: &str) -> String {
+    format!("{}\n\nCurrent draft:\n{draft}\n\nOwner's edit:\n{instruction}", steer_opening(objective))
+}
+
+/// How a steer of a lane with this objective begins.
+fn steer_opening(objective: &str) -> String {
+    format!("Revise your private draft for \"{objective}\" using the owner's instruction.")
+}
 
 /// Which of a mission's words an event holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,18 +142,37 @@ impl State {
         self.missions.missions.values().filter(started).map(|m| m.id.as_str()).collect()
     }
 
-    /// The events beyond a person's own content that hold copies of their
-    /// words: each mission they asked for (a lane stored whole, its record
-    /// included), and the deliverable of each mission a lane of theirs, or
-    /// released by them, is in.
-    pub(crate) fn copies_of_person(&self, person: &str) -> Vec<i64> {
+    /// The mission events beyond a person's own content that hold copies of
+    /// their words: each mission they asked for (a lane stored whole, its
+    /// record included), and the deliverable of each mission a lane of
+    /// theirs, or released by them, is in. With the missions they asked for.
+    fn mission_copies_of(&self, person: &str) -> (Vec<i64>, BTreeSet<String>) {
         let missions = self.missions.missions.values();
         let asked: BTreeSet<&str> = missions.clone().filter(|m| m.requester == person).map(|m| m.id.as_str()).collect();
         let theirs = |l: &super::missions::Lane| l.owner.as_deref() == Some(person) || l.released_by.as_deref() == Some(person);
         let in_it: BTreeSet<&str> = missions.filter(|m| m.lanes.values().any(theirs)).map(|m| m.id.as_str()).collect();
         let mut seqs = self.missions.rows_of(&asked, None);
         seqs.extend(self.missions.rows_of(&in_it, Some(&Words::Deliverable)));
-        seqs
+        (seqs, asked.into_iter().map(String::from).collect())
+    }
+
+    /// The tasks of these missions' lanes: each lane's own, and each task
+    /// that may be a steer of one, with the opening a steer's text has: its
+    /// owner's, written after the lane was dispatched.
+    fn lane_tasks(&self, missions: &BTreeSet<String>) -> (Vec<i64>, Vec<(i64, String)>) {
+        let (mut own, mut steers) = (vec![], vec![]);
+        for m in missions.iter().filter_map(|id| self.missions.missions.get(id)) {
+            for l in m.lanes.values() {
+                own.extend(l.child_task.as_ref().and_then(|t| self.tasks.get(t)).map(|t| t.seq));
+                let Some(owner) = l.owner.as_deref().filter(|_| !l.objective.is_empty()) else { continue };
+                let objective = Words::Objective(l.id.clone());
+                let dispatched = self.missions.rows.iter().find(|(_, (id, w))| *id == m.id && *w == objective).map_or(0, |(seq, _)| *seq);
+                let opening = steer_opening(&l.objective);
+                let after = self.tasks.values().filter(|t| t.person == owner && t.seq > dispatched && l.child_task.as_ref() != Some(&t.task_id));
+                steers.extend(after.map(|t| (t.seq, opening.clone())));
+            }
+        }
+        (own, steers)
     }
 
     /// Events whose content was removed: what each copied into the state
@@ -161,17 +197,38 @@ impl State {
 }
 
 impl Kernel {
+    /// The events beyond a person's own content that hold copies of their
+    /// words: those of the missions (`State::mission_copies_of`), and the
+    /// tasks of the lanes of each mission they asked for.
+    pub(crate) async fn copies_of_person(&self, person: &str) -> anyhow::Result<Vec<i64>> {
+        let (mut seqs, asked) = self.read(|s| s.mission_copies_of(person));
+        seqs.extend(self.lane_copies(&asked).await?);
+        Ok(seqs)
+    }
+
+    /// The tasks that hold these missions' objectives: each lane's own, and
+    /// each steer of a lane, told by how its text begins.
+    async fn lane_copies(&self, missions: &BTreeSet<String>) -> anyhow::Result<Vec<i64>> {
+        let (mut seqs, maybe) = self.read(|s| s.lane_tasks(missions));
+        let bodies = self.log.contents(&maybe.iter().map(|(seq, _)| *seq).collect::<Vec<_>>()).await?;
+        let steer = |(seq, opening): &&(i64, String)| bodies.get(seq).and_then(|b| b["text"].as_str()).is_some_and(|t| t.starts_with(opening.as_str()));
+        seqs.extend(maybe.iter().filter(steer).map(|(seq, _)| *seq));
+        Ok(seqs)
+    }
+
     /// The events beyond its own that hold a copy of this message's words:
-    /// the mission it asked for, and each row older releases wrote that
-    /// quoted it, as it was sent or as it was edited. Asked before the
-    /// message is deleted, while its words are still known.
+    /// the mission it asked for and its lanes' tasks, and each row older
+    /// releases wrote that quoted it, as it was sent or as it was edited.
+    /// Asked before the message is deleted, while its words are still known.
     pub(crate) async fn copies_of_message(&self, workspace: &str, channel: &str, m: &Message) -> anyhow::Result<Vec<i64>> {
-        let (mut seqs, quoting, own) = self.read(|s| {
+        let (mut seqs, asked, quoting, own) = self.read(|s| {
             let asked = s.asked_by(workspace, &m.id);
             let rows = s.missions.rows_of(&asked, None);
             let quoting: Vec<i64> = s.team.copies.quoted.iter().filter(|(_, (w, c, _))| w == workspace && c == channel).map(|(seq, _)| *seq).collect();
-            (rows, quoting, s.team.message_seqs(&m.id).to_vec())
+            let asked: BTreeSet<String> = asked.into_iter().map(String::from).collect();
+            (rows, asked, quoting, s.team.message_seqs(&m.id).to_vec())
         });
+        seqs.extend(self.lane_copies(&asked).await?);
         if quoting.is_empty() || m.id.is_empty() {
             return Ok(seqs);
         }

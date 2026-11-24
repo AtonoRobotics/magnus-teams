@@ -494,19 +494,19 @@ const AuroraStage = (() => {
       if (n && !n.href) e.preventDefault();
       refresh();
     }
-    // A box answered keeps its place and says the answer, then goes.
-    const btn = t.closest?.(".stage-tile .ask-answers button[data-decision]");
-    const tile = btn?.closest(".stage-tile");
-    if (!btn || !(tile instanceof HTMLElement) || !on()) return;
-    const decision = (/** @type {HTMLElement} */ (btn).dataset.decision || "").split(":")[0];
-    if (decision === "ask-more") return;
+  });
+  // A box answered keeps its place and says the answer, then goes: once the
+  // server took it (app.js tells "magnus:answered"), never at the tap.
+  document.addEventListener("magnus:answered", e => {
+    const { item, decision, button } = /** @type {CustomEvent<{ item: string, decision: string, button?: HTMLElement }>} */ (e).detail || {};
+    const from = button?.closest?.(".stage-tile");
+    if (!item || !decision || decision === "ask-more" || !(from instanceof HTMLElement) || !on()) return;
+    const tile = from.isConnected ? from : document.querySelector(`.stage-tile[data-tile="${CSS.escape(from.dataset.tile || "")}"]:not(.stage-tile-leaving)`);
     const said = typeof AuroraAlerts !== "undefined" ? AuroraAlerts.said(decision) : "Done";
-    const id = /** @type {HTMLElement} */ (btn).dataset.item || "";
-    held = { box: { key: tile.dataset.tile, item: id, label: "Approvals", icon: "need", href: "#/inbox", tone: "done", open: `item:${id}`, title: tile.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
-    // Its answers become the answer now; the box goes once it has shown.
-    const row = tile.querySelector(".ask-answers");
+    held = { box: { key: from.dataset.tile, item, label: "Approvals", icon: "need", href: "#/inbox", tone: "done", open: `item:${item}`, title: from.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
+    const row = tile?.querySelector(".ask-answers");
     if (row) row.outerHTML = `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(said)}</span></div>`;
-    tile.dataset.tone = "done";
+    if (tile instanceof HTMLElement) tile.dataset.tone = "done";
     setTimeout(refresh, ANSWER_SHOWN_MS + 20);
   });
   // Dismiss the Views popover when an item is chosen, on outside click, or on Escape.

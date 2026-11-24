@@ -1191,7 +1191,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("contract", &["contract"]),
     ("plan", &["plan"]),
     ("verification", &["criterion", "evidence"]),
-    ("evidence", &["found", "sources", "note"]),
+    ("evidence", &["found", "sources", "note", "to"]),
     ("completed", &["summary", "view", "spoken"]),
     ("failed", &["reason"]),
     ("item", &["summary", "details"]),

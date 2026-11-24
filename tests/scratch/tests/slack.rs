@@ -24,6 +24,9 @@ fn redirect() -> String {
 fn answer(r: &stand_in::Request, _: &[stand_in::Request]) -> (u16, String, String) {
     if r.path.starts_with("/api/chat.postMessage") {
         stand_in::ok(json!({ "ok": true, "channel": "C0123", "ts": "1700000000.000100" }))
+    } else if r.path.starts_with("/api/conversations.replies?channel=C0123&ts=1700000000.000100&") {
+        // What Slack keeps of the post, as it keeps it.
+        stand_in::ok(json!({ "ok": true, "messages": [{ "user": "U1", "text": "I am here &amp; ready", "ts": "1700000000.000100" }] }))
     } else {
         (200, String::new(), json!({ "ok": false, "error": "unknown_method" }).to_string())
     }
@@ -51,6 +54,7 @@ async fn slack_for_alice(m: &FakeModel, slack: &StandIn) -> (Appliance, FakeOAut
         c.insert("audience".into(), mf["audience"].clone());
         c.insert("label".into(), mf["label"].clone());
         c.insert("scopes".into(), mf["scopes"].clone());
+        c.insert("read_back".into(), mf["read_back"].clone());
     })
     .await;
     let alice = app.api("alice");
@@ -63,14 +67,15 @@ async fn slack_for_alice(m: &FakeModel, slack: &StandIn) -> (Appliance, FakeOAut
 
 /// Posting reaches other people, so it always asks first, and nothing
 /// reaches Slack until Alice approves. With `post_message` classed
-/// `reversible_write` it fails.
+/// `reversible_write` it fails. The post is then read back by the
+/// timestamp Slack returned, and its receipt says it matched.
 #[tokio::test(flavor = "multi_thread")]
 async fn slack_posts_as_alice_only_once_she_approves_reaching_only_slack() {
     let slack = StandIn::start(HOST, answer).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
             0 => plan("tell general I am here"),
-            1 => tool("slack__post_message", json!({ "channel": "C0123", "text": "I am here" })),
+            1 => tool("slack__post_message", json!({ "channel": "C0123", "text": "I am here & ready" })),
             _ => complete("told general"),
         }
     }))
@@ -84,9 +89,12 @@ async fn slack_posts_as_alice_only_once_she_approves_reaching_only_slack() {
     assert!(alice.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
-    assert_eq!(slack.calls("/api"), [("POST".to_string(), "/chat.postMessage".to_string())]);
+    assert_eq!(slack.calls("/api"), [("POST".to_string(), "/chat.postMessage".to_string()), ("GET".to_string(), "/conversations.replies".to_string())]);
     let sent = serde_json::from_str::<Value>(&slack.requests()[0].body).unwrap();
-    assert_eq!(sent, json!({ "channel": "C0123", "text": "I am here" }));
+    assert_eq!(sent, json!({ "channel": "C0123", "text": "I am here & ready" }));
+    let t = alice.task(&task).await;
+    let receipt = t["evidence"]["receipts"].as_array().and_then(|r| r.iter().find(|r| r["tool"] == "slack__post_message").cloned()).unwrap_or_else(|| panic!("no receipt: {t}"));
+    assert_eq!((&receipt["read_back"]["read"], &receipt["read_back"]["matches"]), (&json!("get_message"), &json!(true)), "the post was not read back: {receipt}");
     for r in slack.requests() {
         assert_eq!((r.sni.as_str(), r.host.as_str()), (HOST, HOST), "{r:?}");
         assert!(r.path.starts_with("/api/"), "{r:?}");

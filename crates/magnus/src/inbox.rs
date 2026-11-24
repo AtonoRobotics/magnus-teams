@@ -65,6 +65,26 @@ pub fn blocking(s: &State, i: &Item) -> bool {
     i.resolution.is_none() && i.run.as_ref().and_then(|r| s.runs.get(r)).is_some_and(|r| r.status == Status::Suspended && r.waiting_item.as_deref() == Some(&i.id))
 }
 
+/// Whether the card's run is stopped waiting on it: the card it stopped on
+/// or, for a stop that names no card (a sign-in, a takeover asked for, a
+/// held reply met again), a card of the kind it stopped for. Only then
+/// does an answer to it let the run go on (a card answers the wait it was
+/// made for, decisions/2026-11-23-a-card-answers-its-own-wait.md).
+pub(crate) fn waits_on(s: &State, i: &Item) -> bool {
+    i.run.as_ref().and_then(|r| s.runs.get(r)).is_some_and(|r| {
+        r.status == Status::Suspended
+            && match r.waiting_item.as_deref() {
+                Some(w) => w == i.id,
+                None => r.reason.as_deref() == Some(i.kind.as_str()),
+            }
+    })
+}
+
+/// Whether the card's run has ended.
+fn run_ended(s: &State, i: &Item) -> bool {
+    i.run.as_ref().and_then(|r| s.runs.get(r)).is_some_and(|r| r.status.terminal())
+}
+
 /// An item's kind as it is answered and shown now. A task or schedule
 /// proposal from before rev 140 is a suggestion: one accept starts it.
 pub(crate) fn inbox_kind(kind: &str) -> &str {
@@ -114,6 +134,12 @@ impl Kernel {
         }
         if !self.read(|s| may_respond(s, p, &item)) {
             return Ok(Answer::Forbidden("you do not hold the role this decision needs"));
+        }
+        // A card its run waited on is closed when the run ends (the fold);
+        // one made after the end is refused the same.
+        let ended = self.read(|s| run_ended(s, &item)) && crate::state::inbox::WAITS_OF_A_RUN.contains(&item.kind.as_str());
+        if ended || item.resolution.as_ref().is_some_and(|r| r.2.as_deref() == Some(crate::state::inbox::RUN_ENDED_TEXT)) {
+            return Ok(Answer::Conflict("the task this was for has ended"));
         }
         if item.resolution.is_some() {
             return Ok(Answer::Conflict("already decided"));
@@ -192,12 +218,12 @@ impl Kernel {
                     let said = format!("The person allowed what waited for them: {} Do it now if it is still needed.", item.summary);
                     evs.push(("kernel", Ev::Notice { run: run.clone(), step, text: said }));
                 }
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             // What the monitor held goes on, or is refused when the run asks again.
             ("monitor", "allow" | "reject") => {
                 evs.push((&actor, resolve(None)));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             // They would rather not sign in: the agent is told and goes on.
             ("secure_form", "decline") => {
@@ -207,7 +233,7 @@ impl Kernel {
                     "kernel",
                     Ev::Notice { run: run.clone(), step: steps, text: "The person chose not to sign in, so that site is not available to you for this task.".to_string() },
                 ));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             // Asked to take over: done some other way, or not at all.
             ("takeover_request", "done" | "decline") => {
@@ -219,14 +245,14 @@ impl Kernel {
                 };
                 evs.push((&actor, resolve(None)));
                 evs.push(("kernel", Ev::Notice { run: run.clone(), step: steps, text: said.to_string() }));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             // Don't allow: that action stops, and the agent carries on with
             // what does not depend on it.
             ("approval", "reject") => {
                 evs.push((&actor, resolve(None)));
                 evs.extend(reply(&run, &call_id, crate::asks::declined(text.as_deref()), true, Label::PRINCIPAL));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             ("review", "accept") => {
                 evs.push((&actor, resolve(None)));
@@ -261,19 +287,19 @@ impl Kernel {
                     text.as_ref().map(|t| format!(": {t}")).unwrap_or_default()
                 );
                 evs.extend(reply(&run, &call_id, msg, true, Label::PRINCIPAL));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             // A contract change asked before contracts were retired (rev
             // 147): whatever the answer, the run goes on without one.
             ("contract_change", _) => {
                 evs.push((&actor, resolve(None)));
                 evs.extend(reply(&run, &call_id, crate::run::CONTRACT_RETIRED, true, Label::PRINCIPAL));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             ("question", "answer") => {
                 evs.push((&actor, resolve(None)));
                 evs.extend(reply(&run, &call_id, format!("The person answered: {}", text.clone().unwrap_or_default()), false, Label::PRINCIPAL));
-                evs.extend(self.resume(&run));
+                evs.extend(self.resume_on(&run, &item));
             }
             ("policy_proposal", "accept") => {
                 let layer = item.details["layer"].as_str().unwrap_or_default().to_string();
@@ -429,6 +455,11 @@ impl Kernel {
                 if stopped && self.halt_of(&run, None).is_some() {
                     return Ok(Answer::Conflict("the kill switch is engaged"));
                 }
+                // More budget is for the stop this notice is about: a run
+                // resumed since (its task's Resume) or ended gets none from it.
+                if !stopped && decision == "extend" && !self.read(|s| waits_on(s, &item)) {
+                    return Ok(Answer::Conflict("the task is no longer stopped on this notice"));
+                }
                 evs.push((&actor, resolve(None)));
                 if stopped {
                     evs.push((&actor, Ev::Resumed { run: run.clone() }));
@@ -441,7 +472,7 @@ impl Kernel {
                             evs.push((&actor, Ev::BudgetExtended { run: run.clone(), budget: b }));
                         }
                     }
-                    evs.extend(self.resume(&run));
+                    evs.extend(self.resume_on(&run, &item));
                 }
             }
             // A third-party server's new tools that change or send: kept
@@ -477,7 +508,19 @@ impl Kernel {
         Ok(Answer::Ok)
     }
 
-    /// A run waiting on a person goes on, unless the kill switch holds it.
+    /// A card's answer lets its run go on only while the run waits on that
+    /// card (`waits_on`): a run that went on since, and now waits on
+    /// something else (a timer, another card), stays where it is.
+    pub(crate) fn resume_on(&self, run: &str, item: &Item) -> Option<(&'static str, Ev)> {
+        if !self.read(|s| waits_on(s, item)) {
+            return None;
+        }
+        self.resume(run)
+    }
+
+    /// A suspended run goes on whatever it waits on, unless the kill switch
+    /// holds it: for a resume that is no card's answer (a handback, a
+    /// retired card). A card's answer goes through `resume_on`.
     pub(crate) fn resume(&self, run: &str) -> Option<(&'static str, Ev)> {
         if run.is_empty() {
             return None;
