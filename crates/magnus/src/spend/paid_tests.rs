@@ -260,6 +260,34 @@ async fn a_picture_is_priced_and_recorded() {
     s.done().await;
 }
 
+/// A picture through a model adapter with no price set is $0 and made,
+/// though a spend limit applies: production names no price for its
+/// ChatGPT sign-in, and every picture there was refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_adapters_unpriced_picture_is_made_under_a_limit() {
+    let s = server_with("[[adapters]]\nid = \"fake\"\ncommand = [\"unused\"]\n[images]\nadapter = \"fake\"\nfast_model = \"img\"\npremium_model = \"img-hq\"\n", |_| Router::new())
+        .await;
+    let f = Fake::new(0.1, 0.05);
+    serve(&s, "fake", &f).await;
+    run(&s, "r1", "mo").await;
+    let a = crate::boundary::Action {
+        run: "r1".into(),
+        call_id: "c1".into(),
+        step_id: "s1.c1".into(),
+        tool: crate::ui::images::GENERATE_TOOL.into(),
+        input: json!({ "prompt": "a red barn" }),
+        issuer: crate::boundary::Issuer::Model,
+    };
+    let (text, is_error, _) = s.k.image_tool(&a).await.unwrap();
+    assert!(!is_error, "an unpriced adapter picture was refused: {text}");
+    let deadline = tokio::time::Instant::now() + PICTURE_WAIT;
+    while f.calls() == 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(f.calls(), 1, "the picture was not made");
+    s.done().await;
+}
+
 /// An embedding goes through the one paid call: charged at the server's
 /// price per million tokens it counted, to the person who searched or, for
 /// indexing, to the server. Before, it was posted with no record.

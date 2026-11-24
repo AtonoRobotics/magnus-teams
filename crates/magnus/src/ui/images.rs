@@ -50,8 +50,11 @@ pub struct Settings {
     pub adapter: Option<String>,
     pub fast_model: String,
     pub premium_model: String,
-    /// What one fast picture costs, in US dollars. A picture with no price
-    /// is made only where no spend limit applies (`spend::paid`).
+    /// What one fast picture costs, in US dollars. With no price, a picture
+    /// a model adapter makes is $0, as its sign-in bills no picture (the
+    /// ChatGPT sign-in, 2026-11-11), and is still recorded; one from an
+    /// images endpoint is made only where no spend limit applies
+    /// (`spend::paid`).
     #[serde(default)]
     pub fast_usd: Option<f64>,
     /// What one premium picture costs, in US dollars.
@@ -191,6 +194,7 @@ impl Kernel {
         };
         let premium = a.input["quality"] == "premium";
         let (model, usd) = if premium { (cfg.premium_model, cfg.premium_usd) } else { (cfg.fast_model, cfg.fast_usd) };
+        let usd = usd.or(matches!(maker, Maker::Adapter(..)).then_some(0.0));
         // A picture is priced whole: what it costs is its "input".
         let quote = usd.map(|input_usd| Quote { input_tokens: 0, input_usd, output_usd: 0.0 });
         let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else { return Ok(("The run is gone.".to_string(), true, None)) };
