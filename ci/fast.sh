@@ -19,6 +19,13 @@ cd "$(dirname "$0")/.."
 # day, so a check that mixes a UTC date with a local one fails on most runs,
 # on every machine alike, instead of passing on one and failing on another.
 export TZ=Pacific/Kiritimati
+
+# Test threads get the stack the server's workers have (cli.rs,
+# WORKER_STACK_BYTES): a test fails on its own assertion, not on a stack
+# smaller than the server's (decisions/2026-11-23-tests-run-on-the-servers-stack.md).
+# Here and not in .cargo/config.toml's [env], which is in every crate's
+# fingerprint and rebuilt them all past the fast tier's timeout.
+export RUST_MIN_STACK=16777216
 want=v$(tr -d ' \n' < .node-version)
 have=$(node --version 2>/dev/null || echo none)
 if [ "$have" != "$want" ]; then
