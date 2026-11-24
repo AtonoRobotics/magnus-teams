@@ -112,7 +112,8 @@ const ChatView = (() => {
   function message(e, ui, conv) {
     if (ui.editing === e.id) return `<div class="msg me editing"><label class="sr" for="edit-${esc(e.id)}">Edit and resend</label><textarea id="edit-${esc(e.id)}" rows="3" data-draft="edit-${esc(e.id)}"></textarea>
         <div class="row small"><button class="primary" data-msg-act="edit-send">Send</button><button class="link" data-msg-act="edit-cancel">Cancel</button></div></div>`;
-    return `<div class="msg ${mine(e, conv) ? "me" : "person"}">${byline(e, conv)}<div>${marked(Compose.maskedText(e.text), conv)}</div>${files(e, conv)}</div>`;
+    const body = typeof Compose.markdown === "function" ? Compose.markdown(e.text || "") : Compose.maskedText(e.text);
+    return `<div class="msg ${mine(e, conv) ? "me" : "person"}">${byline(e, conv)}<div class="msg-body">${marked(body, conv)}</div>${files(e, conv)}</div>`;
   }
 
   /** @param {string} text @param {ChatConversation} conv */

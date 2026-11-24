@@ -87,7 +87,7 @@
     },
     {
       "name": "stat",
-      "doc": "stat label=Revenue value=41.7 unit=M",
+      "doc": "stat label=Revenue value=41.7 unit=M delta=\"+18%\"",
       "shape": {
         "lead": null,
         "lists": [],
@@ -99,6 +99,44 @@
         ]
       },
       "child": null
+    },
+    {
+      "name": "callout",
+      "doc": "callout tone=note|tip|important|warning title=\"Key finding\" text=\"...\"",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "sources",
+      "doc": "sources [title=\"Sources\"], then one indented `source title=\"...\" url=\"https://...\"` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "source",
+        "into": "items",
+        "takes": "object",
+        "shape": {
+          "lead": null,
+          "lists": [],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
     },
     {
       "name": "bar_chart",

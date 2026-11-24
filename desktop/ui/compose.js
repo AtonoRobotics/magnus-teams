@@ -20,13 +20,14 @@ const Compose = (() => {
 
   function bar(c) {
     const vals = c.values.map(Number), max = Math.max(0, ...vals), min = Math.min(0, ...vals);
-    const span = max - min || 1, rowH = 26, labelW = 120, w = 560, plotW = w - labelW - 70;
+    const span = max - min || 1, rowH = 28, labelW = 120, w = 560, plotW = w - labelW - 70;
     const zero = labelW + ((0 - min) / span) * plotW;
     const rows = c.labels.map((l, i) => {
       const v = vals[i], x0 = labelW + ((Math.min(0, v) - min) / span) * plotW, bw = (Math.abs(v) / span) * plotW, y = i * rowH;
-      return `<text x="${labelW - 8}" y="${y + 17}" text-anchor="end" class="lbl">${esc(l)}</text>
-        <rect x="${x0}" y="${y + 5}" width="${Math.max(bw, 1)}" height="${rowH - 10}" class="bar"/>
-        <text x="${x0 + Math.max(bw, 1) + 6}" y="${y + 17}" class="val">${fmt(v)}${c.unit ? " " + esc(c.unit) : ""}</text>`;
+      const tip = `${l}: ${fmt(v)}${c.unit ? " " + c.unit : ""}`;
+      return `<g class="chart-row" data-chart-tip="${esc(tip)}"><text x="${labelW - 8}" y="${y + 18}" text-anchor="end" class="lbl">${esc(l)}</text>
+        <rect x="${x0}" y="${y + 5}" width="${Math.max(bw, 1)}" height="${rowH - 10}" rx="3" class="bar"/>
+        <text x="${x0 + Math.max(bw, 1) + 6}" y="${y + 18}" class="val">${fmt(v)}${c.unit ? " " + esc(c.unit) : ""}</text></g>`;
     }).join("");
     const h = c.labels.length * rowH;
     return frame(c, `<svg viewBox="0 0 ${w} ${h + 4}" role="img" aria-label="${esc(c.title || "bar chart")}"><line x1="${zero}" y1="0" x2="${zero}" y2="${h}" class="axis"/>${rows}</svg>`);
@@ -34,15 +35,19 @@ const Compose = (() => {
 
   function line(c) {
     const all = c.series.flatMap(s => s.values.map(Number)), max = Math.max(...all), min = Math.min(...all);
-    const span = max - min || 1, w = 560, h = 220, l = 48, r = 12, t = 10, b = 30;
+    const span = max - min || 1, w = 560, h = 220, l = 48, r = 12, t = 14, b = 30;
     const x = i => l + (c.labels.length === 1 ? 0 : (i / (c.labels.length - 1)) * (w - l - r));
     const y = v => t + (1 - (v - min) / span) * (h - t - b);
     const ticks = [min, (min + max) / 2, max].map(v => `<text x="${l - 6}" y="${y(v) + 4}" text-anchor="end" class="val">${fmt(v)}</text><line x1="${l}" x2="${w - r}" y1="${y(v)}" y2="${y(v)}" class="grid"/>`).join("");
     const step = Math.ceil(c.labels.length / 8);
     const xl = c.labels.map((lb, i) => i % step === 0 ? `<text x="${x(i)}" y="${h - 10}" text-anchor="middle" class="lbl">${esc(lb)}</text>` : "").join("");
     const paths = c.series.map((s, k) => `<polyline class="ln s${k}" points="${s.values.map((v, i) => `${x(i)},${y(Number(v))}`).join(" ")}"/>`).join("");
+    const dots = c.series.map((s, k) => s.values.map((v, i) => {
+      const tip = `${s.name} · ${c.labels[i] ?? i}: ${fmt(Number(v))}${c.unit ? " " + c.unit : ""}`;
+      return `<circle cx="${x(i)}" cy="${y(Number(v))}" r="4.5" class="pt s${k}" data-chart-tip="${esc(tip)}"/>`;
+    }).join("")).join("");
     const legend = c.series.length > 1 ? `<p class="legend">${c.series.map((s, k) => `<span class="key s${k}"></span>${esc(s.name)}`).join(" ")}</p>` : "";
-    return frame(c, `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(c.title || "line chart")}">${ticks}${xl}${paths}</svg>${legend}${c.unit ? `<p class="cap">Values in ${esc(c.unit)}</p>` : ""}`);
+    return frame(c, `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(c.title || "line chart")}">${ticks}${xl}${paths}${dots}</svg>${legend}${c.unit ? `<p class="cap">Values in ${esc(c.unit)}</p>` : ""}`);
   }
 
   // Places by latitude and longitude on a plain projection. The frame has no
@@ -105,8 +110,9 @@ const Compose = (() => {
       return /^\/v1\/files\/[^/?#]+$/.test(url.pathname) ? url.pathname : null;
     } catch {return null;}
   }
-  function codeBlock(text,language="") {
-    return `<div class="code-block"><div class="code-head"><span>${esc(language)}</span><button type="button" data-code-copy aria-label="Copy code" data-tooltip="Copy code">Copy code</button></div><pre class="code"><code>${esc(text)}</code></pre></div>`;
+  function codeBlock(text, language = "") {
+    const highlighted = typeof RichText !== "undefined" ? RichText.highlightCode(text, language) : esc(text);
+    return `<div class="code-block"><div class="code-head"><span>${esc(language)}</span><button type="button" data-code-copy aria-label="Copy code" data-tooltip="Copy code">Copy code</button></div><pre class="code"><code>${highlighted}</code></pre></div>`;
   }
   const FILE_EXT = {
     js: ["js", "JS"], mjs: ["js", "JS"], ts: ["ts", "TS"], tsx: ["ts", "TS"], jsx: ["js", "JS"],
@@ -124,26 +130,58 @@ const Compose = (() => {
     return `<code>${esc(clean)}</code>`;
   }
   function markdownInline(text, depth = 0) {
-    if (depth > 8) return esc(text);
-    const pattern = /(`+)([\s\S]*?)\1|(!?)\[([^\]\n]*)\]\(([^\s]*?)(?:\s+"[^"\n]*")?\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\*([^*\n]+)\*|_([^_\n]+)_|<(https?:\/\/[^>\s]+)>/g;
+    if (depth > 8) return maskedText(text);
+    const pattern = /(`+)([\s\S]*?)\1|(!?)\[([^\]\n]*)\]\(([^\s]*?)(?:\s+"[^"\n]*")?\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|\*([^*\n]+)\*|_([^_\n]+)_|<(https?:\/\/[^>\s]+)>|\[(\d{1,2})\](?!\()/g;
     let out = "", at = 0;
     for (const m of text.matchAll(pattern)) {
-      out += esc(text.slice(at, m.index)); at = m.index + m[0].length;
+      out += maskedText(text.slice(at, m.index)); at = m.index + m[0].length;
       if (m[1]) out += inlineCode(m[2]);
-      else if (m[4] !== undefined || m[10]) {
-        const label = m[4] ?? m[10], raw = m[5] ?? m[10], url = safeUrl(raw);
+      else if (m[4] !== undefined || m[11]) {
+        const label = m[4] ?? m[11], raw = m[5] ?? m[11], url = safeUrl(raw);
         const localImage = m[3] && localImagePath(raw);
         if (localImage) out += `<img data-prose-image="${esc(localImage)}" alt="${esc(label)}" loading="lazy">`;
         else out += url ? `<a href="${esc(url)}" data-prose-link rel="noopener noreferrer">${markdownInline(label, depth + 1)}</a>` : esc(label);
       } else if (m[6] || m[7]) out += `<strong>${markdownInline(m[6] || m[7], depth + 1)}</strong>`;
-      else out += `<em>${markdownInline(m[8] || m[9], depth + 1)}</em>`;
+      else if (m[8]) out += `<del>${markdownInline(m[8], depth + 1)}</del>`;
+      else if (m[9] || m[10]) out += `<em>${markdownInline(m[9] || m[10], depth + 1)}</em>`;
+      else if (m[12]) out += `<sup class="cite-pill">${esc(m[12])}</sup>`;
     }
-    return out + esc(text.slice(at));
+    return out + maskedText(text.slice(at));
+  }
+  function renderList(lines, startIdx) {
+    const parseItem = line => line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+    const first = parseItem(lines[startIdx]);
+    if (!first) return ["", startIdx];
+    const baseIndent = first[1].length, ordered = /\d/.test(first[2]);
+    const tag = ordered ? "ol" : "ul", startAttr = ordered && parseInt(first[2], 10) !== 1 ? ` start="${parseInt(first[2], 10)}"` : "";
+    const items = [];
+    let i = startIdx;
+    while (i < lines.length) {
+      const m = parseItem(lines[i]);
+      if (!m || m[1].length < baseIndent) break;
+      if (m[1].length > baseIndent) {
+        const [nested, nextI] = renderList(lines, i);
+        if (items.length) items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${nested}</li>`);
+        i = nextI;
+        continue;
+      }
+      if (/\d/.test(m[2]) !== ordered) break;
+      i++;
+      const chk = !ordered && m[3].match(/^\[([ xX])\]\s+(.*)$/);
+      const parts = [chk ? chk[2] : m[3]];
+      while (i < lines.length && lines[i].trim() && !parseItem(lines[i]) && lines[i].match(/^(\s*)/)[1].length > baseIndent) {
+        parts.push(lines[i++].trim());
+      }
+      const inner = markdownInline(parts.join("\n"));
+      items.push(chk ? `<li class="task-item"><input type="checkbox" disabled${chk[1].toLowerCase() === "x" ? " checked" : ""}><span>${inner}</span></li>` : `<li>${inner}</li>`);
+    }
+    return [`<${tag}${startAttr}>${items.join("")}</${tag}>`, i];
   }
   function markdown(source, limit) {
-    const maxRows=Number.isFinite(limit?.rows) ? Math.max(0,Math.floor(limit.rows)) : Infinity;
+    const maxRows = Number.isFinite(limit?.rows) ? Math.max(0, Math.floor(limit.rows)) : Infinity;
     const lines = String(source || "").replace(/\r\n?/g, "\n").split("\n"), out = [];
-    const cells = line => line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map(c => markdownInline(c.trim().replace(/\\\|/g, "|")));
+    const rawCells = line => line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, "|"));
+    const isNum = s => /^[-+]?[$€£]?[\d,.]+[KMBkmb%]?$/.test(s.trim());
     const tableRule = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/;
     const block = line => /^\s*$|^\s{0,3}(?:#{1,6}\s|>|[-*+]\s|\d+[.)]\s|`{3,}|~{3,})/.test(line);
     for (let i = 0; i < lines.length;) {
@@ -154,27 +192,30 @@ const Compose = (() => {
         for (i++; i < lines.length && !new RegExp(`^\\s{0,3}${fence[0]}{${fence.length},}\\s*$`).test(lines[i]); i++) body.push(lines[i]);
         const closed = i < lines.length;
         if (closed) i++;
-        out.push(/^magnus-(ui|html)$/.test(lang) ? `<div class="ui-block" data-ui-kind="${lang.slice(7)}" data-ui-closed="${closed ? 1 : 0}" data-ui-body="${esc(body.join("\n"))}"></div>` : codeBlock(body.join("\n"),lang));
+        out.push(/^magnus-(ui|html)$/.test(lang) ? `<div class="ui-block" data-ui-kind="${lang.slice(7)}" data-ui-closed="${closed ? 1 : 0}" data-ui-body="${esc(body.join("\n"))}"></div>` : codeBlock(body.join("\n"), lang));
       } else if ((m = line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/))) { out.push(`<h${m[1].length}>${markdownInline(m[2])}</h${m[1].length}>`); i++; }
       else if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push("<hr>"); i++; }
       else if (line.includes("|") && tableRule.test(lines[i + 1] || "")) {
-        const head = cells(line), rows = []; let total=0; i += 2;
-        while (i < lines.length && lines[i].trim() && lines[i].includes("|")) { if(rows.length<maxRows)rows.push(cells(lines[i]));total++;i++; }
-        out.push(`<div class="markdown-table" tabindex="0" role="region" aria-label="Table"><table><thead><tr>${head.map(c => `<th scope="col">${c}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${head.map((_, n) => `<td>${row[n] || ""}</td>`).join("")}</tr>`).join("")}</tbody></table>${total>rows.length ? `<p class="cap">The first ${rows.length} of ${total} rows; the rest are in the file.</p>` : ""}</div>`);
+        const headRaw = rawCells(line), head = headRaw.map(c => markdownInline(c)), rows = []; let total = 0; i += 2;
+        while (i < lines.length && lines[i].trim() && lines[i].includes("|")) { if (rows.length < maxRows) rows.push(rawCells(lines[i])); total++; i++; }
+        const ths = head.map((c, idx) => `<th scope="col" data-sort-col="${idx}" aria-sort="none">${c}</th>`).join("");
+        const trs = rows.map(row => `<tr>${head.map((_, n) => { const raw = row[n] || ""; return `<td${n > 0 && isNum(raw) ? ' class="num"' : ""}>${markdownInline(raw)}</td>`; }).join("")}</tr>`).join("");
+        out.push(`<div class="markdown-table" tabindex="0" role="region" aria-label="Table"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table><div class="table-bar">${total > rows.length ? `<span class="cap">The first ${rows.length} of ${total} rows; the rest are in the file.</span>` : "<span></span>"}<button type="button" class="table-csv-btn" data-table-csv>Copy CSV</button></div></div>`);
       } else if (/^\s{0,3}>/.test(line)) {
         const quote = []; while (i < lines.length && /^\s{0,3}>/.test(lines[i])) quote.push(lines[i++].replace(/^\s{0,3}>\s?/, ""));
-        // Quotes need no recursive block parser to remain readable and safe.
-        out.push(`<blockquote>${quote.map(x => markdownInline(x)).join("<br>")}</blockquote>`);
-      } else if ((m = line.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/))) {
-        const ordered = /\d/.test(m[1]), tag = ordered ? "ol" : "ul", items = [], start = ordered ? ` start="${parseInt(m[1], 10)}"` : "";
-        while (i < lines.length) {
-          const item = lines[i].match(/^\s*([-*+]|\d+[.)])\s+(.*)$/);
-          if (!item || /\d/.test(item[1]) !== ordered) break;
-          i++; const parts = [item[2]];
-          while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s/.test(lines[i])) parts.push(lines[i++].trim());
-          items.push(`<li>${markdownInline(parts.join("\n"))}</li>`);
+        const callout = quote[0]?.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+        if (callout) {
+          const kind = callout[1].toLowerCase();
+          const label = callout[2] || (kind[0].toUpperCase() + kind.slice(1));
+          const rest = quote.slice(1).map(x => markdownInline(x)).join("<br>");
+          out.push(`<div class="md-callout tone-${esc(kind)}"><div class="md-callout-title">${esc(label)}</div>${rest ? `<div class="md-callout-body">${rest}</div>` : ""}</div>`);
+        } else {
+          out.push(`<blockquote>${quote.map(x => markdownInline(x)).join("<br>")}</blockquote>`);
         }
-        out.push(`<${tag}${start}>${items.join("")}</${tag}>`);
+      } else if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) {
+        const [listHtml, nextI] = renderList(lines, i);
+        out.push(listHtml);
+        i = nextI;
       } else {
         const parts = [line]; i++;
         while (i < lines.length && !block(lines[i]) && !(lines[i].includes("|") && tableRule.test(lines[i + 1] || ""))) parts.push(lines[i++]);
@@ -243,11 +284,28 @@ const Compose = (() => {
       case "text": return `<p${c.muted ? ` class="cap"` : ""}>${esc(c.text)}</p>`;
       case "list": return frame(c, c.ordered ? `<ol>${c.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol>` : `<ul>${c.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>`);
       case "table": {
-        const head = c.columns.some(h => String(h).trim()) ? `<thead><tr>${c.columns.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead>` : "";
+        const head = c.columns.some(h => String(h).trim()) ? `<thead><tr>${c.columns.map((h, idx) => `<th data-sort-col="${idx}" aria-sort="none">${esc(h)}</th>`).join("")}</tr></thead>` : "";
         const cell = (v, i) => `<td class="${typeof v === "number" || (i > 0 && /^[-+]?[$€£]?[\d,.]+%?$/.test(String(v).trim())) ? "num" : ""}">${fmt(v)}</td>`;
-        return frame(c, `<div class="tw"><table>${head}<tbody>${c.rows.map(r => `<tr${/^total\b/i.test(String(r[0])) ? ` class="total"` : ""}>${r.map(cell).join("")}</tr>`).join("")}</tbody></table></div>`);
+        return frame(c, `<div class="tw"><table>${head}<tbody>${c.rows.map(r => `<tr${/^total\b/i.test(String(r[0])) ? ` class="total"` : ""}>${r.map(cell).join("")}</tr>`).join("")}</tbody></table></div><div class="table-bar"><span></span><button type="button" class="table-csv-btn" data-table-csv>Copy CSV</button></div>`);
       }
-      case "stat": return `<div class="stat"><div class="sv">${fmt(c.value)}${c.unit ? `<span class="su"> ${esc(c.unit)}</span>` : ""}</div><div class="sl">${esc(c.label)}</div>${c.caption ? `<p class="cap">${esc(c.caption)}</p>` : ""}</div>`;
+      case "stat": {
+        const delta = c.delta ? `<span class="stat-delta ${String(c.delta).trim().startsWith("-") ? "down" : "up"}">${esc(c.delta)}</span>` : "";
+        return `<div class="stat"><div class="sv">${fmt(c.value)}${c.unit ? `<span class="su"> ${esc(c.unit)}</span>` : ""}${delta}</div><div class="sl">${esc(c.label)}</div>${c.caption ? `<p class="cap">${esc(c.caption)}</p>` : ""}</div>`;
+      }
+      case "callout": {
+        const tone = esc((c.tone || "note").toLowerCase());
+        return `<div class="md-callout tone-${tone}">${c.title ? `<div class="md-callout-title">${esc(c.title)}</div>` : ""}<div class="md-callout-body">${markdownInline(c.text || "")}</div></div>`;
+      }
+      case "sources": {
+        const pills = (c.items || []).map((s, idx) => {
+          const u = safeUrl(s.url);
+          let dom = s.domain || "";
+          if (!dom && u) { try { dom = new URL(u).hostname.replace(/^www\./, ""); } catch { /* ignore */ } }
+          const inner = `<span class="source-idx">${idx + 1}</span><span class="source-title">${esc(s.title || dom || s.url || "")}</span>${dom ? `<span class="source-dom">${esc(dom)}</span>` : ""}`;
+          return u ? `<a class="source-pill" href="${esc(u)}" data-prose-link rel="noopener noreferrer">${inner}</a>` : `<span class="source-pill">${inner}</span>`;
+        }).join("");
+        return `<div class="ui-sources">${c.title ? `<div class="ui-sources-head">${esc(c.title)}</div>` : ""}<div class="ui-sources-list">${pills}</div></div>`;
+      }
       case "bar_chart": return bar(c);
       case "line_chart": return line(c);
       case "map": return map(c);
@@ -264,31 +322,121 @@ const Compose = (() => {
     }
   }
 
+  /** Render validated UiSpec components into HTML, auto-grouping consecutive stats into a KPI strip. */
+  function renderParts(view, files, limit) {
+    const out = [];
+    for (let i = 0; i < (view || []).length; ) {
+      if (view[i].type === "stat") {
+        const group = [];
+        while (i < view.length && view[i].type === "stat") group.push(part(view[i++], files, limit));
+        out.push(`<div class="stat-grid">${group.join("")}</div>`);
+      } else {
+        out.push(part(view[i++], files, limit));
+      }
+    }
+    return out.join("\n");
+  }
+
+  /** Render validated UiSpec components directly for native DOM insertion (zero iframe overhead). */
+  function renderNative(view, files, limit) {
+    return `<div class="ui-native">${renderParts(view, files || {}, limit || { chars: 160000, rows: 200 })}</div>`;
+  }
+
   // Colors come from the app's look (theme.js tokens), so a result reads the
   // same as the cards around it; without them, a light and a dark default.
   const VARS = ["fg", "fg2", "muted", "line", "hair", "surface", "raised", "shadow", "accent", "accent-text", "r-sm", "r-md", "r-lg"];
   const DEFAULT_LIGHT = { fg: "#111318", fg2: "#4B5563", muted: "#565E6B", line: "#E5E7EB", hair: "#EDF0F4", surface: "#FFFFFF", raised: "#EEF1F6", shadow: "0 1px 3px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.06)", accent: "#111318", "accent-text": "#111318", "r-sm": "6px", "r-md": "8px", "r-lg": "10px" };
   const vars = t => VARS.map(k => `--${k}:${(t || DEFAULT_LIGHT)[k] ?? DEFAULT_LIGHT[k]};`).join("");
-  const markdownStyles = `.markdown { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; min-width: 0; }
+  const markdownStyles = `.markdown { font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; min-width: 0; }
 .markdown p { margin: 8px 0; white-space: pre-wrap; }
-.markdown h1, .markdown h2, .markdown h3, .markdown h4 { color: var(--fg); margin: 16px 0 8px; }
-.markdown h1 { font-size: 24px; } .markdown h2 { font-size: 20px; } .markdown h3 { font-size: 17px; }
-.markdown a { color: var(--accent-text); text-decoration: underline; }
-.markdown ul, .markdown ol { padding-left: 24px; }
-.markdown blockquote { border-left: 2px solid var(--muted); margin: 12px 0; padding: 4px 16px; }
-.markdown code { font-family: var(--mono, monospace); font-size: 15px; }
-.markdown :not(pre) > code { background: var(--raised); border-radius: 4px; padding: 2px 4px; }
+.markdown p:first-child { margin-top: 0; }
+.markdown p:last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { color: var(--fg); margin: 16px 0 8px; line-height: 1.3; }
+.markdown h1 { font-size: 22px; } .markdown h2 { font-size: 18px; } .markdown h3 { font-size: 16px; }
+.markdown a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+.markdown ul, .markdown ol { padding-left: 22px; margin: 6px 0; }
+.markdown li { margin: 3px 0; }
+.markdown li.task-item { list-style: none; margin-left: -18px; display: flex; align-items: baseline; gap: 7px; }
+.markdown li.task-item input[type=checkbox] { margin: 0; accent-color: var(--accent); }
+.markdown blockquote { border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--raised) 55%, transparent); border-radius: 0 var(--r-sm, 6px) var(--r-sm, 6px) 0; margin: 10px 0; padding: 8px 14px; color: var(--fg2); }
+.markdown code { font-family: var(--mono, monospace); font-size: 13.5px; }
+.markdown :not(pre) > code { background: var(--raised); border-radius: 4px; padding: 2px 5px; }
 .markdown .code-block { background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-md, 8px); overflow: hidden; margin: 12px 0; }
-.markdown .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; color: var(--muted); }
-.markdown .code-head button { min-height: 36px; padding: 4px 12px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; }
+.markdown .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.markdown .code-head button { min-height: 28px; padding: 2px 10px; background: var(--surface); border: 1px solid var(--line); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; font-size: 12px; }
 .markdown .code-head button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-@media (any-pointer: coarse) { .markdown .code-head button { min-width: 44px; min-height: 44px; } }
-.markdown pre { overflow: auto; white-space: pre; margin: 0; padding: 12px 16px; max-width: 100%; }
-.markdown .markdown-table { overflow: auto; max-width: 100%; margin: 12px 0; }
-.markdown table { border-collapse: collapse; width: 100%; }
-.markdown th, .markdown td { padding: 8px 12px; border: 1px solid var(--line); text-align: left; min-width: 100px; }
+.markdown pre { overflow: auto; white-space: pre; margin: 0; padding: 12px 14px; max-width: 100%; }
+.markdown .tok-kw { color: #7c3aed; font-weight: 500; }
+.markdown .tok-str { color: #0f766e; }
+.markdown .tok-num { color: #c2410c; }
+.markdown .tok-com { color: var(--muted); font-style: italic; }
+.markdown .tok-key { color: var(--accent-text); }
+.markdown .cite-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; margin: 0 1px; border-radius: 99px; background: var(--raised); border: 1px solid var(--line); font-size: 10px; font-weight: 600; color: var(--accent-text); vertical-align: super; line-height: 1; }
+.markdown .markdown-table { overflow: auto; max-width: 100%; margin: 12px 0; border: 1px solid var(--line); border-radius: var(--r-md, 8px); background: var(--surface); }
+.markdown table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.markdown th, .markdown td { padding: 8px 12px; border-bottom: 1px solid var(--hair, var(--line)); text-align: left; min-width: 80px; }
+.markdown th { background: var(--raised); font-weight: 600; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+.markdown th[aria-sort="ascending"]::after { content: " ↑"; color: var(--accent-text); }
+.markdown th[aria-sort="descending"]::after { content: " ↓"; color: var(--accent-text); }
+.markdown td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.markdown tbody tr:hover { background: color-mix(in srgb, var(--raised) 50%, transparent); }
+.markdown .table-bar, .ui-native .table-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--hair, var(--line)); background: var(--surface); }
+.table-csv-btn { font-size: 11.5px; padding: 3px 8px; border: 1px solid var(--line); border-radius: var(--r-sm, 6px); background: var(--surface); color: var(--muted); cursor: pointer; }
+.table-csv-btn:hover { color: var(--fg); border-color: var(--muted); }
+.md-callout { margin: 12px 0; padding: 10px 14px; border-radius: var(--r-md, 8px); border: 1px solid var(--line); border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--raised) 65%, transparent); }
+.md-callout.tone-tip { border-left-color: #0f766e; }
+.md-callout.tone-warning, .md-callout.tone-caution { border-left-color: #c2410c; }
+.md-callout.tone-important { border-left-color: #7c3aed; }
+.md-callout-title { font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--fg); margin-bottom: 4px; }
+.md-callout-body { font-size: 14px; color: var(--fg2); line-height: 1.5; }
 .markdown img { max-width: 100%; height: auto; object-fit: contain; }
 .markdown :focus-visible { outline: 2px solid var(--focus, var(--accent-text)); outline-offset: 2px; }
+.ui-native { display: flex; flex-direction: column; gap: 12px; margin: 10px 0; --bar: var(--accent); --s0: var(--accent); --s1: #c2410c; --s2: #0f766e; --s3: #7c3aed; --s4: #a16207; --s5: #be123c; }
+.ui-native .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.ui-native .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md, 8px); padding: 12px 14px; margin: 0; }
+.ui-native .sv { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.ui-native .su { font-size: 13px; color: var(--muted); font-weight: 500; }
+.ui-native .sl { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.stat-delta { font-size: 11.5px; font-weight: 600; padding: 1px 6px; border-radius: 99px; }
+.stat-delta.up { background: color-mix(in srgb, #0f766e 15%, transparent); color: #0f766e; }
+.stat-delta.down { background: color-mix(in srgb, #be123c 15%, transparent); color: #be123c; }
+.ui-native figure { position: relative; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg, 10px); overflow: hidden; }
+.ui-native figure > h3 { font-size: 14px; font-weight: 600; color: var(--fg); padding: 12px 14px 0; margin: 0; }
+.ui-native figure > svg { width: 100%; max-width: 600px; height: auto; display: block; padding: 10px 14px; box-sizing: border-box; }
+.ui-native svg text { fill: var(--fg); font-size: 12px; font-family: inherit; }
+.ui-native svg .val { fill: var(--muted); font-variant-numeric: tabular-nums; }
+.ui-native .bar { fill: var(--bar); transition: opacity .12s ease; }
+.ui-native .chart-row:hover .bar { opacity: 0.8; }
+.ui-native .axis, .ui-native .grid { stroke: var(--line); stroke-width: 1; }
+.ui-native .ln { fill: none; stroke-width: 2.25; }
+.ui-native .ln.s0 { stroke: var(--s0); } .ui-native .ln.s1 { stroke: var(--s1); } .ui-native .ln.s2 { stroke: var(--s2); } .ui-native .ln.s3 { stroke: var(--s3); } .ui-native .ln.s4 { stroke: var(--s4); } .ui-native .ln.s5 { stroke: var(--s5); }
+.ui-native .pt { fill: var(--bar); cursor: pointer; }
+.ui-native .pt.s0 { fill: var(--s0); } .ui-native .pt.s1 { fill: var(--s1); } .ui-native .pt.s2 { fill: var(--s2); } .ui-native .pt.s3 { fill: var(--s3); } .ui-native .pt.s4 { fill: var(--s4); } .ui-native .pt.s5 { fill: var(--s5); }
+.ui-native .legend { font-size: 12.5px; color: var(--muted); padding: 0 14px 10px; margin: 0; }
+.ui-native .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 5px 0 10px; }
+.ui-native .key.s0 { background: var(--s0); } .ui-native .key.s1 { background: var(--s1); } .ui-native .key.s2 { background: var(--s2); } .ui-native .key.s3 { background: var(--s3); } .ui-native .key.s4 { background: var(--s4); } .ui-native .key.s5 { background: var(--s5); }
+.ui-native .chart-tooltip { position: absolute; top: 10px; right: 12px; padding: 4px 9px; border-radius: var(--r-sm, 6px); background: var(--fg); color: var(--surface); font-size: 12px; font-weight: 500; pointer-events: none; }
+.ui-native .tw { overflow-x: auto; padding: 10px 14px; }
+.ui-native table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.ui-native th, .ui-native td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--hair, var(--line)); }
+.ui-native th { color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.ui-native td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ui-native .cmp td.best { font-weight: 650; color: var(--accent-text); }
+.ui-native .tl { list-style: none; padding: 0; margin: 0; }
+.ui-native .tl li { display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--hair, var(--line)); }
+.ui-native .tl li:last-child { border-bottom: 0; }
+.ui-native .tl .when { flex: 0 0 64px; font-size: 12px; font-weight: 600; color: var(--accent-text); }
+.ui-native .tl .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ui-native .tl .lbl { font-weight: 600; font-size: 14px; }
+.ui-native .tl .note { color: var(--fg2); font-size: 13px; }
+.ui-sources { display: flex; flex-direction: column; gap: 6px; }
+.ui-sources-head { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.ui-sources-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.source-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--surface); color: var(--fg); text-decoration: none; font-size: 12.5px; max-width: 100%; }
+.source-pill:hover { border-color: var(--accent); }
+.source-idx { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 99px; background: var(--raised); color: var(--accent-text); font-size: 10.5px; font-weight: 600; flex: none; }
+.source-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.source-dom { color: var(--muted); font-size: 11.5px; }
 @media (any-pointer: coarse) { .markdown .code-head button { min-height: 44px; min-width: 44px; } }
 `;
   const CSS = `
@@ -373,7 +521,7 @@ const Compose = (() => {
   /// `tokens`, the app's look (Theme.tokens), colors it; `mode` is its
   /// light or dark, so the frame's own color scheme agrees with the page.
   function documentFor(view, files, fontCss, limit, tokens, mode) {
-    const body = (view || []).map(c => part(c, files || {}, limit || { chars: 160000, rows: 200 })).join("\n")
+    const body = renderParts(view, files || {}, limit || { chars: 160000, rows: 200 })
       .replace(/<button type="button" data-code-copy[^>]*>Copy code<\/button>/g,'<span data-code-copy-anchor aria-hidden="true" style="display:inline-flex;align-items:center;min-height:44px;padding:0 12px">Copy code</span>')
       .replace(/<a href="([^"]*)" data-prose-link rel="noopener noreferrer">([\s\S]*?)<\/a>/g,'<span data-prose-url="$1" style="color:var(--accent-text);text-decoration:underline">$2</span>');
     return `<!doctype html><html style="color-scheme: ${mode === "dark" ? "dark" : "light"}"><head><meta charset="utf-8">
@@ -381,5 +529,5 @@ const Compose = (() => {
       <style>:root{${vars(tokens)}}${fontCss || ""}${CSS}${markdownStyles}</style></head><body>${body}</body></html>`;
   }
 
-  return { documentFor, TEXT, markdown, safeUrl, markdownStyles, maskedText };
+  return { documentFor, renderNative, TEXT, markdown, safeUrl, markdownStyles, maskedText };
 })();

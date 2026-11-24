@@ -48,17 +48,40 @@ function drawUiBlocks(root) {
     if (!view.length) { block.innerHTML = `<div class="small faint">Drawing…</div>`; return; }
     if (closed) view.filter(c => c.type === "app").forEach(c => drawAppView(block, c.view));
     if (view.every(c => c.type === "app")) return;
-    if (!block.firstChild?.matches?.("iframe")) block.innerHTML = `<iframe class="composed" sandbox="allow-same-origin" title="What Magnus showed" data-sized=""></iframe>`;
-    const frame = block.firstChild;
     const drawn = JSON.stringify(view);
     if (block._view === drawn) return;
     block._view = drawn;
     const files = {};
+    const needsFrame = view.some(c => c.type === "deck");
+    if (!needsFrame && typeof Compose.renderNative === "function") {
+      const paintNative = () => {
+        block.innerHTML = Compose.renderNative(view, files);
+        if (closed) wireNativeBlock(block, view, n);
+        if (typeof RichText !== "undefined") RichText.wireInteractive(block);
+      };
+      paintNative();
+      if (closed) view.filter(c => c.placeholder).forEach(c => waitForImage(c.placeholder, files, block, paintNative));
+      return;
+    }
+    if (!block.firstChild?.matches?.("iframe")) block.innerHTML = `<iframe class="composed" sandbox="allow-same-origin" title="What Magnus showed" data-sized=""></iframe>`;
+    const frame = block.firstChild;
     const paint = () => { frame.srcdoc = Compose.documentFor(view, files, fontCss(), undefined, ...look()); };
     paint();
     frame.onload = () => { sizeComposedFrame(frame); if (closed) wireBlock(frame, view, block, n); };
     if (closed) view.filter(c => c.placeholder).forEach(c => waitForImage(c.placeholder, files, block, paint));
   });
+}
+// Wire interactive action/form buttons on a native DOM magnus-ui block.
+function wireNativeBlock(block, view, fence) {
+  const task = block.closest("[data-task]")?.dataset.task;
+  if (!task) return;
+  const at = kind => view.flatMap((c, i) => c.type === kind ? [i] : []);
+  const send = (index, values, b) => { b.disabled = true; Server.tasks.action(task, index, { fence, values }).then(() => toast("Started as a new request")).catch(e => { b.disabled = false; toast(e.message); }); };
+  block.querySelectorAll("button.action:not(.form-send)").forEach((b, n) => b.addEventListener("click", () => send(at("action")[n], {}, b)));
+  block.querySelectorAll(".uiform").forEach((form, n) => form.querySelector(".form-send")?.addEventListener("click", e => {
+    if (![...form.querySelectorAll("input,select,textarea")].every(i => i.reportValidity())) return;
+    send(at("form")[n], Object.fromEntries([...form.querySelectorAll("[name]")].map(i => [i.name, i.value])), e.currentTarget);
+  }));
 }
 // What is pressed is read again by the server from what the task holds.
 function wireBlock(frame, view, block, fence) {
@@ -139,6 +162,7 @@ async function loadUiCatalog() {
 function wireMarkdown(root) {
   if (root._markdownWired) return; root._markdownWired = true;
   loadMarkdownImages(root);
+  if (typeof RichText !== "undefined") RichText.wireInteractive(root);
   root.addEventListener("click", async e => {
     const copy = e.target.closest("[data-code-copy]"), link = e.target.closest("[data-prose-link]");
     if (copy) { e.preventDefault(); try { await copyText(copy.closest(".code-block").querySelector("code").textContent); toast("Code copied."); } catch (err) { toast(err.message); } }
