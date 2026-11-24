@@ -38,16 +38,18 @@ const until = async fn => {
 };
 let computer;
 
+// The Computers link is in the Developer section only (c00e7e9); the
+// person's computer is still at #/computer.
 await step("open the app", async () => {
   await page.goto(base);
-  await page.getByRole("link", { name: "Computers" }).waitFor();
+  await page.locator("#main").waitFor();
 });
 
 // The person's one computer is there with nobody making it (spec rev 142),
 // and opening it is a use, which wakes it: there is no Start button (spec
 // rev 131, Lifecycle).
 await step("open your computer, and opening it wakes it", async () => {
-  await page.getByRole("link", { name: "Computers" }).click();
+  await go("#/computer");
   await page.locator("[data-computer] a").first().click();
   computer = new URL(page.url()).hash.split("/")[2];
 });
@@ -64,7 +66,8 @@ await step("take control and hand back", async () => {
   assert.equal(await page.locator("#display-error").isHidden(), true);
   const held = await page.evaluate(id => Magnus.api("GET", `/v1/computers/${id}`), computer);
   assert.ok(held.controller, "nobody holds the screen");
-  await page.getByRole("button", { name: "I'm done" }).click();
+  // The control strip's button; the screen's hold overlay has its own (90cd678).
+  await page.locator("button[data-done]").click();
   await page.getByRole("button", { name: "Take control" }).waitFor();
   const after = await page.evaluate(id => Magnus.api("GET", `/v1/computers/${id}`), computer);
   assert.equal(after.controller, null, "the screen was not handed back");

@@ -39,10 +39,17 @@ impl Kernel {
     /// Whether the run an action is for is still running, read live as its
     /// call goes out: a run cancelled or suspended while its gate waited on
     /// the pin, the destination read or the sign-in sends nothing (#187).
-    fn still_running(&self, run: &str, app: &str) -> std::result::Result<(), String> {
-        match self.read(|s| s.runs.get(run).map(|r| r.status)) {
-            Some(Status::Running) => Ok(()),
-            Some(st) => Err(format!("the task was {} before it went out. Nothing was sent to {app}", crate::api::status_str(st))),
+    /// A staged item the person sent is theirs to send, and its read-back
+    /// with it: it goes while the item is open, after its run went on and
+    /// ended, though not once the task was cancelled
+    /// (decisions/2026-11-23-staged-sends-are-performed.md).
+    fn still_running(&self, a: &Action, app: &str) -> std::result::Result<(), String> {
+        let staged = a.call_id.strip_prefix(crate::read_back::CALL_PREFIX).unwrap_or(&a.call_id);
+        let open = |s: &crate::state::State| s.staged.get(staged).is_some_and(|i| i.run == a.run && i.resolution.is_none());
+        match self.read(|s| s.runs.get(&a.run).map(|r| (r.status, open(s)))) {
+            Some((Status::Running, _)) => Ok(()),
+            Some((st, true)) if st != Status::Cancelled => Ok(()),
+            Some((st, _)) => Err(format!("the task was {} before it went out. Nothing was sent to {app}", crate::api::status_str(st))),
             None => Err(format!("the task is gone. Nothing was sent to {app}")),
         }
     }
@@ -112,14 +119,14 @@ impl Kernel {
             let k = (c.idempotency == "header").then_some(key);
             // The last fence: the run, read live, is still running. The
             // gate's copy of it was taken before the awaits that led here.
-            if let Err(m) = self.still_running(&a.run, &f.app) {
+            if let Err(m) = self.still_running(a, &f.app) {
                 return Err(CallFailure::Stopped(m));
             }
             // Checked again, by a brokered call once it has its microVM and
             // before it sends: nothing was stopped since its token was taken,
             // the kill switch is off, the person is still signed in and the
             // run is still running.
-            let fence = || self.may_send(c, &person, stops, &f.app).and_then(|()| self.still_running(&a.run, &f.app));
+            let fence = || self.may_send(c, &person, stops, &f.app).and_then(|()| self.still_running(a, &f.app));
             let t = self.transport(c);
             let out = t.call(&person, bearer, &f.remote, &a.input, &fence, k).await;
             return match out {
@@ -134,7 +141,7 @@ impl Kernel {
                     }
                     Ok(self.with_app_view(a, &t, bearer, &f.remote, o).await)
                 }
-                Err(crate::apps::CallError::NotSent(m)) if self.still_running(&a.run, &f.app).is_err() => Err(CallFailure::Stopped(m)),
+                Err(crate::apps::CallError::NotSent(m)) if self.still_running(a, &f.app).is_err() => Err(CallFailure::Stopped(m)),
                 Err(crate::apps::CallError::NotSent(m)) => Err(CallFailure::NotDone(m)),
                 Err(crate::apps::CallError::Unknown(m)) => Err(CallFailure::Unknown(m)),
                 // The call was made and its answer does not match its
