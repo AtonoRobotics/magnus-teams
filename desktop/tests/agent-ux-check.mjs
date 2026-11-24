@@ -22,8 +22,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
     consequence: "Sent as you and cannot be undone.",
     ask: { sentence: "Send the Q3 board update to board@acme.example?", offers: ["allow", "dont_allow"], allow_scope: "once" },
     details: {
-      destinations: { recipients: { to: ["board@acme.example"] }, content: { subject: "Q3 Board Update" } },
-      input: { body: "ARR reached $14.2M (+28% YoY), gross margin 78%." },
+      destinations: { recipients: { to: ["board@acme.example"] }, content: { subject: "Q3 Board Update", body: "ARR reached $14.2M (+28% YoY), gross margin 78%." } },
+      input: { draft_id: "d1", to: "eve@evil.example", subject: "Model's subject", body: "The model's own words, not the draft." },
       rule: "person_rule:secret", why: "Auto Review: outside request", taint: { untrusted: true },
     },
   };
@@ -37,6 +37,18 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   const fields = sandbox.askSummaryFields(item);
   assert.equal(fields.rows[0][0], "To");
   assert.equal(fields.rows[0][1], "board@acme.example");
+  // The preview is what the gate read, never the model's input (2026-11-23).
+  const preview = card.match(/<div class="ask-preview" data-ask-preview>([\s\S]*?)<\/div>\s*<details/);
+  assert.ok(preview, "the preview sits above the content");
+  for (const model of ["eve@evil.example", "Model's subject", "Model&#39;s subject", "The model's own words", "The model&#39;s own words"]) {
+    assert.ok(!preview[1].includes(model), `the preview shows the model's ${model}`);
+  }
+  assert.equal(fields.body, "ARR reached $14.2M (+28% YoY), gross margin 78%.");
+  assert.ok(!fields.rows.some(([, v]) => v.includes("eve@evil.example") || v.includes("Model's subject")), "a row came from the model's input");
+  // Where the gate read no recipients, the preview names where the server says it goes, and nothing from the input.
+  const plain = sandbox.askSummaryFields({ ask: { destinations: ["bob@corp.example"] }, details: { input: { to: "eve@evil.example", body: "hi eve" } } });
+  assert.equal(JSON.stringify(plain.rows), JSON.stringify([["Destination", "bob@corp.example"]]));
+  assert.equal(plain.body, "");
 }
 
 // 2. Sub-agents are clickable, show live status, expanded outcome_view findings, and files.
