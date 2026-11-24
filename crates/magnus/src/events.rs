@@ -165,8 +165,7 @@ pub enum Ev {
         ok: bool,
         detail: String,
     },
-    /// The backups directory was mirrored off host after a backup (#297):
-    /// whether the copy held, and why not.
+    /// The backups directory was mirrored off host after a backup (#297): whether the copy held, and why not.
     BackupCopied {
         file: String,
         ok: bool,
@@ -1219,6 +1218,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
     ("prefetch_recorded", &["pointers"]),
     ("outside_agent", &["text", "reply", "draft", "held_because"]),
+    ("staged", &["sentence", "input", "shown", "provenance"]),
 ];
 
 /// The content fields of one kind of event (a lane stored under its lane's kind, a mission's); none for most.

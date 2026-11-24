@@ -81,9 +81,16 @@ pub struct StagedItem {
     pub app: String,
     #[serde(default)]
     pub app_title: Option<String>,
+    /// Written as `stage_kind`: carried in `Ev::Staged`, whose own tag is
+    /// `kind`, a field of that name replaced the event's tag, and the event
+    /// did not read back (`current_staged` reads those).
+    #[serde(rename = "stage_kind")]
     pub kind: StageKind,
     /// Server-written sentence from structured fields; never model-written.
+    /// Content, as the input is (`events::CONTENT`): gone once deleted.
+    #[serde(default)]
     pub sentence: String,
+    #[serde(default)]
     pub input: Value,
     /// Service read-back details (`Shown::details`), when available.
     #[serde(default)]
@@ -113,6 +120,19 @@ pub enum Change {
         #[serde(default)]
         grant_id: Option<String>,
     },
+}
+
+/// A created staged item as written before 2026-11-24: its `kind` field had
+/// replaced the event's own tag, so the stored body's `kind` is the stage
+/// kind's object. Read as the current form, under `stage_kind`.
+pub fn current_staged(body: &Value) -> Option<Value> {
+    if !body.get("kind")?.is_object() || body.get("change")?.as_str()? != "created" {
+        return None;
+    }
+    let mut current = body.clone();
+    current["stage_kind"] = body["kind"].clone();
+    current["kind"] = Value::from("staged");
+    Some(current)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -412,6 +432,53 @@ mod tests {
         assert!(classify_stageable("github", "github__create_issue", Risk::ReversibleWrite, &json!({})).is_none());
         assert!(classify_stageable("google-gmail", "google-gmail__label_message", Risk::ReversibleWrite, &json!({})).is_none());
         assert!(classify_stageable("google-calendar", "google-calendar__set_color", Risk::ReversibleWrite, &json!({})).is_none());
+    }
+
+    /// A staged item's event, as the log stores it (`serde_json::to_value`)
+    /// and reads it back on a restart.
+    #[test]
+    fn a_staged_items_event_reads_back_as_written() {
+        let item = StagedItem {
+            id: "st1".into(),
+            run: "r1".into(),
+            task: "t1".into(),
+            person: "alice".into(),
+            tool: "gmail__send_draft".into(),
+            app: "gmail".into(),
+            app_title: None,
+            kind: StageKind::NativeDraft { draft_id: Some("d1".into()) },
+            sentence: "s".into(),
+            input: json!({ "draft_id": "d1" }),
+            shown: None,
+            provenance: vec![],
+            created_at: Utc::now(),
+            resolution: None,
+            grant_id: None,
+            hash: None,
+        };
+        let ev = crate::events::Ev::Staged(Change::Created(Box::new(item)));
+        let stored = serde_json::to_value(&ev).unwrap();
+        let read: crate::events::Ev = serde_json::from_value(stored.clone()).unwrap_or_else(|e| panic!("{e}: {stored}"));
+        assert_eq!(serde_json::to_value(&read).unwrap(), stored);
+        assert_eq!(stored["kind"], "staged", "the event's tag was replaced: {stored}");
+        // As written before: the item's kind in the tag's place.
+        let mut old = stored.clone();
+        old["kind"] = old["stage_kind"].take();
+        old.as_object_mut().unwrap().remove("stage_kind");
+        let was = crate::log::parse_event(&old).unwrap().unwrap_or_else(|| panic!("the old form was skipped: {old}"));
+        assert_eq!(serde_json::to_value(&was).unwrap(), stored);
+    }
+
+    /// What a staged message says and who it goes to is content, and the
+    /// event reads once that is deleted.
+    #[test]
+    fn a_staged_items_words_are_content_and_read_once_deleted() {
+        let fields = crate::events::content_fields("staged");
+        for f in ["sentence", "input", "shown", "provenance"] {
+            assert!(fields.contains(&f), "a staged item's {f} is not content");
+        }
+        let item = json!({ "kind": "staged", "change": "created", "id": "st1", "run": "r1", "task": "t1", "person": "alice", "tool": "gmail__send_draft", "app": "gmail", "stage_kind": { "kind": "magnus_held" }, "created_at": "2026-11-24T00:00:00Z" });
+        assert!(matches!(crate::log::parse_event(&item), Ok(Some(_))), "a staged item with its words deleted does not read");
     }
 
     #[test]
