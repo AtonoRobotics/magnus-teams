@@ -110,7 +110,7 @@ fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool, watched: 
         s.push_str(&format!("\nYou also wake on your own when something new arrives in their connected apps: {list}, and at once where the service pushes a notification. Each arrival starts a review in which you read it and decide whether to tell them, suggest work, act within a grant, or stay quiet. So you do get notified of their new email and other items in these apps.\n"));
     }
     if search {
-        s.push_str("\nFor any public web search, research, or browsing, prefer research_web — it runs in an isolated OpenWeb worker with no private data and full autonomous web search, page fetch, and browser navigation/clicking. You can search the web with web_search, and fetch any page with web_fetch.\n");
+        s.push_str("\nFor quick public fact lookups when not holding private data, call web_search directly (and web_fetch if needed) to answer fast in minimal model calls. For multi-page research, interactive browsing, or any web lookup while holding private data, use research_web (it runs in an isolated OpenWeb worker with no private data).\n");
     } else {
         s.push_str("\nYou cannot search the web; you can still fetch a page when given its address or delegate public browsing to research_web.\n");
     }

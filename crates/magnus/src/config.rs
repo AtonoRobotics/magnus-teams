@@ -281,6 +281,18 @@ pub struct Model {
     /// primary provider is unavailable or over its usage limit after retries.
     #[serde(default)]
     pub fallbacks: Vec<String>,
+    /// Optional fast worker model (`"adapter/model"`) used for lightweight
+    /// sub-agents like `research_web` so they run faster and cheaper.
+    #[serde(default)]
+    pub worker: Option<String>,
+}
+
+impl Model {
+    pub fn worker_model(&self) -> Option<(String, String)> {
+        let raw = self.worker.as_deref()?.trim();
+        let (a, m) = raw.split_once('/')?;
+        (!a.is_empty() && !m.is_empty()).then(|| (a.to_string(), m.to_string()))
+    }
 }
 
 fn default_retries() -> u32 {
