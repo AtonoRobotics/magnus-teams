@@ -53,8 +53,10 @@ fn outcome(k: &Kernel, n: usize) -> (usize, Vec<(String, String)>, String) {
 /// this size, and so do these tests.
 const WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
 
-fn on_big_stacks(f: impl std::future::Future<Output = ()>) {
-    tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build().unwrap().block_on(f)
+fn on_big_stacks(f: impl std::future::Future<Output = ()> + Send + 'static) {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build().unwrap();
+    // On a worker: the test thread's own stack is the default 2 MiB.
+    rt.block_on(async { tokio::spawn(f).await.unwrap() })
 }
 
 /// Twelve `start_sub_agent` calls in one reply start eight sub-agents, the

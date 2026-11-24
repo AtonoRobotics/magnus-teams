@@ -1,0 +1,6 @@
+# Tests run on the stack the server's workers have (crates/magnus/src/cli.rs,
+# WORKER_STACK_BYTES): the kernel's futures are deep, and a test thread's
+# default 2 MiB overflowed on the CI runner though not on Strix Beta
+# (decisions/2026-11-23-tests-run-on-the-servers-stack.md).
+[env]
+RUST_MIN_STACK = "16777216"

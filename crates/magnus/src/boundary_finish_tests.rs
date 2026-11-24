@@ -70,48 +70,62 @@ async fn recorded(s: &Server, call: &str) -> (Label, Vec<String>) {
         .unwrap()
 }
 
+/// The pipeline's futures are deep: the server runs them on worker stacks
+/// of this size (`cli.rs`), and so do these tests, the body included, which
+/// the test thread's 2 MiB could not hold.
+const WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+fn on_big_stacks(f: impl std::future::Future<Output = ()> + Send + 'static) {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build().unwrap();
+    rt.block_on(async { tokio::spawn(f).await.unwrap() })
+}
+
 /// A mail read whose first try's outcome is lost is sent again, and the
 /// second answer reaches the model as a first try's does: no sign-in code,
 /// the attachment held back by its reference, the same label and sources.
 /// Before, the resend's answer was only masked: the model got the code and
 /// the file's bytes, under the app's fixed label.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_resent_mail_read_is_finished_as_a_first_try_is() {
-    let (s, fake) = mail(vec![Ok(message()), Err(CallError::Unknown("the connector's answer was lost".into())), Ok(message())]).await;
-    let r = run(&s).await;
-    let mut seen = vec![];
-    for n in [1, 2] {
-        let v = s.k.execute(action(&r, n, "mail__read", json!({ "id": "m1" }))).await.unwrap();
-        let Verdict::Done { text, is_error: false, data } = v else { panic!("read {n} did not succeed: {:?}", done_text(&v)) };
-        assert!(!text.contains(CODE), "read {n}: the model was given the sign-in code: {text}");
-        assert!(!text.contains(BYTES), "read {n}: the model was given the attachment's bytes: {text}");
-        assert!(text.contains("statement.pdf") && text.contains("open_attachment"), "read {n}: the attachment was not held by its reference: {text}");
-        let kept = &data.unwrap()["outside_attachments"][0];
-        assert!(kept.get("data_b64").is_none() && kept["sha256"].is_string(), "read {n}: {kept}");
-        seen.push(recorded(&s, &format!("c{n}")).await);
-    }
-    assert_eq!(fake.sent().len(), 3, "the lost read was not sent again");
-    assert_eq!(seen[0], seen[1], "the resend was labelled other than a first try");
-    assert_eq!(seen[1], (Label { untrusted: true, private: true }, vec!["mail".to_string()]));
-    s.done().await;
+#[test]
+fn a_resent_mail_read_is_finished_as_a_first_try_is() {
+    on_big_stacks(async {
+        let (s, fake) = mail(vec![Ok(message()), Err(CallError::Unknown("the connector's answer was lost".into())), Ok(message())]).await;
+        let r = run(&s).await;
+        let mut seen = vec![];
+        for n in [1, 2] {
+            let v = s.k.execute(action(&r, n, "mail__read", json!({ "id": "m1" }))).await.unwrap();
+            let Verdict::Done { text, is_error: false, data } = v else { panic!("read {n} did not succeed: {:?}", done_text(&v)) };
+            assert!(!text.contains(CODE), "read {n}: the model was given the sign-in code: {text}");
+            assert!(!text.contains(BYTES), "read {n}: the model was given the attachment's bytes: {text}");
+            assert!(text.contains("statement.pdf") && text.contains("open_attachment"), "read {n}: the attachment was not held by its reference: {text}");
+            let kept = &data.unwrap()["outside_attachments"][0];
+            assert!(kept.get("data_b64").is_none() && kept["sha256"].is_string(), "read {n}: {kept}");
+            seen.push(recorded(&s, &format!("c{n}")).await);
+        }
+        assert_eq!(fake.sent().len(), 3, "the lost read was not sent again");
+        assert_eq!(seen[0], seen[1], "the resend was labelled other than a first try");
+        assert_eq!(seen[1], (Label { untrusted: true, private: true }, vec!["mail".to_string()]));
+        s.done().await;
+    });
 }
 
 /// An irreversible send whose first try's outcome is lost, resent under the
 /// same idempotency key, is read back as one that went through first time.
 /// Before, the resend was recorded as done with no read-back.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_resent_irreversible_send_is_read_back() {
-    let (s, fake) = mail(vec![Err(CallError::Unknown("mail did not answer within 120s".into()))]).await;
-    let r = run(&s).await;
-    let task = s.k.read(|st| st.runs[&r].task.clone());
-    let approval = json!({ "kind": "approval", "id": "ap1", "item": "i1", "person": "mo", "task": task, "tool": "mail__send", "scope": "standing", "risk": "irreversible" });
-    s.k.emit("person:mo", serde_json::from_value(approval).unwrap()).await.unwrap();
-    let send = action(&r, 1, "mail__send", json!({ "to": "a@example.com", "body": "hello" }));
-    let v = s.k.execute(send).await.unwrap();
-    let Verdict::Done { text, is_error: false, .. } = v else { panic!("the send did not go through: {:?}", done_text(&v)) };
-    assert!(text.contains("Read back with get_sent"), "the resent send was not read back: {text}");
-    let tools: Vec<String> = fake.sent().into_iter().map(|c| c.tool).collect();
-    assert_eq!(tools, ["send", "send", "get_sent"]);
-    assert!(s.k.read(|st| !st.evidence.read_backs(&r).is_empty()), "no read-back was recorded");
-    s.done().await;
+#[test]
+fn a_resent_irreversible_send_is_read_back() {
+    on_big_stacks(async {
+        let (s, fake) = mail(vec![Err(CallError::Unknown("mail did not answer within 120s".into()))]).await;
+        let r = run(&s).await;
+        let task = s.k.read(|st| st.runs[&r].task.clone());
+        let approval = json!({ "kind": "approval", "id": "ap1", "item": "i1", "person": "mo", "task": task, "tool": "mail__send", "scope": "standing", "risk": "irreversible" });
+        s.k.emit("person:mo", serde_json::from_value(approval).unwrap()).await.unwrap();
+        let send = action(&r, 1, "mail__send", json!({ "to": "a@example.com", "body": "hello" }));
+        let v = s.k.execute(send).await.unwrap();
+        let Verdict::Done { text, is_error: false, .. } = v else { panic!("the send did not go through: {:?}", done_text(&v)) };
+        assert!(text.contains("Read back with get_sent"), "the resent send was not read back: {text}");
+        let tools: Vec<String> = fake.sent().into_iter().map(|c| c.tool).collect();
+        assert_eq!(tools, ["send", "send", "get_sent"]);
+        assert!(s.k.read(|st| !st.evidence.read_backs(&r).is_empty()), "no read-back was recorded");
+        s.done().await;
+    });
 }
