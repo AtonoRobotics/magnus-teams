@@ -21,18 +21,25 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-/// How an out-of-envelope write is staged.
+mod send;
+#[cfg(test)]
+mod send_tests;
+
+/// What kind of message a staged item is. Every kind is held by Magnus:
+/// nothing is created in the app until the person sends it, and then the
+/// action itself runs through the gate
+/// (decisions/2026-11-23-staged-sends-are-performed.md).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StageKind {
-    /// Real draft in Gmail/Outlook (read back via `Shown`).
+    /// A mail send (Gmail, Outlook), with the draft it sends when it names one.
     NativeDraft {
         #[serde(default)]
         draft_id: Option<String>,
     },
-    /// Calendar event created without sending external invites (`sendUpdates=none`).
+    /// A calendar event or invite.
     CalendarSilentEvent,
-    /// Held inside Magnus for apps without native drafts (Slack, GitHub, Linear, Asana).
+    /// A chat send or post (Slack, Google Chat).
     MagnusHeld,
 }
 
@@ -88,6 +95,11 @@ pub struct StagedItem {
     pub resolution: Option<Resolution>,
     #[serde(default)]
     pub grant_id: Option<String>,
+    /// The approval hash of exactly what was staged (`boundary::shown_hash`):
+    /// sending holds only for this, so a draft changed since (one added
+    /// Bcc) is not sent. Absent on items staged before it was kept.
+    #[serde(default)]
+    pub hash: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -145,8 +157,23 @@ impl Ledger {
 /// require a modal approval card instead of staging.
 const UNSTAGEABLE_SUBSTRINGS: [&str; 9] = ["delete", "remove", "destroy", "purge", "permission", "make_public", "add_member", "webhook", "add_computer_destination"];
 
+/// App-name parts that make an app a calendar, checked before mail so an
+/// Outlook calendar is a calendar.
+const CALENDAR_APP_PARTS: [&str; 1] = ["calendar"];
+/// App-name parts that make an app a mail app.
+const MAIL_APP_PARTS: [&str; 3] = ["gmail", "outlook", "mail"];
+/// App-name parts that make an app a chat app.
+const CHAT_APP_PARTS: [&str; 3] = ["slack", "chat", "discord"];
+/// Tool-name parts that make a mail or chat tool a send or a post.
+const MESSAGE_SEND_PARTS: [&str; 4] = ["send", "post", "reply", "forward"];
+/// Tool-name parts that make a calendar tool an event or invite others see.
+const CALENDAR_SEND_PARTS: [&str; 2] = ["event", "invite"];
+
 /// Classify whether `(app, tool, risk)` can be staged asynchronously, or
-/// `None` if it is unstageable (payments, destructive deletes, ACL changes).
+/// `None` if it cannot. Only a message is stageable: a mail, calendar or
+/// chat send or post. Anything else (a sign-in, a secure form, a local
+/// command given the network, a payment, a delete, an ACL change) keeps
+/// case 3's ask: a held item no one can carry out is no answer to it.
 pub fn classify_stageable(app: &str, tool: &str, risk: Risk, input: &Value) -> Option<StageKind> {
     if risk == Risk::Financial || !risk.changes_state() {
         return None;
@@ -155,14 +182,20 @@ pub fn classify_stageable(app: &str, tool: &str, risk: Risk, input: &Value) -> O
     if UNSTAGEABLE_SUBSTRINGS.iter().any(|p| lower.contains(p)) {
         return None;
     }
-    if matches!(app, "gmail" | "outlook" | "mail") {
+    let app = app.to_ascii_lowercase();
+    let remote = lower.split_once("__").map_or(lower.as_str(), |(_, r)| r);
+    let has = |parts: &[&str], s: &str| parts.iter().any(|p| s.contains(p));
+    if has(&CALENDAR_APP_PARTS, &app) {
+        return has(&CALENDAR_SEND_PARTS, remote).then_some(StageKind::CalendarSilentEvent);
+    }
+    if !has(&MESSAGE_SEND_PARTS, remote) {
+        return None;
+    }
+    if has(&MAIL_APP_PARTS, &app) {
         let draft_id = input["draft_id"].as_str().map(String::from);
         return Some(StageKind::NativeDraft { draft_id });
     }
-    if matches!(app, "calendar" | "google_calendar" | "outlook_calendar") {
-        return Some(StageKind::CalendarSilentEvent);
-    }
-    Some(StageKind::MagnusHeld)
+    has(&CHAT_APP_PARTS, &app).then_some(StageKind::MagnusHeld)
 }
 
 /// Scope options the kernel offers when a user sends a staged item.
@@ -187,6 +220,17 @@ impl Kernel {
     /// Stage an out-of-envelope write as a draft/staged card so the run can
     /// continue without blocking on a modal approval.
     pub(crate) async fn stage_action(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, meta: StageMeta<'_>) -> Result<String> {
+        let reason = meta.reason;
+        let id = self.stage_item(a, run, f, shown, meta).await?;
+        // Nothing exists in the app yet: the model is told it is held, never
+        // that a draft was saved (decisions/2026-11-23-staged-sends-are-performed.md).
+        Ok(format!(
+            "Action {id} was not done: it is held for the person to review and send, because its destination is outside the current request's envelope ({reason}). Nothing went out. Carry on with the rest of your work."
+        ))
+    }
+
+    /// Record a staged item; its id.
+    pub(crate) async fn stage_item(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, meta: StageMeta<'_>) -> Result<String> {
         let id = new_id("staged");
         let title = f.connector.as_ref().and_then(|c| c.title.clone());
         let sentence = crate::asks::sentence(&a.tool, &f.app, title.as_deref(), f.risk.as_str(), meta.dests);
@@ -207,22 +251,32 @@ impl Kernel {
             created_at: Utc::now(),
             resolution: None,
             grant_id: None,
+            hash: Some(crate::boundary::shown_hash(a, shown)),
         };
         self.emit("kernel", Ev::Staged(Change::Created(Box::new(item)))).await?;
-        let mode = match meta.kind {
-            StageKind::NativeDraft { .. } => "saved as a draft for the person to review and send",
-            StageKind::CalendarSilentEvent => "staged without sending external calendar invites (sendUpdates=none)",
-            StageKind::MagnusHeld => "staged for the person to review and send asynchronously",
-        };
-        Ok(format!("Action {id} was {mode} because its destination is outside the current request's envelope ({}). Carry on with the rest of your work.", meta.reason))
+        Ok(id)
     }
 
     /// Resolve a staged item (sent, discarded, edited, or reconciled after
-    /// external Gmail/Outlook draft send/delete).
-    pub async fn resolve_staged(&self, id: &str, outcome: Resolution, by: &str, scope: Option<GrantScope>) -> Result<Value> {
+    /// external Gmail/Outlook draft send/delete). Sent performs the staged
+    /// action through the gate (`send::send_staged`), once: an item already
+    /// resolved, or being sent, is left as it is.
+    pub async fn resolve_staged(self: &std::sync::Arc<Self>, id: &str, outcome: Resolution, by: &str, scope: Option<GrantScope>) -> Result<Value> {
+        let Some(_one) = send::Claim::take(id) else { return Ok(json!({ "id": id, "outcome": Value::Null, "sent": false, "why": "it is being resolved already" })) };
         let item = self.read(|s| s.staged.get(id).cloned()).ok_or_else(|| anyhow::anyhow!("unknown staged item {id}"))?;
+        if let Some(done) = item.resolution {
+            return Ok(json!({ "id": id, "outcome": done, "sent": false, "why": "it was resolved already" }));
+        }
         let mut grant_id = None;
         if outcome == Resolution::Sent {
+            match self.send_staged(&item, by).await? {
+                send::Sent::Done => {}
+                send::Sent::Changed(again) => {
+                    self.emit("kernel", Ev::Staged(Change::Resolved { id: id.to_string(), outcome: Resolution::Edited, by: by.to_string(), grant_id: None })).await?;
+                    return Ok(json!({ "id": id, "outcome": Resolution::Edited, "sent": false, "staged_again": again, "why": "where it goes changed since it was staged" }));
+                }
+                send::Sent::NotDone(why) => return Ok(json!({ "id": id, "outcome": Value::Null, "sent": false, "why": why })),
+            }
             if let Some(sc) = scope.filter(|s| *s != GrantScope::Once) {
                 let target_dests: Vec<String> = item
                     .provenance
@@ -259,7 +313,7 @@ impl Kernel {
             }
         }
         self.emit("kernel", Ev::Staged(Change::Resolved { id: id.to_string(), outcome, by: by.to_string(), grant_id: grant_id.clone() })).await?;
-        Ok(json!({ "id": id, "outcome": outcome, "grant_id": grant_id }))
+        Ok(json!({ "id": id, "outcome": outcome, "grant_id": grant_id, "sent": outcome == Resolution::Sent }))
     }
 }
 
@@ -343,6 +397,20 @@ mod tests {
         );
         assert_eq!(classify_stageable("calendar", "calendar__create_event", Risk::Irreversible, &json!({})), Some(StageKind::CalendarSilentEvent));
         assert_eq!(classify_stageable("slack", "slack__post", Risk::Irreversible, &json!({})), Some(StageKind::MagnusHeld));
+        assert_eq!(classify_stageable("google-chat", "google-chat__send_message", Risk::Irreversible, &json!({})), Some(StageKind::MagnusHeld));
+        assert_eq!(classify_stageable("microsoft-calendar", "microsoft-calendar__respond_to_event", Risk::Irreversible, &json!({})), Some(StageKind::CalendarSilentEvent));
+    }
+
+    /// Only a message is staged. A sign-in, a local command given the
+    /// network, or an app's write that sends no message keeps case 3's ask:
+    /// before, each became a held item that nothing could carry out.
+    #[test]
+    fn what_is_not_a_message_is_never_stageable() {
+        assert!(classify_stageable("browser", "browser_sign_in", Risk::ReversibleWrite, &json!({ "identity": "idn_1" })).is_none());
+        assert!(classify_stageable("local", "local_exec", Risk::Irreversible, &json!({ "command": "curl x", "network": true })).is_none());
+        assert!(classify_stageable("github", "github__create_issue", Risk::ReversibleWrite, &json!({})).is_none());
+        assert!(classify_stageable("google-gmail", "google-gmail__label_message", Risk::ReversibleWrite, &json!({})).is_none());
+        assert!(classify_stageable("google-calendar", "google-calendar__set_color", Risk::ReversibleWrite, &json!({})).is_none());
     }
 
     #[test]
@@ -364,6 +432,7 @@ mod tests {
             created_at: Utc::now(),
             resolution: None,
             grant_id: None,
+            hash: None,
         };
         ledger.apply(&Change::Created(Box::new(item)));
         assert_eq!(ledger.open_for("alice").len(), 1);
