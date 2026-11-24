@@ -66,7 +66,7 @@ fn knowledge_text(w: &Workspace, bases: &[(&str, Option<&str>)], shown: impl Fn(
     let mut left_out = 0usize;
     for (title, project) in bases {
         let entries = w.entries(*project);
-        let clean: Vec<&Entry> = entries.iter().copied().filter(|e| shown(*e)).collect();
+        let clean: Vec<&Entry> = entries.iter().copied().filter(|e| shown(e)).collect();
         left_out += entries.len() - clean.len();
         if clean.is_empty() {
             continue;
