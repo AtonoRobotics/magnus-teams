@@ -14,9 +14,11 @@ permit(principal, action == Action::"request_approval", resource);
 "#;
 
 /// The reason, as the developer view shows it, of every allowed
-/// `notes__save` in the person's tasks.
-async fn saves_allowed(app: &Appliance, person: &Api) -> Vec<String> {
-    let dev = app.api(magnus_scratch::DEVELOPER);
+/// `notes__save` in the person's tasks. The person is a developer here and
+/// reads her own runs: the view shows another person's only if they joined
+/// the tester program or share usage data.
+async fn saves_allowed(person: &Api) -> Vec<String> {
+    let dev = person;
     let mut reasons = vec![];
     // Each listed task's run and the sub-agents shown inside it.
     let mut runs = vec![];
@@ -36,8 +38,19 @@ async fn saves_allowed(app: &Appliance, person: &Api) -> Vec<String> {
     reasons
 }
 
+/// The person asks in a conversation, and accepts the schedule Magnus puts
+/// to them there: it is set as theirs, and its runs post in that conversation.
+async fn accepted_in_chat(api: &Api, ask: &str) -> String {
+    let (origin, turn) = chat(api, ask).await;
+    api.wait_settled(&turn).await;
+    let card = entries(api, &origin).await.into_iter().find(|e| e["kind"] == "suggestion_card").expect("no card for the schedule");
+    let (st, v) = api.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap_or_default()), json!({ "decision": "accept" })).await;
+    assert!(st.is_success() && v["schedule"].is_string(), "accepting the card set no schedule: {st} {v}");
+    origin
+}
+
 /// 6. A scheduled run uses sub-agents. The person sets up a schedule in a
-/// conversation and leaves. Its run starts three sub-agents, for the
+/// conversation, by accepting it there, and leaves. Its run starts three sub-agents, for the
 /// implementation, independent tests and a review, with no grant input:
 /// each works under the run's authority, the scope the person confirmed
 /// for the schedule, with no new approval and nothing of its own. The run
@@ -65,9 +78,19 @@ async fn a_scheduled_run_uses_sub_agents() {
             let sub = |goal: &str, tools: &[&str]| tool("start_sub_agent", json!({ "goal": goal, "tools": tools }));
             let o = opening(&c);
             match run_of(&c) {
+                // Offered as a card the person accepts, so the schedule is
+                // theirs: one a run sets is the model's words and covers
+                // nothing (decisions/2026-11-23-who-wrote-a-schedule.md).
                 Run::Chat => match c.turn() {
-                    0 => tool("create_schedule", json!({ "title": "Release notes", "goal": RUN, "daily_at": at })),
-                    _ => say("It is set up for every morning."),
+                    0 => tool("list_tasks", json!({})),
+                    1 => tool(
+                        "suggest",
+                        json!({
+                            "title": "Release notes", "goal": RUN, "daily_at": at, "permissions": [RUN],
+                            "evidence": [{ "call": call_id(&c, "list_tasks"), "shows": "No task keeps the release notes up to date." }],
+                        }),
+                    ),
+                    _ => say("Accept the card and it runs every morning."),
                 },
                 Run::Task if o.contains(IMPLEMENT) => match c.turn() {
                     0 => checked("the release notes are written"),
@@ -104,11 +127,13 @@ async fn a_scheduled_run_uses_sub_agents() {
     .await;
     let notes = notes().start().await;
     let spec = proactive_on().app("notes", &notes, "private", "private", &[("save", "reversible_write"), ("list", "read")]);
-    let app = Appliance::start(magnus_scratch::with_developer(spec), &m).await;
+    let mut spec = magnus_scratch::with_developer(spec);
+    spec.people.iter_mut().filter(|p| p.id == "alice").for_each(|p| p.roles.push("developer".into()));
+    let app = Appliance::start(spec, &m).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", NOTES_ASK).await.is_success());
     let b = before(&alice).await;
-    let origin = schedule_in_chat(&alice, ASK).await;
+    let origin = accepted_in_chat(&alice, ASK).await;
     until_outcome(&m).await;
     let e = result_in_origin(&m, &alice, &origin).await;
     assert!(!e.iter().any(|e| e["text"] == REPORT), "the agent restated a finished run in the thread: {e:?}");
@@ -150,7 +175,7 @@ async fn a_scheduled_run_uses_sub_agents() {
     assert_eq!(notes.effects("save"), 1, "the implementation's change did not go ahead, or the review's did");
     assert_eq!(notes.world()["notes"][0], note());
     assert!(!runs.iter().any(|c| run_of(c) == Run::AutoReview), "Auto Review judged a change the schedule covers:\n{}", story(&m));
-    let saves = saves_allowed(&app, &alice).await;
+    let saves = saves_allowed(&alice).await;
     assert!(
         saves.len() == 1 && saves[0].starts_with("covered by the confirmed schedule sched_"),
         "the implementation's change was not allowed as covered by the schedule: {saves:?}\n{}",
