@@ -58,4 +58,26 @@ assert.match(personal, /e\.kind === "sub_agents" \? e\.agents\.map\(a => a\.wait
   assert.ok(offered("message"), "a message offers no actions");
 }
 assert.match(ui("index.html"), /<script src="subagents\.js"><\/script>/, "the page does not load subagents.js");
+
+// When Compose is loaded, structured outcome_view blocks render natively as
+// real tables, stat grids, and clickable links instead of a flat pipe-joined wall of text.
+const richCtx = { ...sandbox, URL, location: { origin: "https://magnus.example" } };
+richCtx.globalThis = richCtx;
+vm.runInNewContext(`${ui("compose.js")}\n${ui("subagents.js")}`, richCtx);
+const richCard = richCtx.subAgentsCard({
+  id: "s:rich", kind: "sub_agents", task_id: "t", from_run: "r0", at: "",
+  agents: [{
+    run: "r9", parent: "r0", depth: 1, task_id: "c9", goal: "Check Cursor pricing",
+    status: "completed", waiting_on: null, waiting_item: null, summary: "Fallback", tools: [], at: "", ended_at: "",
+    outcome_view: [
+      { type: "text", text: "Cursor Teams starts at **$30**. Source: https://cursor.com/pricing" },
+      { type: "table", headers: ["Plan", "Price"], rows: [["Teams Premium", "$30"], ["Teams Super", "$100"]] },
+    ],
+  }],
+});
+assert.match(richCard, /<div class="sub-agent-result"><div class="ui-native">/, "sub-agent outcome_view did not render natively");
+assert.match(richCard, /<strong>\$30<\/strong>/, "inline Markdown missing in sub-agent text");
+assert.match(richCard, /<a href="https:\/\/cursor\.com\/pricing" data-prose-link/, "bare URL not auto-linked in sub-agent text");
+assert.match(richCard, /<table><thead><tr><th[^>]*>Plan<\/th><th[^>]*>Price<\/th><\/tr><\/thead>/, "sub-agent table flattened instead of rendering as HTML table");
+
 console.log("sub-agents ok");

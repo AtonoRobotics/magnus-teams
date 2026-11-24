@@ -131,7 +131,7 @@ const Compose = (() => {
   }
   function markdownInline(text, depth = 0) {
     if (depth > 8) return maskedText(text);
-    const pattern = /(`+)([\s\S]*?)\1|(!?)\[([^\]\n]*)\]\(([^\s]*?)(?:\s+"[^"\n]*")?\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|\*([^*\n]+)\*|_([^_\n]+)_|<(https?:\/\/[^>\s]+)>|\[(\d{1,2})\](?!\()/g;
+    const pattern = /(`+)([\s\S]*?)\1|(!?)\[([^\]\n]*)\]\(([^\s]*?)(?:\s+"[^"\n]*")?\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|\*([^*\n]+)\*|_([^_\n]+)_|<(https?:\/\/[^>\s]+)>|(https?:\/\/[^\s<>()]+)|\[(\d{1,2})\](?!\()/g;
     let out = "", at = 0;
     for (const m of text.matchAll(pattern)) {
       out += maskedText(text.slice(at, m.index)); at = m.index + m[0].length;
@@ -141,10 +141,13 @@ const Compose = (() => {
         const localImage = m[3] && localImagePath(raw);
         if (localImage) out += `<img data-prose-image="${esc(localImage)}" alt="${esc(label)}" loading="lazy">`;
         else out += url ? `<a href="${esc(url)}" data-prose-link rel="noopener noreferrer">${markdownInline(label, depth + 1)}</a>` : esc(label);
+      } else if (m[12]) {
+        const raw = m[12].replace(/[.,;:!?]+$/, ""), trail = m[12].slice(raw.length), url = safeUrl(raw);
+        out += (url ? `<a href="${esc(url)}" data-prose-link rel="noopener noreferrer">${esc(raw)}</a>` : esc(raw)) + esc(trail);
       } else if (m[6] || m[7]) out += `<strong>${markdownInline(m[6] || m[7], depth + 1)}</strong>`;
       else if (m[8]) out += `<del>${markdownInline(m[8], depth + 1)}</del>`;
       else if (m[9] || m[10]) out += `<em>${markdownInline(m[9] || m[10], depth + 1)}</em>`;
-      else if (m[12]) out += `<sup class="cite-pill">${esc(m[12])}</sup>`;
+      else if (m[13]) out += `<sup class="cite-pill">${esc(m[13])}</sup>`;
     }
     return out + maskedText(text.slice(at));
   }
@@ -281,7 +284,7 @@ const Compose = (() => {
       case "form": return frame(c, `<div class="uiform">${c.fields.map(field).join("")}<button type="button" class="action form-send">${esc(c.submit)}</button></div>`);
       case "heading": return c.level > 2 ? `<h4>${esc(c.text)}</h4>` : `<h2>${esc(c.text)}</h2>`;
       case "markdown": return markdown(c.text,limit);
-      case "text": return `<p${c.muted ? ` class="cap"` : ""}>${esc(c.text)}</p>`;
+      case "text": return `<p${c.muted ? ` class="cap"` : ""}>${markdownInline(c.text || "")}</p>`;
       case "list": return frame(c, c.ordered ? `<ol>${c.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol>` : `<ul>${c.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>`);
       case "table": {
         const head = c.columns.some(h => String(h).trim()) ? `<thead><tr>${c.columns.map((h, idx) => `<th data-sort-col="${idx}" aria-sort="none">${esc(h)}</th>`).join("")}</tr></thead>` : "";
