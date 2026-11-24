@@ -23,25 +23,25 @@ const WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
 const WAIT_TICK: std::time::Duration = std::time::Duration::from_millis(50);
 const WAIT_TICKS: u32 = 200;
 
-fn on_big_stacks(f: impl std::future::Future<Output = ()> + Send + 'static) {
+pub(super) fn on_big_stacks(f: impl std::future::Future<Output = ()> + Send + 'static) {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build().unwrap();
     rt.block_on(async { tokio::spawn(f).await.unwrap() })
 }
 
-async fn server() -> Server {
+pub(super) async fn server() -> Server {
     server_with(MORE, |_| Router::new()).await
 }
 
 /// mo's running run, holding `private` data from the start, left to the
 /// test: no model loop drives it.
-async fn run(s: &Server, id: &str, private: bool) -> String {
+pub(super) async fn run(s: &Server, id: &str, private: bool) -> String {
     let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 9, "max_actions": 9, "max_usd": 4.0 }, "verifier": false, "instructions": "", "harness": "" });
     let created = json!({ "kind": "task_created", "task": format!("t_{id}"), "run": id, "person": "mo", "text": "Get a quote for 40 units of part 7.", "config": config, "label": { "untrusted": false, "private": private }, "explicit_label": true });
     s.k.emit("person:mo", serde_json::from_value(created).unwrap()).await.unwrap();
     id.into()
 }
 
-fn send(run: &str, n: u32, message: &str) -> Action {
+pub(super) fn send(run: &str, n: u32, message: &str) -> Action {
     Action {
         run: run.into(),
         call_id: format!("c{n}"),
@@ -441,7 +441,7 @@ fn an_agent_whose_card_signature_does_not_verify_is_not_connected() {
 }
 
 /// What a verdict says, for a failing assertion.
-fn said(v: &Verdict) -> String {
+pub(super) fn said(v: &Verdict) -> String {
     match v {
         Verdict::Done { text, is_error, .. } => format!("done (error: {is_error}): {text}"),
         Verdict::Suspended => "suspended".into(),

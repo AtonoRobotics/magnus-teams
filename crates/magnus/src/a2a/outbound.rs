@@ -38,7 +38,7 @@ fn read_task(result: &Value, fallback_id: &str) -> (String, String, String) {
     let t = result.get("task").unwrap_or(result);
     if let Some(m) = result.get("message") {
         let id = m["messageId"].as_str().unwrap_or(fallback_id).to_string();
-        return (id, COMPLETED.into(), super::parts_text(&m["parts"]));
+        return (id, COMPLETED.into(), super::bounded(&super::parts_text(&m["parts"])));
     }
     let id = t["id"].as_str().unwrap_or(fallback_id).to_string();
     let state = t["status"]["state"].as_str().unwrap_or(super::SUBMITTED).to_string();

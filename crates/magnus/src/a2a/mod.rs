@@ -29,6 +29,8 @@ mod client;
 mod connect;
 #[cfg(test)]
 mod fake;
+#[cfg(test)]
+mod hardening_tests;
 mod inbound;
 mod jws;
 mod keys;
@@ -81,6 +83,16 @@ pub const MAX_REQUESTS_PER_AGENT_PER_HOUR: usize = 30;
 pub const MAX_TEXT_CHARS: usize = 8_000;
 /// The largest JSON-RPC request the endpoint reads, in bytes.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
+/// The largest JSON-RPC answer read from an outside agent, in bytes; a
+/// longer one is refused as soon as it passes this, never read whole.
+pub const MAX_ANSWER_BYTES: usize = 1024 * 1024;
+/// The largest answer read from an outside agent's OAuth 2 token URL, in bytes.
+pub const MAX_TOKEN_ANSWER_BYTES: usize = 64 * 1024;
+/// The longest name an outside agent's card may give it, in characters: a
+/// short single line, as the person and the run see it.
+pub const MAX_AGENT_NAME_CHARS: usize = 80;
+/// The longest id a request may name whom it asks with, in characters.
+pub const MAX_TARGET_ID_CHARS: usize = 128;
 /// How long connecting to an outside agent may take.
 pub const CONNECT_WAIT: Duration = Duration::from_secs(10);
 /// How long one call to an outside agent may take.

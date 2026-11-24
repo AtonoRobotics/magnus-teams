@@ -117,6 +117,9 @@ impl Kernel {
     /// then a guest. One Cedar policy each.
     pub(crate) async fn admit_outside_agent(&self, actor: &str, id: &str, to: Target) -> Result<Value, Refusal> {
         let agent = self.own_outside_agent(actor, id)?;
+        if !to.valid() {
+            return Err(refusal(StatusCode::BAD_REQUEST, "that is not a person's or a shared project's id"));
+        }
         match &to {
             Target::Person(p) if p == actor => {}
             Target::Person(_) => return Err(refusal(StatusCode::FORBIDDEN, "an outside agent is admitted for a person by that person alone")),

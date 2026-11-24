@@ -43,6 +43,23 @@ pub enum Target {
     Project(String),
 }
 
+impl Target {
+    /// The person's or project's id.
+    pub fn id(&self) -> &str {
+        match self {
+            Target::Person(id) | Target::Project(id) => id,
+        }
+    }
+
+    /// Whether its id is one an id can be: 1 to `MAX_TARGET_ID_CHARS`
+    /// characters, none a control character, a quote or a backslash, so
+    /// it is never a Cedar entity that cannot be named.
+    pub fn valid(&self) -> bool {
+        let id = self.id();
+        !id.is_empty() && id.chars().count() <= super::MAX_TARGET_ID_CHARS && !id.chars().any(|c| c.is_control() || c == '"' || c == '\\')
+    }
+}
+
 /// One outside agent a member connected, by its agent card.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct OutsideAgent {

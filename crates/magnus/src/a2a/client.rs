@@ -36,6 +36,23 @@ pub(crate) fn credential_name(agent: &str) -> String {
     format!("outside-agent/{agent}/credential")
 }
 
+/// Read `resp`'s body up to `cap` bytes, piece by piece: a longer one is
+/// refused as soon as it passes the cap (or says it will), so a hostile
+/// endpoint streaming without end costs at most `cap`.
+pub(crate) async fn read_capped(mut resp: reqwest::Response, cap: usize) -> Result<Vec<u8>, String> {
+    if resp.content_length().is_some_and(|n| n > cap as u64) {
+        return Err(format!("its answer is over {cap} bytes"));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("its answer was cut off: {e}"))? {
+        if body.len() + chunk.len() > cap {
+            return Err(format!("its answer is over {cap} bytes"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 fn scrub(text: &str, secret: Option<&str>) -> String {
     match secret.filter(|s| s.len() >= 4) {
         Some(s) => text.replace(s, "[credential]"),
@@ -63,7 +80,8 @@ impl Kernel {
         let url = super::card::checked_url(token_url, self.cfg.web.allow_private_networks).map_err(|e| RpcError::NotSent(format!("{e:#}")))?;
         let resp =
             crate::token_endpoint::post(&self.outside_egress(super::CONNECT_WAIT), url.as_str(), &form).await.map_err(|e| RpcError::NotSent(format!("its token URL: {e:#}")))?;
-        let v: Value = resp.json().await.map_err(|e| RpcError::NotSent(format!("its token URL: {e}")))?;
+        let body = read_capped(resp, super::MAX_TOKEN_ANSWER_BYTES).await.map_err(|e| RpcError::NotSent(format!("its token URL: {e}")))?;
+        let v: Value = serde_json::from_slice(&body).map_err(|e| RpcError::NotSent(format!("its token URL: {e}")))?;
         v["access_token"].as_str().map(String::from).ok_or_else(|| RpcError::NotSent("its token URL gave no access token".into()))
     }
 
@@ -107,7 +125,8 @@ impl Kernel {
             Err(e) => return Err(RpcError::Unknown(shown(&e.to_string()))),
         };
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| RpcError::Unknown(shown(&e.to_string())))?;
+        let body = read_capped(resp, super::MAX_ANSWER_BYTES).await.map_err(|e| RpcError::Unknown(shown(&e)))?;
+        let text = String::from_utf8_lossy(&body);
         let v: Value = match serde_json::from_str(&text) {
             Ok(v) => v,
             Err(_) if status.is_client_error() => return Err(RpcError::Refused { code: i64::from(status.as_u16()), message: shown(&super::bounded(&text)) }),

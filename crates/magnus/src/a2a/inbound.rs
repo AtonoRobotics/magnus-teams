@@ -80,7 +80,17 @@ pub(crate) fn release_key(text: &str) -> String {
 /// `{"to": {"project": ..}}`), on the message or on the request.
 fn target(params: &Value) -> Option<Target> {
     let to = params["message"]["metadata"].get("to").or_else(|| params["metadata"].get("to"))?;
-    serde_json::from_value(to.clone()).ok()
+    serde_json::from_value::<Target>(to.clone()).ok().filter(Target::valid)
+}
+
+/// Whether what admitted `agent` to ask `to` still holds, read now: its
+/// member, for themselves; or, for a shared project, the member who added
+/// it still a Team Admin there, of a project that still is.
+pub(crate) fn still_admitted(s: &State, agent: &OutsideAgent, to: &Target) -> bool {
+    match to {
+        Target::Person(p) => *p == agent.person,
+        Target::Project(w) => s.team.role(w, &agent.person).is_some_and(|r| r >= crate::team::Role::Admin),
+    }
 }
 
 /// A request as A2A's Task: its state and what has been answered so far.
@@ -91,14 +101,16 @@ pub(crate) fn task_view(s: &State, i: &Inbound) -> Value {
     if let Some(reply) = &i.reply {
         artifacts.push(json!({ "artifactId": "reply", "name": "Reply", "parts": [{ "text": reply }] }));
     }
+    // In a project, only what a person wrote: a member's own post. An
+    // agent's or a lane's post (`agent:..`) was released into the room,
+    // not to the outside agent, so it is withheld.
     if let (Target::Project(w), Some((channel, msg))) = (&i.to, &i.message) {
-        let replies = s
-            .team
-            .workspace(w)
+        let ws = s.team.workspace(w);
+        let replies = ws
             .and_then(|w| w.channels.get(channel))
             .into_iter()
             .flat_map(|c| c.messages.iter())
-            .filter(|m| m.thread.as_deref() == Some(msg) && !m.sender.starts_with(SENDER_PREFIX));
+            .filter(|m| m.thread.as_deref() == Some(msg) && ws.is_some_and(|w| w.members.contains_key(&m.sender)));
         artifacts.extend(replies.map(|m| json!({ "artifactId": m.id, "parts": [{ "text": m.text }] })));
     }
     let state = if i.state == SUBMITTED && !artifacts.is_empty() { WORKING } else { i.state.as_str() };
@@ -139,8 +151,11 @@ impl Kernel {
         let params = &req["params"];
         match req["method"].as_str().unwrap_or_default() {
             "SendMessage" => self.received(&agent, &id, params).await,
-            "GetTask" => match self.read(|s| s.outside_agents.inbound_of(&agent.id, params["id"].as_str().unwrap_or_default()).map(|i| task_view(s, i))) {
-                Some(t) => result(&id, t),
+            "GetTask" => match self
+                .read(|s| s.outside_agents.inbound_of(&agent.id, params["id"].as_str().unwrap_or_default()).map(|i| (still_admitted(s, &agent, &i.to), task_view(s, i))))
+            {
+                Some((true, t)) => result(&id, t),
+                Some((false, _)) => error(StatusCode::FORBIDDEN, &id, NOT_ADMITTED, "you are no longer admitted to ask that person or shared project"),
                 None => error(StatusCode::OK, &id, TASK_NOT_FOUND, "no such task of yours"),
             },
             "CancelTask" => self.cancelled_by_agent(&agent, &id, params["id"].as_str().unwrap_or_default()).await,
@@ -176,8 +191,10 @@ impl Kernel {
         // Its Cedar principal first: anything no policy admits is refused here.
         let policies: Vec<String> = self.read(|s| s.outside_agents.admissions(&agent.id).iter().map(|(_, p)| p.clone()).collect());
         match crate::policy::outside::admits(&policies, &agent.id, &to) {
-            Ok(true) => {}
-            Ok(false) => return error(StatusCode::FORBIDDEN, id, NOT_ADMITTED, "you are not admitted to ask that person or shared project"),
+            // A policy that admitted it once holds only while what made it
+            // still does (its member, or a project's Team Admin, still there).
+            Ok(true) if self.read(|s| still_admitted(s, agent, &to)) => {}
+            Ok(_) => return error(StatusCode::FORBIDDEN, id, NOT_ADMITTED, "you are not admitted to ask that person or shared project"),
             Err(e) => {
                 tracing::warn!("an outside agent's policy: {e:#}");
                 return error(StatusCode::INTERNAL_SERVER_ERROR, id, INTERNAL_ERROR, "the request could not be checked");

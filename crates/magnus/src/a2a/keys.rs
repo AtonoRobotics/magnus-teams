@@ -33,6 +33,10 @@ fn vault_name(period: i64) -> String {
 /// The key of `period`, made the first time it is needed; making it removes
 /// the keys older than the one before it.
 fn key(vault: &Vault, period: i64, make: bool) -> Result<Option<Ed25519KeyPair>> {
+    // Reading and making are one step: two requests at the first use of a
+    // period would otherwise each store a seed, and sign with different keys.
+    static MAKING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = MAKING.lock().unwrap_or_else(|e| e.into_inner());
     let seed: [u8; 32] = match vault.get(&vault_name(period))? {
         Some(s) => B64.decode(s.expose()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow!("a stored card signing key is not one"))?,
         None if make => {
@@ -74,6 +78,36 @@ pub fn key_set(vault: &Vault, now: DateTime<Utc>) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Requests at once at a period's first use sign with one key, the one
+    /// the key set publishes. Before, each could make and store its own.
+    #[test]
+    fn requests_at_once_at_a_periods_first_use_sign_with_one_key() {
+        const AT_ONCE: usize = 16;
+        const ROUNDS: i64 = 20;
+        for round in 0..ROUNDS {
+            let dir = tempfile::tempdir().unwrap();
+            let v = std::sync::Arc::new(Vault::open(dir.path()).unwrap());
+            let at = DateTime::from_timestamp(CARD_KEY_ROTATION_DAYS * DAY_SECS * (200 + round), 0).unwrap();
+            let go = std::sync::Arc::new(std::sync::Barrier::new(AT_ONCE));
+            let cards: Vec<Value> = (0..AT_ONCE)
+                .map(|_| {
+                    let (v, go) = (v.clone(), go.clone());
+                    std::thread::spawn(move || {
+                        go.wait();
+                        signed(&v, json!({ "name": "Magnus" }), "https://m.example/jwks", at).unwrap()
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|t| t.join().unwrap())
+                .collect();
+            let set = key_set(&v, at).unwrap();
+            for card in &cards {
+                jws::verify(card, &card["signatures"][0], &set["keys"][0]).unwrap_or_else(|e| panic!("round {round}: a card signed with a key the set does not publish: {e:#}"));
+            }
+        }
+    }
 
     /// The card is signed with the current period's key, which the key set
     /// publishes with the one before; two periods on, the oldest is gone
