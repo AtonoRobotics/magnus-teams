@@ -12,6 +12,9 @@ use magnus_brokered_kit::{exchange, https, serve, Failure, Response, Tool};
 use serde_json::{json, Value};
 
 const HOST: &str = "slack.com";
+/// The messages one `get_message` asks Slack for: a reply comes after its
+/// thread's first message, which Slack always returns first.
+const MESSAGES_PER_GET: u32 = 2;
 
 /// One request to Slack as the person. A request that may have posted and
 /// has no clear answer has an unknown outcome.
@@ -197,6 +200,42 @@ fn read_thread(a: &Value, t: &str) -> Result<Value, Failure> {
     Ok(json!({ "messages": messages(&r) }))
 }
 
+/// A message's text as it was written: Slack keeps `&`, `<` and `>` as
+/// entities and turns an address it links into `<https://…>`, or an email
+/// into `<mailto:…|…>`. A link written with its own label stays as written.
+fn as_written(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('<') {
+        let Some(close) = rest[open..].find('>') else { break };
+        out.push_str(&rest[..open]);
+        let inner = &rest[open + 1..open + close];
+        let link = |u: &str| u.starts_with("http://") || u.starts_with("https://") || u.starts_with("mailto:");
+        let plain = match inner.split_once('|') {
+            None if link(inner) => inner.to_string(),
+            Some((url, label)) if link(url) && [format!("mailto:{label}"), format!("http://{label}"), format!("https://{label}")].contains(&url.to_string()) => label.to_string(),
+            _ => format!("<{inner}>"),
+        };
+        out.push_str(&plain);
+        rest = &rest[open + close + 1..];
+    }
+    out.push_str(rest);
+    out.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+}
+
+/// One message, by its conversation and timestamp: what was posted, read
+/// back (`[read_back.post_message]`).
+fn get_message(a: &Value, t: &str) -> Result<Value, Failure> {
+    let id = slack_id(a, "channel")?;
+    let ts = slack_id(a, "ts")?;
+    let (c, at) = (enc(&id), enc(&ts));
+    let path = format!("/api/conversations.replies?channel={c}&ts={at}&oldest={at}&latest={at}&inclusive=true&limit={MESSAGES_PER_GET}");
+    let r = slack("GET", &path, t, None, false, &["channels:history", "groups:history", "im:history", "mpim:history"])?;
+    let m = r["messages"].as_array().into_iter().flatten().find(|m| m["ts"].as_str() == Some(ts.as_str()));
+    let Some(m) = m else { return Err(format!("Slack has no message {ts} in {id}.").into()) };
+    Ok(json!({ "channel": id, "ts": ts, "user": m["user"], "text": as_written(m["text"].as_str().unwrap_or_default()), "thread_ts": m["thread_ts"] }))
+}
+
 fn post_message(a: &Value, t: &str) -> Result<Value, Failure> {
     let channel = slack_id(a, "channel")?;
     let text = s(a, "text");
@@ -267,6 +306,13 @@ fn tools() -> Vec<Tool> {
             read_thread,
         ),
         tool(
+            "get_message",
+            "Read one message by its conversation and timestamp.",
+            obj(json!({ "channel": st, "ts": st }), &["channel", "ts"]),
+            obj(json!({ "channel": st, "ts": st, "user": maybe, "text": st, "thread_ts": maybe }), &["channel", "ts", "text"]),
+            get_message,
+        ),
+        tool(
             "post_message",
             "Post a message as the person, once they have approved it. It is sent to everyone in that conversation.",
             obj(json!({ "channel": st, "text": st, "thread_ts": st }), &["channel", "text"]),
@@ -320,6 +366,16 @@ mod tests {
         assert!(slack_id(&json!({ "ts": "1700000000.000100" }), "ts").is_ok());
         assert!(slack_id(&json!({ "channel": "../x" }), "channel").is_err());
         assert!(post_message(&json!({ "channel": "C1", "text": "  " }), "t").is_err());
+    }
+
+    /// What Slack keeps is read back as it was written: its entities and
+    /// the links it made undone, a link with its own label left alone.
+    #[test]
+    fn a_message_is_read_back_as_it_was_written() {
+        assert_eq!(as_written("Q3 &amp; Q4: see <https://x.example/a?b=1&amp;c=2> &lt;soon&gt;"), "Q3 & Q4: see https://x.example/a?b=1&c=2 <soon>");
+        assert_eq!(as_written("mail <mailto:bob@corp.example|bob@corp.example> or <http://corp.example|corp.example>"), "mail bob@corp.example or corp.example");
+        assert_eq!(as_written("<https://x.example|the doc> <@U123> <!here> a < b"), "<https://x.example|the doc> <@U123> <!here> a < b");
+        assert!(get_message(&json!({ "channel": "C1", "ts": "../x" }), "t").is_err());
     }
 
     #[test]

@@ -55,6 +55,13 @@ send_message = "irreversible"
 update_message = "irreversible"
 delete_message = "irreversible"
 
+# A message sent is read back (spec rev 147): the message Chat keeps under
+# the name the send returned, with the text it was sent.
+[read_back.send_message]
+read = "get_message"
+input = { message_id = "/result/message_id" }
+expect = { "/result/message_id" = "/message_id", "/input/text" = "/text" }
+
 # What tells Magnus of something new here without anyone reading it
 # (decisions/2026-11-10-catalog-watched-reads.md): the person's spaces and
 # direct messages, each with when it last had a message, every five
