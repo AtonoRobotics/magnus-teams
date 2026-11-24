@@ -24,6 +24,8 @@ impl Kernel {
         let run = run.to_string();
         let run2 = run.clone();
         tokio::spawn(async move {
+            // A request an outside agent sent: its reply goes through the gate (`a2a::reply`).
+            k.outside_reply_after(&run2).await;
             if let Err(e) = k.memory_pass(&run2).await {
                 tracing::warn!("memory pass on {run2}: {e:#}");
             }

@@ -10,9 +10,10 @@
 use crate::kernel::Kernel;
 
 /// Prefixes of names that hold one person's own secret: their card and
-/// Link wallet, their browser identities and profiles' keys, and the
-/// credentials stored for their computer.
-const PERSONAL_PREFIXES: &[&str] = &["payments/", "browser-profile/", "identity/", "surrogate/"];
+/// Link wallet, their browser identities and profiles' keys, the
+/// credentials stored for their computer, and those of the outside agents
+/// they connected.
+const PERSONAL_PREFIXES: &[&str] = &["payments/", "browser-profile/", "identity/", "surrogate/", "outside-agent/"];
 
 pub(crate) const REFUSED: &str = "that is a person's own secret: only they set it, through their own sign-in or settings";
 

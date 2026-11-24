@@ -25,7 +25,7 @@ pub(crate) const RELEASE_TOOL: &str = "team_lane_release";
 /// Why a lane with no owner, whose Airlock there is none, fails when held.
 const HELD_WITHOUT_OWNER: &str = "the result could not be shared: a check held it";
 /// Why the run's taint holds it, as its owner reads it.
-const TAINTED: &str = "your agent read content from outside (an email, a page, a message) while holding your private data, so you decide whether this goes to the room";
+const TAINTED: &str = "your agent read content from outside (an email, a page, a message) while holding your private data, so you decide whether this goes to ";
 /// Who reads a release, as Auto Review is told.
 const AUDIENCE: &str = "it is posted into a shared room, where the room's other members, who are other people, read it";
 
@@ -42,13 +42,42 @@ pub(super) struct Finished<'a> {
 
 /// What the checks said: post it, or hold it and why.
 #[derive(Debug, PartialEq)]
-enum Gate {
+pub(crate) enum Gate {
     Post,
     Hold { why: String, scrub_flagged: bool },
 }
 
 fn hold(why: impl Into<String>) -> Gate {
     Gate::Hold { why: why.into(), scrub_flagged: false }
+}
+
+/// A finished answer that would leave its person by itself, as the checks
+/// judge it: the run that made it, what it is judged as (`tool` of `app`),
+/// who reads it, and what covers it.
+pub(crate) struct Send<'a> {
+    pub run: &'a Run,
+    pub call_id: String,
+    pub tool: &'static str,
+    pub app: &'static str,
+    pub audience: Audience,
+    pub input: Value,
+    pub readers: (&'static str, Vec<String>),
+    pub text: &'a str,
+    /// Where it goes, as its owner reads why the taint held it.
+    pub to: &'static str,
+    /// Why it may go, as Auto Review is told.
+    pub standing: String,
+    /// Whether the person set up what covers it (a standing release).
+    pub covered: bool,
+}
+
+/// The checks that rest on no model's word: the scrubber, and the run's
+/// taint (it read content from outside while holding private data).
+fn first_holds(text: &str, run: &Run, to: &str) -> Option<Gate> {
+    if let Some(reason) = scrub_check(text) {
+        return Some(Gate::Hold { why: format!("the scrubber flagged it: {reason}"), scrub_flagged: true });
+    }
+    (run.outside && run.private).then(|| hold(format!("{TAINTED}{to}")))
 }
 
 /// Who asked, as Auto Review weighs it: the owner themselves, the open web
@@ -105,11 +134,8 @@ impl Kernel {
     /// data), which rests on no model's word; the outgoing classifier; and
     /// Auto Review, judging a post to the room's other members.
     async fn lane_release_checks(&self, workspace: &str, mission: &str, lane: &str, owner: Option<&str>, run: &Run, summary: &str) -> Gate {
-        if let Some(reason) = scrub_check(summary) {
-            return Gate::Hold { why: format!("the scrubber flagged it: {reason}"), scrub_flagged: true };
-        }
-        if run.outside && run.private {
-            return hold(TAINTED);
+        if let Some(g) = first_holds(summary, run, "the room") {
+            return g;
         }
         let place = self.read(|s| {
             let m = s.missions.mission(mission)?;
@@ -127,39 +153,56 @@ impl Kernel {
         let Some((ws_name, room_name, readers, asked)) = place else {
             return hold("its room could not be found");
         };
-        let input = json!({ "workspace": ws_name, "room": room_name, "text": summary });
-        let action = Action { run: run.id.clone(), call_id: format!("release:{lane}"), step_id: String::new(), tool: RELEASE_TOOL.into(), input, issuer: Issuer::Model };
-        let shown = Shown {
-            recipients: [("room_members".to_string(), readers)].into(),
-            content: [("text".to_string(), Value::String(summary.to_string()))].into(),
-            bound: Default::default(),
+        let send = Send {
+            run,
+            call_id: format!("release:{lane}"),
+            tool: RELEASE_TOOL,
+            app: "team",
+            audience: Audience::Internal,
+            input: json!({ "workspace": ws_name, "room": room_name, "text": summary }),
+            readers: ("room_members", readers),
+            text: summary,
+            to: "the room",
+            covered: matches!(asked, Asked::Standing),
+            standing: asked.standing(),
         };
-        let hash = shown.hash(RELEASE_TOOL, &action.input);
+        self.judged(send).await
+    }
+
+    /// Every check of a send that would leave by itself, in order, each of
+    /// which may only hold: the scrubber, the run's taint, the outgoing
+    /// classifier and Auto Review (outside agents' replies come here too).
+    pub(crate) async fn checked_send(&self, send: Send<'_>) -> Gate {
+        if let Some(g) = first_holds(send.text, send.run, send.to) {
+            return g;
+        }
+        self.judged(send).await
+    }
+
+    /// The outgoing classifier, then Auto Review judging the send.
+    async fn judged(&self, send: Send<'_>) -> Gate {
+        let Send { run, call_id, tool, app, audience, input, readers, text, covered, standing, .. } = send;
+        let action = Action { run: run.id.clone(), call_id: call_id.clone(), step_id: String::new(), tool: tool.into(), input, issuer: Issuer::Model };
+        let shown =
+            Shown { recipients: [(readers.0.to_string(), readers.1)].into(), content: [("text".to_string(), Value::String(text.to_string()))].into(), bound: Default::default() };
+        let hash = shown.hash(tool, &action.input);
         match self.outgoing_finding(&action, run).await {
             None => return hold("the outgoing classifier could not be reached"),
             Some(Some(finding)) => return hold(format!("the outgoing classifier found something sensitive: {finding}")),
             Some(None) => {}
         }
-        let facts = Facts {
-            name: RELEASE_TOOL.into(),
-            app: "team".into(),
-            risk: Risk::ReversibleWrite,
-            label: Label::PRINCIPAL,
-            audience: Audience::Internal,
-            connector: None,
-            remote: RELEASE_TOOL.into(),
-            reaches_self: false,
-        };
-        let verdict = self.auto_review_found(&action, &facts, run, Some(&shown), &hash, &asked.standing(), Some(None)).await;
+        let facts =
+            Facts { name: tool.into(), app: app.into(), risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience, connector: None, remote: tool.into(), reaches_self: false };
+        let verdict = self.auto_review_found(&action, &facts, run, Some(&shown), &hash, &standing, Some(None)).await;
         match verdict {
             // As for any boundary action (`asks::settle`): an allow acts
             // alone where the owner's policy delegates, or where the person
             // set up what covers it (their standing release).
-            Ok(Verdict::Allow(_)) if self.auto_review_acts() || matches!(asked, Asked::Standing) => Gate::Post,
+            Ok(Verdict::Allow(_)) if self.auto_review_acts() || covered => Gate::Post,
             Ok(Verdict::Allow(_)) => hold("the owner's policy does not let Auto Review decide this alone"),
             Ok(Verdict::Deny(why) | Verdict::Ask(why)) => hold(format!("Auto Review held it: {why}")),
             Err(e) => {
-                tracing::warn!("Auto Review of lane {lane}: {e:#}");
+                tracing::warn!("Auto Review of {call_id}: {e:#}");
                 hold("Auto Review could not be reached")
             }
         }

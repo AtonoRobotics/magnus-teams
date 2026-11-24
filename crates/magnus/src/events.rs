@@ -69,6 +69,7 @@ pub enum Ev {
     LocalComputer(crate::local::Computer),
     LocalFile(crate::local_files::Change),
     Team(crate::team::Change),
+    OutsideAgent(crate::a2a::Change), // an outside agent over A2A (a2a.rs)
     AccountLink(crate::account_links::Change),
     Legal(crate::legal::Change),
     Push(crate::push::Change),
@@ -131,8 +132,7 @@ pub enum Ev {
     /// A draft written by a scoped step: the model call saw only these
     /// threads and the person's own words, and the draft's body is what it
     /// wrote. `participants` are the threads' addresses, entitled to what
-    /// the draft holds: a send of it to them passes under content
-    /// provenance (#178).
+    /// the draft holds: a send of it to them passes under content provenance (#178).
     DraftScoped {
         run: String,
         person: String,
@@ -225,8 +225,7 @@ pub enum Ev {
     },
     /// An admin turned one of the organisation's apps on or off, or set who
     /// may use it (admin console spec, Security › Connectors and
-    /// credentials). `access_groups` and `blocked_groups` None keep the
-    /// app's own.
+    /// credentials). `access_groups` and `blocked_groups` None keep the app's own.
     ConnectorSettings {
         name: String,
         enabled: bool,
@@ -1219,6 +1218,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("team_mission", &["goal", "objective", "draft", "contribution", "markdown", "held_because"]),
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
     ("prefetch_recorded", &["pointers"]),
+    ("outside_agent", &["text", "reply", "draft", "held_because"]),
 ];
 
 /// The content fields of one kind of event (a lane stored under its lane's kind, a mission's); none for most.

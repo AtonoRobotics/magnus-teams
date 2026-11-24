@@ -237,6 +237,8 @@ impl Kernel {
         if !evs.is_empty() {
             self.emit_all(evs).await.map_err(failed)?;
         }
+        // The outside agents they connected: tasks cancelled, keys out of the vault.
+        self.disconnect_outside_agents_of(person).await.map_err(failed)?;
         // Their own sign-ins to the organisation's apps, revoked at each app.
         let mine: Vec<String> = self.vault.names().map_err(failed)?.into_iter().filter(|n| crate::forget::their_sign_in(n, person)).collect();
         let mut sign_ins = 0;

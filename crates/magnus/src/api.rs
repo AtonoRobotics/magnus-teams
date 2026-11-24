@@ -183,7 +183,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .merge(crate::update::router())
         .merge(crate::settings::router().merge(crate::passwords::router()))
         .merge(crate::relationship::router())
-        .merge(crate::reactions::router())
+        .merge(crate::reactions::router().merge(crate::a2a::router()))
         .merge(crate::grants::router().merge(crate::computer::router()).merge(crate::rules::router()))
         .merge(crate::commitments::router())
         .merge(crate::knowledge::router().merge(crate::chat_actions::router()).merge(crate::spend::routes::router()))

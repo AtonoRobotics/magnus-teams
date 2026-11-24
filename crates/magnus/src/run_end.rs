@@ -59,6 +59,8 @@ impl Kernel {
     /// sub-agent below it still going is cancelled, and each lets go of
     /// what it held.
     pub(crate) async fn end_run(&self, run: &str) {
+        // Stopped or failed, its open outside agent tasks are cancelled (`a2a::outbound`).
+        self.outside_run_ended(run).await;
         let below = self.read(|s| going_below(s, run));
         if !below.is_empty() {
             if let Err(e) = self.emit_all(below.iter().map(|c| ("kernel", cancelled(c))).collect()).await {

@@ -54,6 +54,7 @@ pub struct State {
     pub outcomes: crate::outcomes::Ledger,
     pub local: crate::local::Ledger,
     pub team: crate::team::Ledger,
+    pub outside_agents: crate::a2a::Ledger,
     pub account_links: crate::account_links::Ledger,
     pub legal: crate::legal::Ledger,
     pub push: crate::push::Ledger,
@@ -140,6 +141,7 @@ impl State {
             Ev::LocalComputer(c) => self.local.apply(c),
             Ev::LocalFile(c) => self.local.files.apply(c),
             Ev::Desktop(c) => self.local.desktop.apply(c),
+            Ev::OutsideAgent(c) => self.outside_agents.apply(e.at, c),
             Ev::Team(c) => {
                 if let crate::team::Change::Deleted { workspace } = c {
                     self.missions.drop_workspace(workspace);

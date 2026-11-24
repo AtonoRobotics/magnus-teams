@@ -153,6 +153,11 @@ pub fn admit(on: bool, peer: SocketAddr, headers: &axum::http::HeaderMap, method
     if method == axum::http::Method::GET && (path == "/v1/health" || path == "/oauth/slack/callback") {
         return Ok(());
     }
+    // An outside agent has no device: its card, key set and one endpoint,
+    // which authenticates each request itself (`a2a::PUBLIC_PATHS`).
+    if crate::a2a::PUBLIC_PATHS.iter().any(|(m, p)| method.as_str() == *m && path == *p) {
+        return Ok(());
+    }
     if live {
         Ok(())
     } else {

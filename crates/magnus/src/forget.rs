@@ -99,6 +99,7 @@ impl State {
             outcomes,
             local,
             team,
+            outside_agents,
             account_links,
             legal,
             push,
@@ -134,7 +135,7 @@ impl State {
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 32] = [
+        let parts: [&mut dyn Forget; 33] = [
             computers,
             payments,
             rules,
@@ -147,6 +148,7 @@ impl State {
             outcomes,
             local,
             team,
+            outside_agents,
             missions,
             account_links,
             legal,

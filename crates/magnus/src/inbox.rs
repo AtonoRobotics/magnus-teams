@@ -145,6 +145,10 @@ impl Kernel {
             return Ok(Answer::Conflict("already decided"));
         }
         let decision = body["decision"].as_str().unwrap_or_default().to_string();
+        // An outside agent's request, or the reply to one (`a2a::reply`).
+        if matches!(item.kind.as_str(), crate::a2a::REQUEST_ITEM | crate::a2a::REPLY_ITEM) {
+            return self.outside_respond(p, &item, &decision).await;
+        }
         // Masked as it arrives: an answer, a reason or a note may hold a
         // secret the person typed (spec, Typed secrets).
         let typed = body["text"].as_str().map(crate::typed_secrets::Typed::new);

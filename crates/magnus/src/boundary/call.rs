@@ -12,7 +12,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-pub(super) enum CallFailure {
+pub(crate) enum CallFailure {
     NotDone(String),
     Unknown(String),
     /// Not sent: the run stopped before the call went out.
@@ -156,6 +156,13 @@ impl Kernel {
                     Ok((format!("{} needs more access from the person for {}. Its card is in front of them to approve it; nothing happened at the app. Once they have approved it, call it again.", title, f.remote), true, Some(data)))
                 }
             };
+        }
+        // An outside agent's call says whether its task may have reached it.
+        if f.app == crate::a2a::APP {
+            if let Err(m) = self.still_running(&a.run, &f.app) {
+                return Err(CallFailure::Stopped(m));
+            }
+            return self.outside_agent_call(a, key).await;
         }
         self.carry_out(a, key).await.map_err(|e| CallFailure::NotDone(format!("{e:#}")))
     }

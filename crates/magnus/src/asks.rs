@@ -115,7 +115,7 @@ pub(crate) fn is_boundary(a: &Action, f: &Facts) -> bool {
     if !f.risk.changes_state() || is_chat_tool(f) || f.reaches_self {
         return false;
     }
-    f.connector.is_some() || matches!(f.app.as_str(), "local" | "team" | "connector" | "web")
+    f.connector.is_some() || matches!(f.app.as_str(), "local" | "team" | "connector" | "web" | crate::a2a::APP)
 }
 
 /// The host of a URL, as a destination is named.

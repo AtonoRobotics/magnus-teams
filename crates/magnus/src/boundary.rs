@@ -11,8 +11,9 @@ mod finish;
 mod record;
 
 pub(crate) use call::memory_result;
+use call::memory_taint;
+pub(crate) use call::CallFailure;
 pub use call::{computer_command, media_type_for};
-use call::{memory_taint, CallFailure};
 use finish::Answer;
 use record::{err_text, Record};
 
@@ -148,7 +149,9 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if f.connector.is_none() && f.app == "memory" {
         return false;
     }
-    f.connector.is_some() || matches!(f.app.as_str(), "web" | "browser" | "computer" | "local" | "connector" | "team") || f.app.starts_with(crate::desktop::APP_PREFIX)
+    f.connector.is_some()
+        || matches!(f.app.as_str(), "web" | "browser" | "computer" | "local" | "connector" | "team" | crate::a2a::APP)
+        || f.app.starts_with(crate::desktop::APP_PREFIX)
 }
 
 pub fn has_rights(person: &Person, f: &Facts) -> bool {
@@ -657,6 +660,17 @@ impl Kernel {
         if f.app == "sandbox" {
             let text = err_text(&format!("{} was interrupted by a restart; its outcome is unknown. Check the workspace before doing it again.", a.tool), false);
             return Ok(Gate::Stop(self.record(a, Some(key.into()), Record { status: "unknown", text, is_error: true, label: f.label, data: None }).await?));
+        }
+        // A task sent to an outside agent is never sent again: its state is
+        // read with GetTask (invariant 3 for A2A).
+        if f.app == crate::a2a::APP && f.risk != Risk::Read {
+            match self.resume_outside_task(a, key).await {
+                crate::a2a::Resumed::NotSent => return Ok(Gate::Pass),
+                crate::a2a::Resumed::Answer { text, data } => {
+                    return Ok(Gate::Stop(self.record(a, Some(key.into()), Record { status: "done", text, is_error: false, label: f.label, data }).await?))
+                }
+                crate::a2a::Resumed::Unknown => {}
+            }
         }
         // A chat call's ids come from its key, so resending finds what the
         // first call made.
