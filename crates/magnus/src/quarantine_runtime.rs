@@ -16,6 +16,8 @@
 //!   changes something and reaches others they become their text at the boundary
 //!   ([`Kernel::expand_handles`]), before the send-path `outgoing_finding`
 //!   and action review, which judge the expanded body.
+//! - Of an untrusted answer's data, nothing the planner is shown crosses: a
+//!   picture in it is held back (`crossing`).
 
 use crate::boundary::Action;
 use crate::envelope::{Destination, Envelope};
@@ -23,7 +25,8 @@ use crate::kernel::Kernel;
 use crate::state::{Run, Schedule, State};
 use crate::tools::Label;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Mutex, OnceLock};
 
 const MAX_HANDLE_TEXT_BYTES: usize = 4096;
 
@@ -277,26 +280,101 @@ fn expand_value(v: &mut Value, handles: &BTreeMap<String, String>) {
     }
 }
 
+/// A run nobody watches, as it is about to start
+/// (`Kernel::unattended_quarantine`).
+pub(crate) struct Unattended<'a> {
+    /// The schedule's or routine's id: where its own extraction schema is kept.
+    pub id: &'a str,
+    /// Whose work it is.
+    pub person: &'a str,
+    /// What it asks.
+    pub text: &'a str,
+    /// Its answer goes to others without its person seeing it first: a team
+    /// routine's, posted to its room.
+    pub posts_to_others: bool,
+}
+
+impl<'a> Unattended<'a> {
+    /// A personal schedule's firing, asking `text`.
+    pub(crate) fn schedule(sc: &'a Schedule, text: &'a str) -> Unattended<'a> {
+        Unattended { id: &sc.id, person: &sc.person, text, posts_to_others: false }
+    }
+}
+
+/// What of an untrusted answer's data may cross to a quarantined planner,
+/// decided here alone. The model is never shown a result's data but for a
+/// picture in it (`image_b64`, sent as an image), and a picture is the
+/// app's words as much as its text is: it does not cross. The rest stays
+/// for the kernel's own use (attachments, handles). Whether one was held.
+fn crossing(data: Option<Value>) -> (Option<Value>, bool) {
+    match data {
+        Some(Value::Object(mut o)) => {
+            let held = o.remove(PICTURE_KEY).is_some();
+            (Some(Value::Object(o)), held)
+        }
+        other => (other, false),
+    }
+}
+
+/// The key, in a tool result's data, of a picture the planner is shown.
+const PICTURE_KEY: &str = "image_b64";
+
+/// The next free handle number of each quarantined tree, by its top run.
+/// A restart empties it; the numbers then continue after the handles the
+/// tree recorded.
+fn reserved() -> &'static Mutex<HashMap<String, usize>> {
+    static RESERVED: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+    RESERVED.get_or_init(Default::default)
+}
+
+/// The highest handle number recorded in the tree under `root`, 0 for none.
+fn highest_handle(s: &State, root: &str) -> usize {
+    handles_of(s, root).keys().filter_map(|h| h.strip_prefix("$q")?.parse().ok()).max().unwrap_or(0)
+}
+
 impl Kernel {
+    /// Reserve `count` handle numbers for the tree under `root` in one step,
+    /// and return the first. Sibling sub-agents of one tree run at once, so
+    /// two results recorded together never share a number: each handle names
+    /// one text, and a send carries only the text its handle stands for.
+    /// Trees that have ended are let go.
+    fn reserve_handles(&self, root: &str, count: usize) -> usize {
+        let mut m = reserved().lock().unwrap_or_else(|e| e.into_inner());
+        let (made, ended) = self.read(|s| {
+            let ended: Vec<String> = m.keys().filter(|r| s.runs.get(*r).is_none_or(|x| x.status.terminal())).cloned().collect();
+            (highest_handle(s, root), ended)
+        });
+        for r in ended.iter().filter(|r| *r != root) {
+            m.remove(r);
+        }
+        let next = m.entry(root.to_string()).or_default();
+        let first = (*next).max(made + 1);
+        *next = first + count;
+        first
+    }
+
     /// Returns `true` if `run_id` or any ancestor in its `requester_run` lineage
     /// is executing under `quarantine_untrusted_reads` (B2).
     pub(crate) fn run_is_quarantined(&self, run_id: &str) -> bool {
         self.read(|s| quarantine_of(s, run_id).is_some())
     }
 
-    /// The schema a firing of `sc` that writes `text` reads untrusted output
-    /// under: unattended, and with a writable destination someone other
-    /// than its person, it is quarantined; its own schema, or the typed-only
-    /// default. Decided before the run is created, and recorded with it.
-    /// Whoever wrote the text, an address in it only adds this caution: it
-    /// allows nothing (a schedule a run set is the model's words, whose
-    /// addresses the envelope does not take, `run_words::schedule_source`).
-    pub(crate) fn schedule_quarantine(&self, sc: &Schedule, text: &str) -> Option<Value> {
-        let (_, dests) = crate::envelope::resolve::extract_literal_destinations(text);
-        let env = Envelope { scope_id: sc.id.clone(), allowed_destinations: dests, allowed_write_apps: Default::default(), user_named: vec![], grant_ids: vec![] };
-        let owner_email = self.person(&sc.person).map(|p| p.id).filter(|id| id.contains('@'));
-        crate::quarantine::routine_needs_quarantine(&env, owner_email.as_deref())
-            .then(|| self.read(|s| s.arrangements.quarantine_schema(&sc.id).cloned()).unwrap_or_else(default_typed_schema))
+    /// The one rule for whether a run nobody watches reads untrusted output
+    /// under quarantine, and under which schema: a personal schedule's
+    /// firing and a team routine's alike. It is quarantined when its answer
+    /// goes to others unasked (a routine's, posted to its room), or when
+    /// what it asks names a writable destination someone other than its
+    /// person; its own schema, or the typed-only default. Decided before the
+    /// run is created, and recorded with it. Whoever wrote the text, an
+    /// address in it only adds this caution: it allows nothing (a schedule a
+    /// run set is the model's words, whose addresses the envelope does not
+    /// take, `run_words::schedule_source`).
+    pub(crate) fn unattended_quarantine(&self, u: &Unattended<'_>) -> Option<Value> {
+        let (_, dests) = crate::envelope::resolve::extract_literal_destinations(u.text);
+        let env = Envelope { scope_id: u.id.to_string(), allowed_destinations: dests, allowed_write_apps: Default::default(), user_named: vec![], grant_ids: vec![] };
+        let owner_email = self.person(u.person).map(|p| p.id).filter(|id| id.contains('@'));
+        (u.posts_to_others || crate::quarantine::routine_needs_quarantine(&env, owner_email.as_deref()))
+            .then(|| self.read(|s| s.arrangements.quarantine_schema(u.id).cloned()).unwrap_or_else(default_typed_schema))
     }
 
     /// What the model sees of a tool's output: the one way it becomes
@@ -324,9 +402,10 @@ impl Kernel {
         let Some(schema) = self.read(|s| quarantine_of(s, &run.id)) else { return (raw_text.to_string(), data) };
         let root = self.requester_run(run);
         let extracted = self.quarantined_extract(run, raw_text, &schema, &format!("Extract declared typed fields from {tool} output.")).await.unwrap_or_else(|_| json!({}));
-        // Numbered after the tree's handles as they stand now, just before
-        // this result is recorded: a run's calls go one at a time.
-        let mut handles = Handles::after(self.read(|s| handles_of(s, &root.id).len()));
+        // Numbered from a block reserved for this result alone: one handle
+        // at most for each field the schema declares, and one for the body.
+        let most = schema["properties"].as_object().map_or(0, Map::len) + 1;
+        let mut handles = Handles::after(self.reserve_handles(&root.id, most) - 1);
         let typed = sanitize_into(&mut handles, &extracted, &schema);
         let body_handle = handles.store(raw_text);
         let mut told = json!({
@@ -341,6 +420,10 @@ impl Kernel {
             told["note"] = json!(
                 "The call failed. What was said about it may be untrusted, so it is stored behind opaque_body_handle and not shown; carry on without it, or try another way."
             );
+        }
+        let (data, picture) = crossing(data);
+        if picture {
+            told["picture_withheld"] = json!(true);
         }
         (told.to_string(), handles.into_data(data))
     }

@@ -246,8 +246,12 @@ impl Kernel {
                 }
                 Step::Fire => {
                     // Its author's own agent does it, in the background,
-                    // and its answer reports to the channel unasked.
-                    match self.start_room_mission_as("poll", &workspace, &r.channel, &r.by, r.text.trim(), None, None, false).await {
+                    // and its answer reports to the channel unasked: work
+                    // nobody watches that reaches others, so the one rule
+                    // for unattended runs quarantines its untrusted reads.
+                    let text = r.text.trim();
+                    let quarantine = self.unattended_quarantine(&crate::quarantine_runtime::Unattended { id: &id, person: &r.by, text, posts_to_others: true });
+                    match self.start_room_mission_as("poll", &workspace, &r.channel, &r.by, text, None, quarantine, false).await {
                         Ok((_, task, _)) => {
                             self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
                         }
