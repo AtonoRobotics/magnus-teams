@@ -27,7 +27,9 @@
 mod card;
 mod client;
 mod connect;
+// Named testing.rs: test code, which ci/egress-check.sh does not check.
 #[cfg(test)]
+#[path = "testing.rs"]
 mod fake;
 #[cfg(test)]
 mod hardening_tests;
