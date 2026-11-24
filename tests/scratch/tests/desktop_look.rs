@@ -171,13 +171,13 @@ async fn the_desktop_looks_like_its_mockup_in_dark_and_light_and_places_windows_
     let (st, v) = alice.post(&format!("/v1/computers/{id}/start"), json!({})).await;
     assert!(st.is_success(), "start: {v}");
 
-    looks_like_the_mockup("dark", &screen(&alice, &id).await, "#19191C");
+    looks_like_the_mockup("dark", &screen(&alice, &id).await, "#121215");
 
     let (st, v) = alice.put(&format!("/v1/computers/{id}/theme"), json!({ "theme": "light" })).await;
     assert!(st.is_success(), "theme: {v}");
     assert_eq!(alice.get(&format!("/v1/computers/{id}")).await.1["theme"], "light");
     tokio::time::sleep(SETTLE).await;
-    looks_like_the_mockup("light", &screen(&alice, &id).await, "#FAFAF8");
+    looks_like_the_mockup("light", &screen(&alice, &id).await, "#F8F9FB");
 
     // Calm: a new window opens maximized, and two share the screen.
     computerd.exec(&id, "export DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/magnus-desktop/bus; (xfce4-terminal --working-directory=/workspace >/dev/null 2>&1 &)");
