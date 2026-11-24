@@ -166,7 +166,7 @@ impl Kernel {
         }
         // An outside agent's call says whether its task may have reached it.
         if f.app == crate::a2a::APP {
-            if let Err(m) = self.still_running(&a.run, &f.app) {
+            if let Err(m) = self.still_running(a, &f.app) {
                 return Err(CallFailure::Stopped(m));
             }
             return self.outside_agent_call(a, key).await;
