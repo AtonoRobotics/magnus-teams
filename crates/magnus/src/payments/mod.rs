@@ -363,8 +363,16 @@ impl Kernel {
             }
         };
         self.decide_purchase(id, outcome).await?;
-        for item in items {
-            self.emit("kernel", Ev::ItemResolved { id: item, decision: if outcome == Status::Ready { "approved" } else { "declined" }.into(), scope: None, text: None }).await?;
+        // Its cards are put away as any card is decided: under the one lock,
+        // each only if still open, so none closed meanwhile is overwritten.
+        {
+            let _decide = self.decide.lock().await;
+            let decision = if outcome == Status::Ready { "approved" } else { "declined" };
+            let open: Vec<String> = self.read(|s| items.iter().filter(|i| s.inbox.items().get(i.as_str()).is_some_and(|x| x.resolution.is_none())).cloned().collect());
+            let evs: Vec<(&str, Ev)> = open.into_iter().map(|item| ("kernel", Ev::ItemResolved { id: item, decision: decision.into(), scope: None, text: None })).collect();
+            if !evs.is_empty() {
+                self.emit_all(evs).await?;
+            }
         }
         Ok(match outcome {
             Status::Ready => (format!("The person approved it. purchase_id: {id}. Open the seller's checkout page and call purchase_fill."), false, None),

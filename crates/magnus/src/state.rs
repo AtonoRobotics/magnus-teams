@@ -339,17 +339,24 @@ impl State {
             Ev::Verdict { .. } => work::verdict(&mut self.tasks, &self.runs, e),
             // A run's end frees its review and lets its run's record end once.
             Ev::Completed { run, .. } | Ev::Failed { run, .. } => {
-                self.inbox.run_ended(run);
+                self.end_cards(run, e.at);
                 work::fold_run(&mut self.runs, e);
             }
             Ev::Cancelled { run, .. } => {
-                self.inbox.run_ended(run);
+                self.end_cards(run, e.at);
                 if e.actor.starts_with("person:") && self.runs.get(run).is_some_and(|r| !r.status.terminal()) {
                     self.stopped_by_person.insert(run.clone());
                 }
                 work::fold_run(&mut self.runs, e);
             }
-            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval { .. } | Ev::ApprovalUsed { .. } | Ev::ReviewWoken { .. } => self.inbox.fold(e, self.identity.preferences()),
+            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval { .. } | Ev::ApprovalUsed { .. } => self.inbox.fold(e, self.identity.preferences()),
+            Ev::ReviewWoken { person, reason, .. } => {
+                self.inbox.fold(e, self.identity.preferences());
+                if let Some(id) = reason.strip_prefix("commitment ").and_then(|r| r.strip_suffix(" due")) {
+                    let by = self.arrangements.commitments().get(id).and_then(|c| c.by.clone());
+                    self.inbox.mark_commitment(person, id, by.as_deref());
+                }
+            }
             // A stopped run's notice put away: the run waits on no card
             // now, so its own Resume (or Cancel) is what is left.
             Ev::ItemResolved { id, .. } => {
@@ -387,6 +394,15 @@ impl State {
     /// The person's playbook items that were live at playbook version `v`.
     pub fn playbook_at(&self, person: &str, v: u64) -> Vec<&PlaybookItem> {
         self.library.playbook_at(person, v)
+    }
+
+    /// A run's end (its first: a later one changes nothing): a review it was
+    /// stops, and each card it waited on to go on is closed.
+    fn end_cards(&mut self, run: &str, at: chrono::DateTime<chrono::Utc>) {
+        self.inbox.run_ended(run);
+        if let Some(r) = self.runs.get(run).filter(|r| !r.status.terminal()) {
+            self.inbox.close_waits_of(run, r.waiting_item.as_deref(), at);
+        }
     }
 
     pub fn open_item_for_run(&self, run: &str, kind: &str) -> Option<&Item> {

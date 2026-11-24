@@ -10,6 +10,18 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
+/// The cards a run waits on to go on: each is closed when its run ends.
+/// Its outputs (a suggestion, a message, a draft) and its notices stay.
+pub const WAITS_OF_A_RUN: [&str; 7] = ["approval", "question", "review", "monitor", "secure_form", "takeover_request", "contract_change"];
+
+/// What a card closed by its run's end says.
+pub const RUN_ENDED_TEXT: &str = "The task this was for has ended, so nothing waits on this now.";
+
+/// The wake mark of a person's commitment.
+pub fn commitment_mark(person: &str, id: &str) -> String {
+    format!("{person}:commitment {id}")
+}
+
 #[derive(Clone, Debug)]
 pub struct Item {
     pub id: String,
@@ -59,7 +71,8 @@ pub struct Inbox {
     interrupts: HashMap<String, (String, u32)>,
     /// Review runs still going, run to person: one per person at a time.
     review_runs: HashMap<String, String>,
-    /// One-a-day wake marks (a coming-up schedule, a due commitment).
+    /// Wake marks: one a day for a coming-up schedule, a stale approval and
+    /// an ended task; one for each due time of a commitment.
     wake_marks: HashMap<String, String>,
     /// When each review of the last day woke, by person, oldest first: what
     /// their wake budget counts (`wake_budget`).
@@ -146,7 +159,8 @@ impl Inbox {
                     let tz = crate::cadence::zone_of(prefs.get(person));
                     self.reviews_overnight.insert(person.clone(), crate::proactive::day_key(e.at, tz));
                 }
-                for (prefix, suffix) in [("schedule ", " coming up"), ("commitment ", " due"), ("approval ", " waiting"), ("task ", " done"), ("task ", " failed")] {
+                // A commitment's mark is its due time (`mark_commitment`), not a day.
+                for (prefix, suffix) in [("schedule ", " coming up"), ("approval ", " waiting"), ("task ", " done"), ("task ", " failed")] {
                     if let Some(id) = reason.strip_prefix(prefix).and_then(|r| r.strip_suffix(suffix)) {
                         let tz = crate::cadence::zone_of(prefs.get(person));
                         self.wake_marks.insert(format!("{person}:{prefix}{id}"), crate::proactive::day_key(e.at, tz));
@@ -180,11 +194,20 @@ impl Inbox {
 
     /// `ItemResolved`: the item decided, and its run when the decision put
     /// away a notice (the run may be waiting on it).
+    /// The first answer wins: a later one (a race its caller's re-check
+    /// missed, or a card already closed) changes nothing, live or on replay.
     pub(crate) fn resolve(&mut self, e: &Event) -> Option<String> {
         let Ev::ItemResolved { id, decision, scope, text } = &e.ev else { return None };
-        self.items_resolved_at.insert(id.clone(), e.at);
-        let i = self.items.get_mut(id)?;
+        let Some(i) = self.items.get_mut(id) else {
+            // An item in the trash keeps when it was decided.
+            self.items_resolved_at.insert(id.clone(), e.at);
+            return None;
+        };
+        if i.resolution.is_some() {
+            return None;
+        }
         i.resolution = Some((decision.clone(), scope.clone(), text.clone(), e.actor.clone()));
+        self.items_resolved_at.insert(id.clone(), e.at);
         if decision == "dismiss" {
             i.run.clone()
         } else {
@@ -195,6 +218,24 @@ impl Inbox {
     /// A run ended: a review it was is no longer going.
     pub(crate) fn run_ended(&mut self, run: &str) {
         self.review_runs.remove(run);
+    }
+
+    /// A run's end closes each card that waits for it to go on (an ask, a
+    /// question, a review, the notice it stopped on): nothing is left to
+    /// answer, so none is answerable after (`RUN_ENDED_TEXT`).
+    pub(crate) fn close_waits_of(&mut self, run: &str, stopped_on: Option<&str>, at: DateTime<Utc>) {
+        for i in self.items.values_mut().filter(|i| i.run.as_deref() == Some(run) && i.resolution.is_none()) {
+            if WAITS_OF_A_RUN.contains(&i.kind.as_str()) || stopped_on == Some(i.id.as_str()) {
+                i.resolution = Some(("superseded".into(), None, Some(RUN_ENDED_TEXT.into()), "kernel".into()));
+                self.items_resolved_at.insert(i.id.clone(), at);
+            }
+        }
+    }
+
+    /// A review woke for a commitment: marked with when it is due, so one
+    /// due time wakes one review, whichever day of the person's it falls in.
+    pub(crate) fn mark_commitment(&mut self, person: &str, id: &str, by: Option<&str>) {
+        self.wake_marks.insert(commitment_mark(person, id), by.unwrap_or_default().to_string());
     }
 
     /// A task going to the trash takes its items with it.

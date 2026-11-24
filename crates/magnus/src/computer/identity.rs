@@ -370,21 +370,19 @@ impl Kernel {
 
     /// Every run waiting on this sign-in carries on.
     async fn finish_forms(self: &Arc<Self>, who: &Person, id: &str) -> Result<(), Refused> {
-        let open: Vec<(String, Option<String>)> = self.read(|s| {
-            s.inbox
-                .items()
-                .values()
-                .filter(|i| i.kind == "secure_form" && i.resolution.is_none() && i.person == who.id && i.details["identity"] == json!(id))
-                .map(|i| (i.id.clone(), i.run.clone()))
-                .collect()
+        // Decided as any card is: under the one lock, from what is still
+        // open now, so a form answered or closed meanwhile is left as it is.
+        let _decide = self.decide.lock().await;
+        let open: Vec<crate::state::Item> = self.read(|s| {
+            s.inbox.items().values().filter(|i| i.kind == "secure_form" && i.resolution.is_none() && i.person == who.id && i.details["identity"] == json!(id)).cloned().collect()
         });
         let actor = format!("person:{}", who.id);
         let mut evs: Vec<(&str, Ev)> = vec![];
         let mut woken = vec![];
-        for (item, run) in open {
-            evs.push((actor.as_str(), Ev::ItemResolved { id: item, decision: "filled".into(), scope: None, text: None }));
-            if let Some(run) = run {
-                evs.extend(self.resume(&run));
+        for item in open {
+            evs.push((actor.as_str(), Ev::ItemResolved { id: item.id.clone(), decision: "filled".into(), scope: None, text: None }));
+            if let Some(run) = item.run.clone() {
+                evs.extend(self.resume_on(&run, &item));
                 woken.push(run);
             }
         }
