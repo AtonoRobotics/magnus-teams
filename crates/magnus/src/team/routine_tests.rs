@@ -64,6 +64,26 @@ async fn a_routine_that_cannot_start_is_told_and_the_rest_still_start() {
     s.done().await;
 }
 
+/// A routine runs with nobody watching and posts its answer to its room
+/// unasked, so its untrusted reads are quarantined from its first step, in
+/// the write that creates its run, as a personal schedule's that reaches
+/// others are. Before, only personal schedules were ever quarantined: a
+/// routine that read its author's mail had the mail's text raw in its
+/// planner.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_routines_run_is_quarantined() {
+    let s = server_with("", |_| Router::new()).await;
+    room(&s, "w", "mo").await;
+    s.k.emit("test", Ev::Team(Change::Routine { workspace: "w".into(), id: "r".into(), routine: routine("mo") })).await.unwrap();
+    s.k.run_due_routines().await.unwrap();
+    let fired = s.k.read(|st| st.team.workspace("w").unwrap().routines["r"].fired.clone());
+    let [Firing::Started(task)] = fired.as_slice() else { panic!("the routine did not fire: {fired:?}") };
+    let run = own_background_run(&s, task, "mo");
+    assert!(run.config.quarantine.is_some(), "the routine's run was created unquarantined");
+    assert!(s.k.run_is_quarantined(&run.id), "the routine's run is not quarantined");
+    s.done().await;
+}
+
 /// A routine fires as a member lane of its author's own agent in its
 /// channel, whose answer reports there unasked. It once started a run of
 /// the retired team agent, with the team's tools and the team's spend.

@@ -52,6 +52,11 @@ pub struct LaneSpec {
     /// only from a checked request (`say::Pick`), never from a lane's body.
     #[serde(skip)]
     pub reasoning: Option<String>,
+    /// The extraction schema its untrusted reads are quarantined under, for
+    /// work nobody watches (`Kernel::unattended_quarantine`). Set only by the
+    /// server, never from a lane's body.
+    #[serde(skip)]
+    pub quarantine: Option<serde_json::Value>,
 }
 
 /// Whose agent a member lane runs: the member named, else the requester's own.
@@ -114,13 +119,15 @@ impl Kernel {
         pick: crate::say::Pick,
         hold: bool,
     ) -> Result<(String, String, String)> {
-        self.start_room_mission_picked(&format!("person:{requester}"), workspace, room, requester, objective, thread, pick, hold).await
+        self.start_room_mission_picked(&format!("person:{requester}"), workspace, room, requester, objective, thread, None, pick, hold).await
     }
 
     /// The same mission for a member, started by `actor`: the member, or
     /// "poll" for work the server starts on their behalf (a routine of
     /// theirs, a follow-up on their question), which runs in the background
-    /// and asks no one.
+    /// and asks no one, on the model their own settings pick. `quarantine`:
+    /// the schema its untrusted reads are quarantined under, when the one
+    /// rule for unattended work says so (`Kernel::unattended_quarantine`).
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn start_room_mission_as(
         self: &Arc<Self>,
@@ -130,10 +137,11 @@ impl Kernel {
         requester: &str,
         objective: &str,
         thread: Option<String>,
-        model: Option<(String, String)>,
+        quarantine: Option<serde_json::Value>,
         hold: bool,
     ) -> Result<(String, String, String)> {
-        self.start_room_mission_picked(actor, workspace, room, requester, objective, thread, crate::say::Pick { model, reasoning: None }, hold).await
+        let pick = crate::say::Pick { model: None, reasoning: None };
+        self.start_room_mission_picked(actor, workspace, room, requester, objective, thread, quarantine, pick, hold).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -145,6 +153,7 @@ impl Kernel {
         requester: &str,
         objective: &str,
         thread: Option<String>,
+        quarantine: Option<serde_json::Value>,
         pick: crate::say::Pick,
         hold: bool,
     ) -> Result<(String, String, String)> {
@@ -157,6 +166,7 @@ impl Kernel {
             thread,
             hold,
             reasoning: pick.reasoning,
+            quarantine,
         };
         self.check_lane(workspace, room, requester, &spec).await?;
         let mission_id = new_id("mission");
@@ -236,7 +246,9 @@ impl Kernel {
                 );
                 // Clean label: untrusted only when requested by someone else; private always.
                 let label = Label { untrusted: super::owner::from_others(target, [requester]), private: true };
-                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, reasoning, ..Default::default() }).await?;
+                let (child_task, child_run) = self
+                    .create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, reasoning, quarantine: spec.quarantine.clone(), ..Default::default() })
+                    .await?;
                 self.emit(
                     actor,
                     Ev::TeamMission(TeamMissionEvent::LaneDispatched {
@@ -273,7 +285,7 @@ impl Kernel {
                     requester,
                     prompt,
                     vec![],
-                    NewRun { label: None, ids: Some((child_task.clone(), child_run.clone())), model: spec.model, ..Default::default() },
+                    NewRun { label: None, ids: Some((child_task.clone(), child_run.clone())), model: spec.model, quarantine: spec.quarantine, ..Default::default() },
                 )
                 .await?;
                 self.emit(

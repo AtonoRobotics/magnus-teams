@@ -166,7 +166,7 @@ impl Kernel {
                 let o = NewRun {
                     // Unattended and reaching someone else: its untrusted reads
                     // are quarantined from its first step, recorded with it.
-                    quarantine: self.schedule_quarantine(&sc, &prompt_text),
+                    quarantine: self.unattended_quarantine(&crate::quarantine_runtime::Unattended::schedule(&sc, &prompt_text)),
                     // The server's per-task limit, never one the model set on the card.
                     budget: Some(crate::task_budget::scheduled(&self.cfg.budget, sc.budget.as_ref())),
                     label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),

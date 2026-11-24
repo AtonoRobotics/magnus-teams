@@ -7,11 +7,13 @@
 //! leave the call.
 
 mod call;
+mod finish;
 mod record;
 
 pub(crate) use call::memory_result;
 pub use call::{computer_command, media_type_for};
 use call::{memory_taint, CallFailure};
+use finish::Answer;
 use record::{err_text, Record};
 
 use crate::config::{Connector, Person};
@@ -405,42 +407,19 @@ impl Kernel {
         // memory_search returns content with the taint it was written under
         // (M1), taken from the same entries it returns: a second lookup could
         // miss a fact forgotten in between and label its text clean.
-        let taint = crate::tool_registry::taint(&a.tool);
-        let (out, memory) = if taint == Taint::Memory {
+        let bearer = secret.as_ref().map(|s| s.expose());
+        let out = if crate::tool_registry::taint(&a.tool) == Taint::Memory {
             let hits = self.memory_hits(&a.run, a.input["query"].as_str().unwrap_or_default()).await?;
-            (Ok(memory_result(&hits)), Some(memory_taint(&hits)))
+            Ok(Answer { taint: Some(memory_taint(&hits)), ..Answer::of(memory_result(&hits)) })
         } else {
-            (self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await, None)
+            self.call(a, &f, bearer, &key, stops).await.map(Answer::of)
         };
-        let (label, sources) = if let Some(taint) = memory {
-            taint
-        } else {
-            let d = || out.as_ref().ok().and_then(|(_, _, d)| d.clone()).unwrap_or_default();
-            match taint {
-                // What the search returned decides; a result that says nothing is untrusted and private.
-                Taint::Returned => (Label { untrusted: d()["untrusted"] != false, private: d()["private"] != false }, vec![f.app.clone()]),
-                // A reference file carries its own taint (M1, M2).
-                Taint::ProjectFile => (self.project_file(&a.run, a.input["name"].as_str().unwrap_or_default()).map_or(Label::PRINCIPAL, |f| f.label), vec![f.app.clone()]),
-                // The summaries it lists carry what their runs read.
-                Taint::Listed if is_chat_tool(&f) => self.listed_taint(&d()),
-                _ => (f.label, vec![f.app.clone()]),
-            }
-        };
-        let clean = |t: &str| match &secret {
-            Some(s) => redact(t, s.expose()),
+        let clean = |t: &str| match bearer {
+            Some(s) => redact(t, s),
             None => t.to_string(),
         };
         match out {
-            Ok((text, is_error, data)) => {
-                let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filters_login_codes(&a.tool)) { crate::login_codes::strip(&t) } else { t };
-                let (text, data) = crate::attachment::lift(&a.run, f.connector.as_ref().is_some_and(|c| c.filters_login_codes(&a.tool)), text, data, |t| filter(clean(&t)));
-                let text = match crate::read_back::applies(a, &f, is_error) {
-                    true => format!("{text}\n\n{}", self.read_back(a, &f, shown.as_ref(), data.as_ref()).await?),
-                    false => text,
-                };
-                let status = if is_error { "failed" } else { "done" };
-                self.record_from(a, Some(key), sources, Record { status, text, is_error, label, data }).await
-            }
+            Ok(answer) => self.finish(a, &f, shown.as_ref(), bearer, key, answer).await,
             Err(CallFailure::NotDone(m)) => {
                 self.record(
                     a,
@@ -468,13 +447,9 @@ impl Kernel {
                 tracing::warn!("{}: outcome unknown: {m}", a.tool);
                 match self.reconcile(a, &f, &key).await? {
                     Gate::Pass => {
-                        let again = self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await;
-                        match again {
-                            Ok((text, is_error, data)) => {
-                                let data = data.map(|d| serde_json::from_str(&clean(&d.to_string())).unwrap_or(Value::Null));
-                                let status = if is_error { "failed" } else { "done" };
-                                self.record(a, Some(key), Record { status, text: clean(&text), is_error, label: f.label, data }).await
-                            }
+                        // The resend's answer is finished as a first try's is.
+                        match self.call(a, &f, bearer, &key, stops).await {
+                            Ok(answer) => self.finish(a, &f, shown.as_ref(), bearer, key, Answer::of(answer)).await,
                             Err(e) => {
                                 let m = match e {
                                     CallFailure::NotDone(m) | CallFailure::Unknown(m) | CallFailure::Stopped(m) => m,
@@ -702,6 +677,10 @@ impl Kernel {
 #[cfg(test)]
 #[path = "boundary_transport_tests.rs"]
 mod transport_tests;
+
+#[cfg(test)]
+#[path = "boundary_finish_tests.rs"]
+mod finish_tests;
 
 #[cfg(test)]
 mod tests {
