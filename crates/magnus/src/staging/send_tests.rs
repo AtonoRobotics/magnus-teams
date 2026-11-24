@@ -40,9 +40,14 @@ async fn mail() -> (Server, Arc<Fake>) {
 
 /// mo's running run, its task created and left to the test.
 async fn run(s: &Server) -> String {
+    run_for(s, "mo").await
+}
+
+/// `person`'s running run, its task created and left to the test.
+async fn run_for(s: &Server, person: &str) -> String {
     let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 9, "max_actions": 9, "max_usd": 4.0 }, "verifier": false, "instructions": "", "harness": "" });
-    let created = json!({ "kind": "task_created", "task": "t_s", "run": "r_s", "person": "mo", "config": config });
-    s.k.emit("person:mo", serde_json::from_value(created).unwrap()).await.unwrap();
+    let created = json!({ "kind": "task_created", "task": "t_s", "run": "r_s", "person": person, "config": config });
+    s.k.emit(&format!("person:{person}"), serde_json::from_value(created).unwrap()).await.unwrap();
     "r_s".into()
 }
 
@@ -183,4 +188,37 @@ fn a_sign_in_after_untrusted_input_is_asked_not_staged() {
 #[test]
 fn a_signed_in_form_after_untrusted_input_is_asked_not_staged() {
     on_big_stacks(asked_not_staged("browser_as_type", json!({ "identity": "idn_1", "target": "#card", "text": "4242", "submit": true })));
+}
+
+/// A once Allow the person accepted covers exactly one send: the next send
+/// to the same new destination after untrusted input goes back to the
+/// person, case 3 for a message: held for them to send, not sent. Before,
+/// the once rule went into the task's cached envelope and stayed there
+/// once spent, so no send to that destination was case 3 again: each went
+/// to Auto Review alone, which here (no reviewer) holds even the first, and
+/// in inv4 (a reviewer that allows) let the second go out.
+#[test]
+fn a_once_allow_covers_one_send_and_the_next_one_asks() {
+    on_big_stacks(async {
+        let (s, fake) = mail().await;
+        // sam owns the server, so may approve an irreversible send, and a rule may answer for him.
+        let r = run_for(&s, "sam").await;
+        s.k.execute(action(&r, 1, "mail__read", json!({ "id": "m1" }))).await.unwrap();
+        let compiled = crate::rules::compile("sam", "mail", "mail__send_draft", &["bob@corp.example".to_string()], true, crate::rules::Effect::Allow).unwrap();
+        let proposed = crate::rules::Change::Proposed { id: "rule_once".into(), person: "sam".into(), compiled: Some(compiled), words: None };
+        s.k.emit("person:sam", crate::events::Ev::Rule(proposed)).await.unwrap();
+        s.k.emit("person:sam", crate::events::Ev::Rule(crate::rules::Change::Accepted { id: "rule_once".into() })).await.unwrap();
+
+        answers(&fake, [draft("")]);
+        let first = s.k.execute(action(&r, 2, "mail__send_draft", json!({ "draft_id": "d1" }))).await.unwrap();
+        let said = |v: &Verdict| if let Verdict::Done { text, .. } = v { text.clone() } else { "it waited".into() };
+        assert_eq!(sends(&fake), 1, "the once Allow did not cover its one send: {}", said(&first));
+        assert!(s.k.read(|st| st.staged.open_for("sam").is_empty()), "the send the once Allow covered was staged");
+
+        answers(&fake, [draft("")]);
+        let second = s.k.execute(action(&r, 3, "mail__send_draft", json!({ "draft_id": "d1" }))).await.unwrap();
+        assert_eq!(sends(&fake), 1, "a once Allow covered a second send: {}", said(&second));
+        assert_eq!(s.k.read(|st| st.staged.open_for("sam").len()), 1, "the second send did not go back to the person: {}", said(&second));
+        s.done().await;
+    });
 }
