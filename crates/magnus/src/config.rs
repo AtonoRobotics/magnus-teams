@@ -770,6 +770,11 @@ pub struct Embeddings {
     /// search falls back to its words.
     #[serde(default = "embed_timeout")]
     pub timeout_s: u64,
+    /// What it charges, in US dollars per million tokens; 0 for a local
+    /// server. Unpriced, it embeds only where no spend limit applies
+    /// (`spend::paid`), and search falls back to words elsewhere.
+    #[serde(default)]
+    pub usd_per_mtok: Option<f64>,
 }
 
 /// As long as the identity provider's requests may take.

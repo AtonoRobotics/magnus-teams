@@ -44,6 +44,10 @@ pub enum Spender {
     /// by dollars, never by the call cap, so the run's last step is still
     /// checked.
     Check,
+    /// What an action the model asked for has a provider make (a
+    /// picture): the action was counted already, so it is bounded by
+    /// dollars alone.
+    Made,
 }
 
 /// What may still be spent.
@@ -108,7 +112,7 @@ pub fn allowance_held(s: &State, run_id: &str, spender: Spender, now: DateTime<U
     // The run's own budget, and every run's above it, each counted over
     // its whole tree of sub-agents (`tree`).
     let scope = scope_of_run(s, run_id);
-    if let Some(stop) = super::tree::stop(s, spender, &scope.runs) {
+    if let Some(stop) = super::tree::stop(s, spender, &scope.runs, held) {
         return Err(stop);
     }
     // A task under a grant stops once the grant's budget for its period is
@@ -172,7 +176,7 @@ pub fn scope_of_run(s: &State, run: &str) -> Hold {
         person: s.runs.get(run).map(|r| r.person.clone()),
         workspace: team.map(|t| t.workspace.clone()),
         channel: team.map(|t| t.channel.clone()),
-        usd: 0.0,
+        ..Hold::default()
     }
 }
 

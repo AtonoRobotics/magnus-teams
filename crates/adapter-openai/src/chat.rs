@@ -2,7 +2,7 @@
 //! Opaque state per assistant turn: `{ "reasoning_content": ... }` when the
 //! provider streams reasoning (GLM); sent back only with `send_reasoning`.
 
-use crate::{bearer, classify, finish, request, retry_after, tool_specs, zero_usage, Sse};
+use crate::{bearer, classify, fail, finish, request, retry_after, tool_specs, zero_usage, Sse};
 use magnus_adapter_proto::{Block, CompleteParams, ErrorClass, Event, Role, Sink};
 use serde_json::{json, Value};
 
@@ -188,7 +188,7 @@ pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink
         }
     };
     if let Err((c, m)) = r {
-        return sink.error(c, m).await;
+        return fail(sink, &p.settings, &p.model, &usage, served.as_deref(), c, m).await;
     }
     for (i, (id, name, args)) in calls.into_iter().enumerate() {
         let input: Value = if args.trim().is_empty() {
@@ -196,7 +196,9 @@ pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink
         } else {
             match serde_json::from_str(&args) {
                 Ok(v) => v,
-                Err(_) => return sink.error(ErrorClass::Malformed, format!("tool call {name} has arguments that are not JSON")).await,
+                Err(_) => {
+                    return fail(sink, &p.settings, &p.model, &usage, served.as_deref(), ErrorClass::Malformed, format!("tool call {name} has arguments that are not JSON")).await
+                }
             }
         };
         let id = if id.is_empty() { format!("call_{i}") } else { id };

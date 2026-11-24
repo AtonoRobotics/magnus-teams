@@ -23,6 +23,10 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[cfg(feature = "testing")]
+pub mod testing;
+
 use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -191,6 +195,13 @@ pub struct Usage {
     pub cost_usd: f64,
 }
 
+impl Usage {
+    /// Nothing counted: no token and no cost.
+    pub fn is_nothing(&self) -> bool {
+        self.input_tokens == 0 && self.output_tokens == 0 && self.cache_read_tokens == 0 && self.cache_write_tokens == 0 && self.cost_usd == 0.0
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModelInfo {
     pub id: String,
@@ -323,6 +334,17 @@ impl Sink {
 
     pub async fn error(&mut self, class: ErrorClass, message: impl Into<String>) -> anyhow::Result<()> {
         self.send(&Event::Error { class, message: message.into(), retry_after_s: None }).await
+    }
+
+    /// End a turn that failed after the provider began charging for it:
+    /// the usage counted so far goes first, so the kernel books what the
+    /// failed call cost ("charged, then failed"), then the error. Usage of
+    /// nothing is not sent.
+    pub async fn charged_error(&mut self, usage: &Usage, class: ErrorClass, message: impl Into<String>) -> anyhow::Result<()> {
+        if !usage.is_nothing() {
+            self.send(&Event::Usage(usage.clone())).await?;
+        }
+        self.error(class, message).await
     }
 }
 

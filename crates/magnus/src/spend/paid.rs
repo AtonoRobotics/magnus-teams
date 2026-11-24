@@ -3,8 +3,10 @@
 //! Every model call outside the agent loop's own step goes through
 //! [`Kernel::paid_call`]: the reviewer and the checks that share its model,
 //! the memory pass, knowledge extraction, the spoken script, the safety
-//! monitor, the screens and the credential review. It does four things,
-//! in order:
+//! monitor, the screens and the credential review. Pictures and knowledge
+//! embeddings go through the same steps by [`Kernel::pay`], priced by the
+//! server's config (decisions/2026-11-23-every-charged-token-is-booked.md).
+//! It does four things, in order:
 //!
 //! 1. the model may be used: its provider is not turned off, and the
 //!    person it works for may use it (a model the server set for its own
@@ -15,7 +17,9 @@
 //!    the server's), less what calls in flight hold (`holds`);
 //! 3. the call;
 //! 4. its cost is recorded, on success and on failure alike: a failed call
-//!    the provider charged for is charged too. A run's call is recorded as
+//!    the provider charged for is charged too, and one cut off by its
+//!    timeout is charged its prompt at the quoted input price, as the
+//!    provider bills a prompt it was sent. A run's call is recorded as
 //!    its caller's own usage event, or as a `charged` change; a call for no
 //!    run is a `charged` change naming its owner. Each lands on the money
 //!    ledger (`book`).
@@ -32,11 +36,45 @@ use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::state::Run;
 use chrono::Utc;
-use magnus_adapter_proto::{Message, ToolSpec};
+use magnus_adapter_proto::{Message, ToolSpec, Usage};
 use std::time::Duration;
 
 /// Who writes a `charged` change.
 const PAID_ACTOR: &str = "kernel:paid";
+
+/// A call's prompt, and what is quoted for it and for its whole output:
+/// its worst case is the two together.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Quote {
+    pub input_tokens: u64,
+    pub input_usd: f64,
+    pub output_usd: f64,
+}
+
+/// Any paid call, whatever it makes (`Kernel::pay`).
+pub(crate) struct Bill<'a> {
+    pub payer: Payer<'a>,
+    /// What it is for, as its record names it.
+    pub purpose: &'a str,
+    /// The adapter that makes it; for a provider that is no adapter (an
+    /// images or embeddings endpoint), what it is. Its record names it.
+    pub adapter: &'a str,
+    pub model: &'a str,
+    /// The server set this model for its own use (`Call::servers_model`).
+    pub servers_model: bool,
+    /// How long the provider has to answer (`Call::timeout`).
+    pub timeout: Option<Duration>,
+}
+
+/// Why a paid call failed, and what the provider charged for it by then.
+pub(crate) struct Failure {
+    pub message: String,
+    pub usage: Option<Usage>,
+}
+
+pub(crate) fn no_usage() -> Usage {
+    Usage { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0.0 }
+}
 
 /// Who a paid call is for.
 pub(crate) enum Payer<'a> {
@@ -64,7 +102,8 @@ pub(crate) struct Call<'a> {
     /// default for a credential review): a person's model access does not
     /// limit it. Its provider being off still does.
     pub servers_model: bool,
-    /// How long the provider has to answer.
+    /// How long the provider has to answer. The call owns it: one cut off
+    /// is booked here, which a timeout around the call could not do.
     pub timeout: Option<Duration>,
 }
 
@@ -149,62 +188,113 @@ impl Kernel {
     /// usage event and the actor that writes it; None, or a call for no
     /// run, records a `charged` change.
     pub(crate) async fn paid_call(&self, c: Call<'_>, record: impl FnOnce(&TurnOut) -> Option<(&'static str, Ev)>) -> Result<Paid, Refused> {
-        provider_on(self, c.adapter).map_err(Refused::Model)?;
-        let person = match &c.payer {
+        let quote = self.quote(&c).await;
+        let Call { payer, purpose, adapter, model, system, messages, tools, max_tokens, servers_model, timeout } = c;
+        let bill = Bill { payer, purpose, adapter, model, servers_model, timeout };
+        let call = async move {
+            let out = self.adapters.complete(adapter, model, system, messages, tools, max_tokens, |_| {}).await;
+            out.map(|out| {
+                let usage = out.usage.clone();
+                (out, usage)
+            })
+            .map_err(|e| Failure { message: e.message.clone(), usage: e.usage.clone() })
+        };
+        let (out, seq) = self.pay(bill, quote, call, |out, _| record(out)).await?;
+        Ok(Paid { out, seq })
+    }
+
+    /// Why a call may not be made on this model, if so: its provider is
+    /// off, or the person it works for may not use it.
+    async fn model_refusal(&self, b: &Bill<'_>) -> Result<(), Refused> {
+        provider_on(self, b.adapter).map_err(Refused::Model)?;
+        let person = match &b.payer {
             Payer::Run(r, _) => Some(r.person.clone()),
             Payer::Owner(Owner::Person(p)) => Some(p.clone()),
             Payer::Owner(_) => None,
         };
-        if let Some(why) = match (&person, c.servers_model) {
-            (Some(p), false) => person_may_not(self, p, c.adapter, c.model).await,
-            _ => None,
-        } {
-            return Err(Refused::Model(why));
+        match (&person, b.servers_model) {
+            (Some(p), false) => person_may_not(self, p, b.adapter, b.model).await.map_or(Ok(()), |why| Err(Refused::Model(why))),
+            _ => Ok(()),
         }
-        let worst = self.worst_case(&c).await;
-        let scope = match &c.payer {
+    }
+
+    /// Whether a call whose worst case is `worst` fits what its payer has
+    /// left given what calls in flight hold, and the dollars it holds.
+    fn fit(&self, payer: &Payer<'_>, worst: Option<f64>, held: &[super::holds::Hold]) -> Result<((), f64), String> {
+        let left = self.read(|s| match payer {
+            Payer::Run(r, spender) => allowance_held(s, &r.id, *spender, Utc::now(), held),
+            Payer::Owner(o) => owner_allowance(s, o, Utc::now(), held),
+        });
+        match (left, worst) {
+            (Err(stop), _) => Err(stop.why),
+            (Ok(l), Some(w)) if w <= l.usd => Ok(((), w)),
+            (Ok(l), Some(w)) => Err(format!("its worst case (${w:.4}) does not fit what is left of {} (${:.4})", l.named(), l.usd)),
+            // A call nobody can price passes no limit unseen: only
+            // where no limit applies does it go on.
+            (Ok(l), None) if l.usd.is_infinite() => Ok(((), 0.0)),
+            (Ok(_), None) => Err("it could not be priced".to_string()),
+        }
+    }
+
+    /// Why a call could not be made now even with nothing else in flight,
+    /// if so: for a caller that answers before the call is made (a
+    /// picture), so a call refused is said at once. `pay` decides.
+    pub(crate) async fn may_pay(&self, b: &Bill<'_>, quote: Option<Quote>) -> Result<(), Refused> {
+        self.model_refusal(b).await?;
+        self.fit(&b.payer, quote.map(|q| q.input_usd + q.output_usd), &[]).map(|_| ()).map_err(Refused::Allowance)
+    }
+
+    /// Make one paid call of any kind (`paid_call` for a model's turn): the
+    /// model may be used, its worst case at `quote` fits what is left, the
+    /// call is made, and its cost recorded whether it answers or fails. A
+    /// call its timeout cuts off is booked at its quoted input price.
+    pub(crate) async fn pay<T>(
+        &self,
+        b: Bill<'_>,
+        quote: Option<Quote>,
+        call: impl std::future::Future<Output = Result<(T, Usage), Failure>>,
+        record: impl FnOnce(&T, &Usage) -> Option<(&'static str, Ev)>,
+    ) -> Result<(T, i64), Refused> {
+        self.model_refusal(&b).await?;
+        let worst = quote.map(|q| q.input_usd + q.output_usd);
+        let scope = match &b.payer {
             Payer::Run(r, _) => self.read(|s| scope_of_run(s, &r.id)),
             Payer::Owner(o) => o.scope(),
         };
-        let fit = |held: &[super::holds::Hold]| {
-            let left = self.read(|s| match &c.payer {
-                Payer::Run(r, spender) => allowance_held(s, &r.id, *spender, Utc::now(), held),
-                Payer::Owner(o) => owner_allowance(s, o, Utc::now(), held),
-            });
-            match (left, worst) {
-                (Err(stop), _) => Err(stop.why),
-                (Ok(l), Some(w)) if w <= l.usd => Ok(((), w)),
-                (Ok(l), Some(w)) => Err(format!("its worst case (${w:.4}) does not fit what is left of {} (${:.4})", l.named(), l.usd)),
-                // A call nobody can price passes no limit unseen: only
-                // where no limit applies does it go on.
-                (Ok(l), None) if l.usd.is_infinite() => Ok(((), 0.0)),
-                (Ok(_), None) => Err("it could not be priced".to_string()),
-            }
-        };
-        let ((), held) = self.spend_holds.admit(scope, fit).await.map_err(|why| {
-            tracing::info!("{} skipped: {why}", c.purpose);
+        let ((), held) = self.spend_holds.admit(scope, |held| self.fit(&b.payer, worst, held)).await.map_err(|why| {
+            tracing::info!("{} skipped: {why}", b.purpose);
             Refused::Allowance(why)
         })?;
-        let model = format!("{}/{}", c.adapter, c.model);
-        let call = self.adapters.complete(c.adapter, c.model, c.system, c.messages, c.tools, c.max_tokens, |_| {});
-        let out = match c.timeout {
-            Some(t) => tokio::time::timeout(t, call).await.map_err(|_| Refused::Failed(format!("no answer within {}s", t.as_secs())))?,
-            None => call.await,
-        };
-        let (run, owner) = match &c.payer {
+        let model = format!("{}/{}", b.adapter, b.model);
+        let (run, owner) = match &b.payer {
             Payer::Run(r, _) => (Some(r.id.clone()), None),
             Payer::Owner(o) => (None, Some(o.key())),
         };
-        let charged = |usage, failed| Ev::Spend(Change::Charged { run: run.clone(), owner: owner.clone(), purpose: c.purpose.to_string(), model: model.clone(), usage, failed });
+        let charged = |usage, failed| Ev::Spend(Change::Charged { run: run.clone(), owner: owner.clone(), purpose: b.purpose.to_string(), model: model.clone(), usage, failed });
+        let out = match b.timeout {
+            Some(t) => match tokio::time::timeout(t, call).await {
+                Ok(out) => out,
+                Err(_) => {
+                    // Cut off: the provider was sent the request and bills
+                    // it, so it is booked at the quoted input price.
+                    let why = format!("no answer within {}s", t.as_secs());
+                    tracing::warn!("{} on {model}: {why}", b.purpose);
+                    let usage = quote.map_or_else(no_usage, |q| Usage { input_tokens: q.input_tokens, cost_usd: q.input_usd, ..no_usage() });
+                    self.emit(PAID_ACTOR, charged(usage, true)).await.map_err(Refused::Record)?;
+                    return Err(Refused::Failed(why));
+                }
+            },
+            None => call.await,
+        };
         let result = match out {
-            Ok(out) => {
-                let (actor, ev) = run.as_ref().and_then(|_| record(&out)).unwrap_or_else(|| (PAID_ACTOR, charged(out.usage.clone(), false)));
+            Ok((out, usage)) => {
+                let (actor, ev) = run.as_ref().and_then(|_| record(&out, &usage)).unwrap_or_else(|| (PAID_ACTOR, charged(usage, false)));
                 let e = self.emit(actor, ev).await.map_err(Refused::Record)?;
-                Ok(Paid { out, seq: e.seq })
+                Ok((out, e.seq))
             }
             Err(e) => {
-                tracing::warn!("{} on {model}: {e:?}", c.purpose);
-                if let Some(usage) = e.usage.clone() {
+                tracing::warn!("{} on {model}: {}", b.purpose, e.message);
+                if let Some(usage) = e.usage {
                     self.emit(PAID_ACTOR, charged(usage, true)).await.map_err(Refused::Record)?;
                 }
                 Err(Refused::Failed(e.message))
@@ -214,9 +304,9 @@ impl Kernel {
         result
     }
 
-    /// A call's worst case in dollars: its prompt and its whole output at
-    /// the adapter's quote. None when the adapter cannot quote.
-    async fn worst_case(&self, c: &Call<'_>) -> Option<f64> {
+    /// A call's prompt and the adapter's quote for it and its whole output:
+    /// its worst case. None when the adapter cannot quote.
+    async fn quote(&self, c: &Call<'_>) -> Option<Quote> {
         let input_tokens = match self.adapters.estimate_prompt(c.adapter, c.model, c.system, c.messages.clone(), c.tools.clone()).await {
             Ok(n) => n,
             Err(e) => {
@@ -225,7 +315,7 @@ impl Kernel {
             }
         };
         match self.adapters.quote(c.adapter, c.model, input_tokens, c.max_tokens).await {
-            Ok((input_usd, output_usd)) => Some(input_usd + output_usd),
+            Ok((input_usd, output_usd)) => Some(Quote { input_tokens, input_usd, output_usd }),
             Err(e) => {
                 tracing::warn!("{} quote: {e:#}", c.purpose);
                 None

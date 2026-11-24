@@ -33,12 +33,45 @@ pub fn used(s: &State, run: &str) -> Used {
 
 /// Why `runs[0]` may not spend once more for `spender`: a limit of its own
 /// or of a run above it (`runs`, the run first, then its parents), each
-/// counted over that run's whole tree.
-pub(super) fn stop(s: &State, spender: Spender, runs: &[String]) -> Option<Box<Stop>> {
+/// counted over that run's whole tree. An action counts too what another
+/// run's batch holds there (`holds::Holds::reserve`).
+pub(super) fn stop(s: &State, spender: Spender, runs: &[String], held: &[Hold]) -> Option<Box<Stop>> {
+    let asker = runs.first().map(String::as_str).unwrap_or_default();
     runs.iter().enumerate().find_map(|(i, id)| {
         let run = s.runs.get(id)?;
-        stop_for(run, used(s, id), spender, i > 0)
+        let mut used = used(s, id);
+        if spender == Spender::Action {
+            used.actions = used.actions.saturating_add(held_actions(s, held, id, asker));
+        }
+        stop_for(run, used, spender, i > 0)
     })
+}
+
+/// How many actions `runs[0]` may still take: the least any run in `runs`
+/// (the run, then its parents) has left, each counted over its whole tree
+/// with what other runs' batches hold there.
+pub fn actions_left(s: &State, runs: &[String], held: &[Hold]) -> u32 {
+    let asker = runs.first().map(String::as_str).unwrap_or_default();
+    runs.iter()
+        .filter_map(|id| Some((s.runs.get(id)?, id)))
+        .map(|(run, id)| run.config.budget.max_actions.saturating_sub(used(s, id).actions.saturating_add(held_actions(s, held, id, asker))))
+        .min()
+        .unwrap_or(0)
+}
+
+/// The actions held against `id`'s tree by batches of runs other than
+/// `asker`: a batch's actions are its own calls' to take.
+fn held_actions(s: &State, held: &[Hold], id: &str, asker: &str) -> u32 {
+    held.iter()
+        .filter(|h| h.actions > 0 && h.runs.first().map(String::as_str) != Some(asker) && h.runs.iter().any(|r| r == id))
+        .map(|h| still_held(s, h))
+        .fold(0, u32::saturating_add)
+}
+
+/// What a batch still holds: the actions its run has not yet recorded.
+fn still_held(s: &State, h: &Hold) -> u32 {
+    let recorded = h.runs.first().and_then(|r| s.runs.get(r)).map_or(0, |r| r.actions.saturating_sub(h.actions_at));
+    h.actions.saturating_sub(recorded)
 }
 
 fn stop_for(run: &Run, used: Used, spender: Spender, above: bool) -> Option<Box<Stop>> {
@@ -48,7 +81,7 @@ fn stop_for(run: &Run, used: Used, spender: Spender, above: bool) -> Option<Box<
     let calls = match spender {
         Spender::Step => Some(used.steps),
         Spender::Extra => Some(used.model_calls),
-        Spender::Action | Spender::Check => None,
+        Spender::Action | Spender::Check | Spender::Made => None,
     };
     if let Some(n) = calls.filter(|n| *n >= b.max_model_calls) {
         let what = format!("{n} of {} model calls", b.max_model_calls);
@@ -162,5 +195,29 @@ mod tests {
         let runs = vec!["r1".to_string(), "rt".to_string()];
         let l = left(&s, &runs, &[Hold { runs: vec!["r2".into(), "rt".into()], usd: 0.5, ..Hold::default() }], Left { usd: f64::INFINITY, of: "" });
         assert!((l.usd - 0.5).abs() < 1e-9, "{}", l.usd);
+    }
+
+    /// The actions a batch of the top's holds are its own calls' to take: a
+    /// child cannot take them first, and each the top records frees one.
+    #[test]
+    fn a_batchs_held_actions_are_not_a_childs_to_take() {
+        use crate::spend::allowance::allowance_held;
+        let mut s = tree();
+        set(&mut s, "rt", 0, 30);
+        set(&mut s, "r1", 0, 4);
+        let held = [Hold { runs: vec!["rt".into()], actions: 5, actions_at: 30, ..Hold::default() }];
+        let rt = ["rt".to_string()];
+        assert_eq!(actions_left(&s, &rt, &held), 6, "the top's own batch was counted against it");
+        let r1 = ["r1".to_string(), "rt".to_string()];
+        assert_eq!(actions_left(&s, &r1, &held), 1, "a child was not held to what its parent's batch holds");
+        assert!(allowance_held(&s, "r1", Spender::Action, Utc::now(), &held).is_ok());
+        set(&mut s, "r1", 0, 5);
+        assert!(allowance_held(&s, "r1", Spender::Action, Utc::now(), &held).is_err(), "a child took an action its parent's batch holds");
+        assert!(allowance_held(&s, "rt", Spender::Action, Utc::now(), &held).is_ok(), "the top's batch stopped its own calls");
+        // The top's calls record two of the five: three are still held.
+        set(&mut s, "rt", 0, 32);
+        set(&mut s, "r1", 0, 4);
+        assert_eq!(actions_left(&s, &r1, &held), 1);
+        assert_eq!(actions_left(&s, &rt, &held), 4);
     }
 }
