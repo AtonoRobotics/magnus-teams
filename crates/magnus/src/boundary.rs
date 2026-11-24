@@ -591,7 +591,8 @@ impl Kernel {
             }
         }
         let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
-        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
+        // Signing in acts as the person's identity, as `browser_as_*` does: not public browsing.
+        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_") && a.tool != "browser_sign_in";
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
         if web_or_browser_read && !is_query_tool && untrusted && private {
@@ -636,15 +637,18 @@ impl Kernel {
                 } else {
                     "destination is outside the user's request envelope"
                 };
-                if let Some(kind) = crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input) {
+                // Only an app's message is staged, and only until the person
+                // has answered for this very action (a staged item they sent
+                // is their approval of it): then it is case 3, answered.
+                let answered = || self.person_cover(run, a, f, shown, &shown_hash(a, shown), &dests, Some(crate::asks::Reason::NewDestination)).is_some();
+                let stageable = f.connector.as_ref().and_then(|_| crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input));
+                if let Some(kind) = stageable.filter(|_| !answered()) {
                     let msg = self.stage_action(a, run, f, shown, crate::staging::StageMeta { kind, dests: &dests, reason: why }).await?;
                     self.decision(a, "stage", "envelope", why, None).await?;
                     return Ok(Err(self.record(a, None, Record { status: "staged", text: msg, is_error: false, label: Label::PRINCIPAL, data: None }).await?));
                 }
-                ask = Some((
-                    format!("the work has read untrusted content and private data, and this unstageable action targets a new destination ({why})"),
-                    Some(crate::asks::NEW_DESTINATION.to_string()),
-                ));
+                ask =
+                    Some(("the work has read untrusted content and private data, and this sends to a new destination".to_string(), Some(crate::asks::NEW_DESTINATION.to_string())));
             }
         }
         Ok(Ok(self.payment_ask(a, f.risk).or(ask)))

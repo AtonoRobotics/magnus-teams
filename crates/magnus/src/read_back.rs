@@ -24,6 +24,9 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// What a read-back's call id starts with, before the call it reads back.
+pub(crate) const CALL_PREFIX: &str = "readback:";
+
 /// How the world is read back after one tool's action.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -146,7 +149,7 @@ impl Kernel {
         let read = format!("{}__{}", f.app, rb.read);
         let check = Action {
             run: a.run.clone(),
-            call_id: format!("readback:{}", a.call_id),
+            call_id: format!("{CALL_PREFIX}{}", a.call_id),
             step_id: format!("{}.readback", a.step_id),
             tool: read.clone(),
             input: read_input(&rb, &had),
