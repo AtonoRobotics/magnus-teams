@@ -35,6 +35,9 @@ mod keep;
 #[cfg(test)]
 mod keep_tests;
 pub(crate) mod knowledge;
+mod lane_release;
+#[cfg(test)]
+mod lane_release_tests;
 pub mod lanes;
 #[cfg(test)]
 mod lanes_tests;

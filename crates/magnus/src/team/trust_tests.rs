@@ -81,6 +81,7 @@ async fn a_steers_objective_reads_as_another_members() {
         owner: "mo".into(),
         draft: "Two invoices.".into(),
         scrub_flagged: false,
+        held_because: None,
     };
     s.k.emit("kernel", Ev::TeamMission(draft)).await.unwrap();
 

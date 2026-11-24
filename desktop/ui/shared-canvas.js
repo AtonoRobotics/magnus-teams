@@ -31,7 +31,7 @@ const SharedCanvas = (() => {
             href: `#/team/${enc(ws)}`,
             tone: "needs",
             title: m.goal,
-            desc: l.scrub_flagged ? "Sensitive data flagged — review privately before sharing" : "Only you see this draft — review and share with the group",
+            desc: l.held_because ? `Held for you to check: ${l.held_because}` : l.scrub_flagged ? "Sensitive data flagged — review privately before sharing" : "Only you see this draft — review and share with the group",
           });
         }
       }

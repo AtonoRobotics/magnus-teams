@@ -174,7 +174,7 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
                 if r.status.terminal() {
                     if let Some(text) = r.summary.or_else(|| r.replies.last().map(|m| m.text().to_string())).filter(|s| !s.trim().is_empty()) {
                         let flagged = scrub_check(&text).is_some();
-                        let draft = TeamMissionEvent::LaneDraftReady { workspace: ws, mission, lane, owner, draft: text, scrub_flagged: flagged };
+                        let draft = TeamMissionEvent::LaneDraftReady { workspace: ws, mission, lane, owner, draft: text, scrub_flagged: flagged, held_because: None };
                         let _ = k2.move_lane("kernel", LaneStep::Draft, draft).await;
                     }
                     return;

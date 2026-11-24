@@ -1,8 +1,11 @@
 //! A lane's steps go through the ledger's one table (`LaneStatus::next`):
 //! the owner cannot release a lane its worker still holds, a restart
 //! follows again the lanes it left working, and an open-web lane's release
-//! is its requester's, so erasing them reaches it.
+//! is its requester's, so erasing them reaches it. A release that posts
+//! itself is checked first (`lane_release`), so these serve a model that
+//! allows it.
 
+use super::lane_release_tests::{serve_checks, Says};
 use super::missions::{Lane, LaneStatus};
 use crate::admin_app::tests::{server_with, Server};
 use crate::events::{Ev, LaneKind, TeamMissionEvent};
@@ -89,8 +92,15 @@ async fn the_owner_cannot_release_a_lane_still_working() {
     assert_eq!(lane(&s.k, "m1", "l1").status, LaneStatus::Working);
     assert!(s.k.read(|st| st.team.workspace(&ws).unwrap().channels[&channel].messages.is_empty()), "the refused release was posted");
 
-    let draft =
-        TeamMissionEvent::LaneDraftReady { workspace: ws.clone(), mission: "m1".into(), lane: "l1".into(), owner: "sam".into(), draft: "the draft".into(), scrub_flagged: false };
+    let draft = TeamMissionEvent::LaneDraftReady {
+        workspace: ws.clone(),
+        mission: "m1".into(),
+        lane: "l1".into(),
+        owner: "sam".into(),
+        draft: "the draft".into(),
+        scrub_flagged: false,
+        held_because: None,
+    };
     s.k.emit("kernel", Ev::TeamMission(draft)).await.unwrap();
     let (st, v) = s.post(&sam, &path, json!({})).await;
     assert_eq!(st, 200, "a draft could not be released: {v}");
@@ -105,6 +115,7 @@ async fn the_owner_cannot_release_a_lane_still_working() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_open_web_release_is_its_requesters() {
     let s = server_with("", |_| Router::new()).await;
+    serve_checks(&s.k, Says::ALLOWING).await;
     let (ws, channel) = workspace(&s).await;
     started(&s.k, &ws, &channel, "m1").await;
     let web = run(&s.k).await;
@@ -204,6 +215,7 @@ async fn a_restart_follows_the_lanes_it_left_working() {
     dispatched(&s.k, &ws, "m1", "none", LaneKind::MemberAgent, Some("sam"), None, false, None).await;
 
     let (k, db, _dir) = restarted(&s).await;
+    serve_checks(&k, Says::ALLOWING).await;
     for gone in ["stopped", "finished"] {
         assert_eq!(ended(&k, "m1", gone).await.failure_reason.as_deref(), Some("its worker ended while the server was down"), "{gone}");
     }
