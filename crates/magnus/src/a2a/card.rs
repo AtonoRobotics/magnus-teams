@@ -83,7 +83,7 @@ pub async fn fetch(e: &Egress, card_url: &str, allow_http: bool) -> Result<Verif
 async fn verify_one(e: &Egress, card: &Value, sig: &Value, at: &url::Url, allow_http: bool) -> Result<String> {
     let h = jws::header(sig)?;
     let jku = h.jku.as_deref().ok_or_else(|| anyhow!("its signature names no key set (jku)"))?;
-    let keys_at = checked_url(&at.join(jku)?.to_string(), allow_http)?;
+    let keys_at = checked_url(at.join(jku)?.as_ref(), allow_http)?;
     if keys_at.host_str() != at.host_str() {
         bail!("its key set is on {}, not on the card's own host", keys_at.host_str().unwrap_or_default());
     }

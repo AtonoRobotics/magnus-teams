@@ -268,6 +268,10 @@ fn a_reply_waits_in_the_airlock_unless_a_standing_release_covers_it() {
                 let held = items(&s, super::REPLY_ITEM).pop().unwrap();
                 let (st, v) = s.post(&mo, &format!("/v1/inbox/{}", held.id), json!({ "decision": "release_always" })).await;
                 assert_eq!(st, 200, "{v}");
+                // The release is kept by a digest: the request's words stay
+                // content, deleted with it, and are not in the release.
+                assert!(s.k.read(|st| st.outside_agents.has_standing_release("mo", &agent, &super::inbound::release_key(words))));
+                assert!(!s.k.read(|st| st.outside_agents.has_standing_release("mo", &agent, words)), "the release keeps the request's words");
             } else {
                 wait_for("the covered reply to leave", || s.k.read(|st| st.outside_agents.inbound(&task).is_some_and(|i| i.reply.is_some()))).await;
                 assert_eq!(items(&s, super::REPLY_ITEM).len(), 1, "a covered reply waited in the Airlock");

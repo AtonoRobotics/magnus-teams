@@ -5,7 +5,7 @@
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
     let src = &src[src.find("pub enum Ev {").unwrap()..src.find("pub const CONTENT").unwrap()];
-    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "team_mission", "rule", "spend", "evidence"].contains(k)) {
+    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "team_mission", "rule", "spend", "evidence", "outside_agent"].contains(k)) {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
         let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
         let body = &src[start..start + src[start..].find("\n    },").unwrap()];
@@ -74,5 +74,27 @@ fn evidence_content_fields_have_defaults() {
         let declaration = format!("\n        {field}: ");
         assert!(src.contains(&declaration), "missing evidence field {field}");
         assert_eq!(src.matches(&declaration).count(), src.matches(&format!("#[serde(default)]{declaration}")).count());
+    }
+}
+
+/// An outside agent's words (a request, a held draft and why, a reply) are
+/// content: each is a field of an outside-agent change, and each change
+/// still reads once its words are deleted.
+#[test]
+fn an_outside_agents_words_are_content_and_read_once_deleted() {
+    let src = include_str!("a2a/ledger.rs");
+    let src = &src[src.find("pub enum Change {").unwrap()..src.find("/// A task Magnus sent").unwrap()];
+    let (_, fields) = super::CONTENT.iter().find(|(k, _)| *k == "outside_agent").unwrap();
+    for f in *fields {
+        let field = format!("\n        {f}: ");
+        assert!(src.contains(&field), "no outside-agent change has {f}");
+        assert_eq!(src.matches(&field).count(), src.matches(&format!("#[serde(default)]{field}")).count(), "an outside-agent change's {f} has no default");
+    }
+    for deleted in [
+        serde_json::json!({ "change": "request_received", "agent": "oa", "task": "in-1", "message_id": "m-1", "to": { "person": "mo" } }),
+        serde_json::json!({ "change": "reply_held", "task": "in-1", "item": "i1" }),
+        serde_json::json!({ "change": "replied", "task": "in-1", "by": "kernel" }),
+    ] {
+        assert!(serde_json::from_value::<crate::a2a::Change>(deleted.clone()).is_ok(), "{deleted} does not read once its words are deleted");
     }
 }

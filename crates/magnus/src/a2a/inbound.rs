@@ -68,6 +68,14 @@ pub(crate) fn task_id(agent: &str, message_id: &str) -> String {
     format!("in-{hex}")
 }
 
+/// What a standing release is kept by: a digest of the request's words, so
+/// the words themselves stay content (deleted with it) and never sit in
+/// the release.
+pub(crate) fn release_key(text: &str) -> String {
+    let d = digest(text);
+    d.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Who a request names, from its metadata (`{"to": {"person": ..}}` or
 /// `{"to": {"project": ..}}`), on the message or on the request.
 fn target(params: &Value) -> Option<Target> {

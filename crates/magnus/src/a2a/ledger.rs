@@ -105,6 +105,7 @@ pub enum Change {
         task: String,
         message_id: String,
         to: Target,
+        #[serde(default)]
         text: String,
         #[serde(default)]
         item: Option<String>,
@@ -122,12 +123,15 @@ pub enum Change {
     ReplyHeld {
         task: String,
         item: String,
+        #[serde(default)]
         draft: String,
+        #[serde(default)]
         held_because: String,
     },
     /// The reply went to the outside agent (it reads it with GetTask).
     Replied {
         task: String,
+        #[serde(default)]
         reply: String,
         by: String,
     },
@@ -139,6 +143,7 @@ pub enum Change {
     },
     /// The person's standing release: replies to this agent for this exact
     /// request leave without waiting in their Airlock, past the checks.
+    /// `key` is a digest of the request's words, never the words.
     StandingReleaseSet {
         person: String,
         agent: String,

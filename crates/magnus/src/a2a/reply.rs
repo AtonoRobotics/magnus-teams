@@ -67,7 +67,12 @@ impl Kernel {
                 let draft = item.details["draft"].as_str().unwrap_or_default().to_string();
                 let mut evs = vec![resolved, Ev::OutsideAgent(Change::Replied { task: i.task.clone(), reply: draft, by: actor.clone() })];
                 if decision == "release_always" {
-                    evs.push(Ev::OutsideAgent(Change::StandingReleaseSet { person: p.id.clone(), agent: i.agent.clone(), key: i.text.clone(), active: true }));
+                    evs.push(Ev::OutsideAgent(Change::StandingReleaseSet {
+                        person: p.id.clone(),
+                        agent: i.agent.clone(),
+                        key: super::inbound::release_key(&i.text),
+                        active: true,
+                    }));
                 }
                 evs
             }
@@ -90,7 +95,7 @@ impl Kernel {
         let person = i.person.clone().unwrap_or_else(|| r.person.clone());
         let draft = super::bounded(r.summary.as_deref().unwrap_or_default().trim());
         let Some(agent) = self.read(|s| s.outside_agents.agent(&i.agent).cloned()) else { return };
-        let gate = if self.read(|s| s.outside_agents.has_standing_release(&person, &agent.id, &i.text)) {
+        let gate = if self.read(|s| s.outside_agents.has_standing_release(&person, &agent.id, &super::inbound::release_key(&i.text))) {
             let send = Send {
                 run: &r,
                 call_id: format!("outside_reply:{}", i.task),
