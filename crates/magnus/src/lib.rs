@@ -96,6 +96,7 @@ pub mod mail_config;
 pub mod mail_settings;
 pub mod mailer;
 pub mod measured;
+pub mod memory;
 pub mod memory_curator;
 pub mod memory_index;
 pub mod mental_model;

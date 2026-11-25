@@ -59,7 +59,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 webpki-roots = "1"
 percent-encoding = "2"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5"] }
 semver = "1"
 tar = "0.4"
 flate2 = "1"

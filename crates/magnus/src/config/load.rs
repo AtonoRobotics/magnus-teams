@@ -8,6 +8,7 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)?;
         cfg.path = path.canonicalize()?;
         cfg.outcomes.check()?;
+        cfg.memory.check()?;
         if cfg.legal.is_set() {
             cfg.legal.check()?;
         } else {

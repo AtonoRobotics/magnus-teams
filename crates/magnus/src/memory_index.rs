@@ -20,8 +20,37 @@ pub enum MemoryMode {
     V2,
 }
 
+/// Default fixed `halfvec(N)` dimension for the unified Postgres HNSW index.
+pub const DEFAULT_EMBEDDING_DIM: usize = 1536;
+/// Maximum `halfvec(N)` dimension supported by `pgvector` HNSW indexes.
+pub const MAX_EMBEDDING_DIM: usize = 4000;
+/// Maximum byte budget for pinned `kind = 'profile'` entries per user.
+pub const PROFILE_MAX_BYTES: usize = 8192;
+
+/// Validated `pgvector >= 0.8.0` HNSW iterative scan mode.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HnswIterativeScan {
+    #[default]
+    RelaxedOrder,
+    StrictOrder,
+}
+
+impl HnswIterativeScan {
+    pub fn as_sql_str(self) -> &'static str {
+        match self {
+            Self::RelaxedOrder => "relaxed_order",
+            Self::StrictOrder => "strict_order",
+        }
+    }
+}
+
+fn default_embedding_dim() -> usize {
+    DEFAULT_EMBEDDING_DIM
+}
+
 /// Typed startup `[memory]` configuration (validated at startup, takes effect on restart).
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MemoryConfig {
     #[serde(default)]
     pub mode: MemoryMode,
@@ -32,11 +61,45 @@ pub struct MemoryConfig {
     /// Optional per-person canary overrides in config file (takes effect on restart, N13).
     #[serde(default)]
     pub person_modes: BTreeMap<String, MemoryMode>,
+    /// Fixed `halfvec(N)` embedding dimension for `memory_assertions`.
+    #[serde(default = "default_embedding_dim")]
+    pub embedding_dim: usize,
+    /// `pgvector >= 0.8.0` HNSW iterative scan mode.
+    #[serde(default)]
+    pub hnsw_iterative_scan: HnswIterativeScan,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            mode: MemoryMode::default(),
+            personal_embeddings: false,
+            person_modes: BTreeMap::new(),
+            embedding_dim: default_embedding_dim(),
+            hnsw_iterative_scan: HnswIterativeScan::default(),
+        }
+    }
 }
 
 impl MemoryConfig {
     pub fn mode_for(&self, person: &str) -> MemoryMode {
         self.person_modes.get(person).copied().unwrap_or(self.mode)
+    }
+
+    /// True when the unified Postgres memory engine is enabled globally or for
+    /// at least one canary person.
+    pub fn is_unified_enabled(&self) -> bool {
+        self.mode != MemoryMode::Legacy || self.person_modes.values().any(|m| *m != MemoryMode::Legacy)
+    }
+
+    /// Validate `[memory]` settings at startup (`Config::load`).
+    pub fn check(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.embedding_dim >= 1 && self.embedding_dim <= MAX_EMBEDDING_DIM,
+            "[memory] embedding_dim must be between 1 and {MAX_EMBEDDING_DIM}, got {}",
+            self.embedding_dim
+        );
+        Ok(())
     }
 }
 
