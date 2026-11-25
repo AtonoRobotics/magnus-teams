@@ -217,3 +217,18 @@ fn a_sub_agent_is_held_to_its_top_runs_loop_policy() {
     s.tasks.remove("review");
     assert!(s.loop_deny(&s.runs["r_sub_review"], Some(&carol), "suggest", None).is_some(), "a sub-agent whose top run has no task was let through");
 }
+
+#[test]
+fn a_system_task_that_finished_well_wakes_no_review() {
+    let mut s = State::default();
+    let config = |modules: Value| json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 7, "max_actions": 9, "max_usd": 3.0 }, "verifier": false, "instructions": "", "harness": "", "modules": modules });
+    for (t, modules) in [("beat", json!({ crate::outcomes::SYSTEM_MODULE: true })), ("beat2", json!({ crate::outcomes::SYSTEM_MODULE: true })), ("other", json!({}))] {
+        ev(&mut s, "schedule:sc1", json!({ "kind": "task_created", "task": t, "run": format!("r_{t}"), "person": "carol", "text": "x", "config": config(modules) }));
+    }
+    ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_beat", "summary": "nothing needs you" }));
+    ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_beat2", "reason": "the mail app was down", "by": "kernel" }));
+    ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_other", "summary": "done" }));
+    assert!(!s.end_wakes_review("r_beat"), "a heartbeat that found nothing ends quietly");
+    assert!(s.end_wakes_review("r_beat2"), "a failed one still wakes a review");
+    assert!(s.end_wakes_review("r_other"), "another schedule's run still wakes one");
+}
