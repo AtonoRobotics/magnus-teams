@@ -237,6 +237,12 @@ pub(crate) fn doing_words(tool: &str) -> String {
     }
 }
 
+/// Whether a tool is a run record (a plan, a note to the person), not an
+/// action on anything: a card's step list leaves it out.
+pub(crate) fn is_record(tool: &str) -> bool {
+    decl(tool).is_some_and(|d| d.class.is_none())
+}
+
 /// The first letter upper case, whatever its width in bytes.
 fn capitalised(s: &str) -> String {
     let mut c = s.chars();

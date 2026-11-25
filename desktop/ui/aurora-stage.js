@@ -39,7 +39,6 @@
 const AuroraStage = (() => {
   const FILES_FRESH_MS = 30_000;
   const RECENT_MS = 60 * 60_000;
-  const DUE_SOON_MS = 24 * 60 * 60_000;
   const MOVE_MS = 460;
   const LEAVE_MS = 320;
   const JUMP_PX = 24;
@@ -109,6 +108,11 @@ const AuroraStage = (() => {
   const age = iso => { const at = Date.parse(iso || ""); return Number.isNaN(at) ? Infinity : Date.now() - at; };
   const latest = list => list.sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""))[0];
   const ATTENTION = ["needs_attention", "needs_more_access", "connecting"];
+  /** What a finished task can show for itself: its actions and the receipts the server checked. @param {any} t */
+  const proofOf = t => [t.actions ? plural(t.actions, "action") : "", t.receipts_count ? `${plural(t.receipts_count, "receipt")} checked` : ""].filter(Boolean).join(" · ");
+  const STEP_MARK = /** @type {Record<string, string>} */ ({ done: "✓", failed: "✕", running: "…", stopped: "–" });
+  /** A card's last actions, newest last, each with how it went. @param {Array<{ doing: string, state: string }>|undefined} steps */
+  const stepsList = steps => (steps && steps.length ? `<ol class="stage-tile-steps">${steps.map(x => `<li data-state="${html(x.state)}"><span aria-hidden="true">${STEP_MARK[x.state] || ""}</span> ${html(x.doing)}</li>`).join("")}</ol>` : "");
 
   /** Concise destination/consequence preview for an approval bento tile. @param {any} i @param {number} pendingCount */
   function approvalDesc(i, pendingCount) {
@@ -123,10 +127,12 @@ const AuroraStage = (() => {
 
   /**
    * What is relevant now, dynamically ordered by urgency and recency: each a box of the bento.
-   * @returns {Promise<Array<{ key: string, label: string, icon: string, svg?: string, open: string, href: string, tone: string, title: string, desc: string, count?: number, pct?: number|null, updatedAt?: number }>>}
+   * @returns {Promise<Array<{ key: string, label: string, icon: string, svg?: string, open: string, href: string, tone: string, title: string, desc: string, count?: number, pct?: number|null, steps?: Array<{ doing: string, state: string }>, proof?: string, updatedAt?: number }>>}
    */
   async function boxes() {
-    const tasks = App.tasks || [];
+    // A schedule's routine run (a heartbeat that found nothing, a later
+    // run that finished) is no news: it is in Tasks, not a box here.
+    const tasks = (App.tasks || []).filter(t => !t.routine);
     const here = tasks.filter(t => App.thread && t.thread === App.thread);
     const activeAll = tasks.filter(t => !ended(t)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));
@@ -146,6 +152,7 @@ const AuroraStage = (() => {
         href: `#/task/${enc(run.task_id)}`,
         title: named(run),
         desc: `${waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…"}${subNote}${tally}`,
+        steps: run.recent_steps,
         pct: pctOf(run),
         count: activeAll.length > 1 ? activeAll.length : 0,
         updatedAt: tsOf(run.updated_at || run.created_at),
@@ -158,6 +165,8 @@ const AuroraStage = (() => {
         href: `#/task/${enc(last.task_id)}`,
         title: named(last),
         desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped"),
+        steps: last.recent_steps,
+        proof: proofOf(last),
         updatedAt: tsOf(last.ended_at || last.created_at),
       });
     }
@@ -175,6 +184,7 @@ const AuroraStage = (() => {
         href: `#/task/${enc(other.task_id)}`,
         title: named(other),
         desc: `${waits(other) ? "Waiting on you to decide" : other.status_line || (step && step.goal) || "Running in background…"}${subNote}`,
+        steps: other.recent_steps,
         pct: pctOf(other),
         updatedAt: tsOf(other.updated_at || other.created_at),
       });
@@ -217,8 +227,7 @@ const AuroraStage = (() => {
       const svg = typeof UI !== "undefined" && UI.computer ? `<svg class="ic" viewBox="0 0 24 24">${UI.computer}</svg>` : "";
       list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: "Cloud Computer", desc: w.pill, updatedAt: tsOf(comp.updated_at) });
     }
-    const due = (App.schedules || []).filter(sc => !sc.ended && !sc.paused && sc.next && -age(sc.next) < DUE_SOON_MS).sort((a, b) => String(a.next).localeCompare(String(b.next)));
-    if (due.length) list.push({ key: "next", label: "Up Next", icon: "calendar", tone: "idle", open: `schedule:${due[0].id}`, href: "#/schedules", title: due[0].title, desc: `${until(due[0].next)}${due.length > 1 ? ` · ${due.length - 1} more today` : ""}`, updatedAt: tsOf(due[0].next) });
+    // What is scheduled next is in Schedules: a run hours away is not something to look at now.
     const fresh = (await recentFiles()).filter(f => age(f.at) < RECENT_MS);
     if (fresh.length) list.push({ key: "files", label: "Files", icon: "file", tone: "done", open: `file:${fresh[0].id}`, href: "#/files", title: fresh[0].name, desc: fresh.length > 1 ? `${plural(fresh.length, "new file")} · ${when(fresh[0].at)}` : `New · ${when(fresh[0].at)}`, updatedAt: tsOf(fresh[0].at) });
     const connectors = (typeof Lib !== "undefined" && Array.isArray(Lib.all) ? Lib.all : App.connectors) || [];
@@ -232,7 +241,7 @@ const AuroraStage = (() => {
       if (said.length) list.push({ key: "away", label: "Since you were away", icon: "clock", tone: "idle", open: "activity", href: "#/activity", title: said.join(" · "), desc: "See what happened", updatedAt: 0 });
     }
     const elsewhere = latest(tasks.filter(t => t.thread !== App.thread && ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
-    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
+    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, steps: elsewhere.recent_steps, proof: proofOf(elsewhere), updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
     // Record live content updates first so dynamic recency sorting immediately promotes changed boxes.
     if (typeof AuroraBoxes.noteChanges === "function") AuroraBoxes.noteChanges(list, Date.now());
     const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" ? 1 : c.tone === "talk" ? 2 : c.tone === "done" ? 3 : 4);
@@ -269,7 +278,7 @@ const AuroraStage = (() => {
     // A box just answered goes on its own in a moment: it needs no Close.
     const close = c.said ? "" : `<button type="button" class="stage-tile-close" aria-label="Close ${html(c.label)}" title="Close">${icon("close")}</button>`;
     const bar = typeof c.pct === "number" ? `<div class="stage-tile-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${c.pct}"><span style="width:${c.pct}%"></span></div>` : "";
-    const descHtml = c.desc ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : "";
+    const descHtml = `${c.desc ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : ""}${stepsList(c.steps)}${c.proof ? `<span class="stage-tile-proof">${html(c.proof)} · see what it did</span>` : ""}`;
     const foot = c.said
       ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
       : c.answers

@@ -553,7 +553,7 @@ mod tests {
         let full = harness_text("bob", true, true, true, &[("Gmail".into(), 5)]);
         assert!(full.contains("Gmail (checked every 5 minutes)"), "the harness does not say their email wakes it: {full}");
         assert!(full.contains("you do get notified of their new email"), "{full}");
-        assert!(full.contains("You can search the web with web_search"), "{full}");
+        assert!(full.contains("call web_search directly"), "{full}");
         assert!(full.contains("fresh VM"), "{full}");
         assert!(full.contains("browser tools"), "{full}");
         assert!(!full.contains("You cannot search the web"), "{full}");

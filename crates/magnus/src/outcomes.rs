@@ -82,6 +82,10 @@ pub struct Ledger {
     returned: BTreeSet<String>,
     /// Outcome turns by their task: the task whose outcome each returned.
     turns: BTreeMap<String, String>,
+    /// Each schedule's first run, by schedule. Kept here, from the log,
+    /// not read from the tasks still listed: a run the person deleted
+    /// leaves the list, and the next run is not the first again.
+    first_runs: BTreeMap<String, String>,
 }
 
 /// Their tasks' outcomes, returned or due: none returns for them after.
@@ -90,6 +94,7 @@ impl crate::forget::Forget for Ledger {
         self.due.retain(|t| !who.tasks.contains(t));
         self.returned.retain(|t| !who.tasks.contains(t));
         self.turns.retain(|turn, of| !who.tasks.contains(turn) && !who.tasks.contains(of));
+        self.first_runs.retain(|_, first| !who.tasks.contains(first));
     }
 }
 
@@ -117,6 +122,9 @@ pub fn mark(modules: &mut BTreeMap<String, bool>, chat: Option<&ChatOrigin>) {
 pub fn observe(s: &mut State, e: &Event) {
     match &e.ev {
         Ev::TaskCreated { task, .. } => {
+            if let Some(sc) = e.actor.strip_prefix("schedule:") {
+                s.outcomes.first_runs.entry(sc.to_string()).or_insert_with(|| task.clone());
+            }
             if let Some(of) = e.actor.strip_prefix("outcome:") {
                 s.outcomes.due.remove(of);
                 s.outcomes.returned.insert(of.to_string());
@@ -208,7 +216,17 @@ pub fn start_shows(s: &State, t: &Task) -> bool {
 /// Whether a task is a run of a schedule after its first: one that
 /// finished is no news.
 fn later_run(s: &State, task: &str) -> bool {
-    s.tasks.get(task).is_some_and(|t| t.schedule.as_ref().is_some_and(|sc| s.tasks.values().any(|o| o.schedule.as_ref() == Some(sc) && o.seq < t.seq)))
+    let schedule = s.tasks.get(task).and_then(|t| t.schedule.as_ref());
+    schedule.is_some_and(|sc| s.outcomes.first_runs.get(sc).is_some_and(|first| first != task))
+}
+
+/// Whether a task is a schedule's routine run, which tells no one: a run
+/// after its first that does not need its person (it has not failed and
+/// waits on no one). The workspace shows no box for it; it is in Tasks.
+pub fn routine(s: &State, t: &Task, r: &Run) -> bool {
+    let waits_on_timer = r.reason.as_deref() == Some("timer");
+    let needs_person = r.status == Status::Failed || (r.status == Status::Suspended && !waits_on_timer);
+    !needs_person && later_run(s, &t.task_id)
 }
 
 /// Whether a task's result shows: not one that failed and was retried,
@@ -456,6 +474,29 @@ mod tests {
         s.trash.mark_removed("gone", "carol");
         ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_t9", "summary": "ok" }));
         assert!(s.outcomes.is_due("t9"), "a finished task from a deleted conversation is never told");
+    }
+
+    /// A schedule's first run is known from the log, not from the tasks
+    /// still listed: deleting the earlier runs does not make the next one
+    /// the first again, so a heartbeat's finished run stays quiet.
+    #[test]
+    fn a_deleted_first_run_does_not_make_the_next_one_news() {
+        let mut s = State::default();
+        task(&mut s, "schedule:sc1", "task_hb1", Value::Null, json!({ MODULE: true }));
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_task_hb1", "summary": "Nothing new." }));
+        assert!(s.outcomes.is_due("task_hb1"), "a schedule's first finished run tells no one");
+        ev(&mut s, "person:carol", json!({ "kind": "trashed", "item": "task_hb1", "person": "carol" }));
+        assert!(!s.tasks.contains_key("task_hb1"), "the deleted run is still listed, so this test proves nothing");
+        task(&mut s, "schedule:sc1", "task_hb2", Value::Null, json!({ MODULE: true }));
+        let (t2, r2) = (s.tasks["task_hb2"].clone(), s.runs["r_task_hb2"].clone());
+        assert!(routine(&s, &t2, &r2), "a later run at work is shown as news");
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_task_hb2", "summary": "Nothing new." }));
+        assert!(!s.outcomes.is_due("task_hb2"), "deleting the first run made the next one send a notice");
+        assert!(routine(&s, &s.tasks["task_hb2"].clone(), &s.runs["r_task_hb2"].clone()), "a later finished run is shown as news");
+        task(&mut s, "schedule:sc1", "task_hb3", Value::Null, json!({ MODULE: true }));
+        ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_task_hb3", "reason": "no data", "by": "model" }));
+        assert!(!routine(&s, &s.tasks["task_hb3"].clone(), &s.runs["r_task_hb3"].clone()), "a failed run is hidden as routine");
+        assert!(s.outcomes.is_due("task_hb3"), "a failed later run tells no one");
     }
 
     /// A task whose conversation the person deleted is told by notice only.

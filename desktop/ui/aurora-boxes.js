@@ -64,8 +64,8 @@ const AuroraBoxes = (() => {
    * @param {{ key: string, tone: string, title: string, count?: number }} c
    */
   const sign = c => `${c.key}|${c.tone}|${c.title}${c.count && !c.key.startsWith("approval:") ? `|${c.count}` : ""}`;
-  /** Full content signature including live description, used for recency tracking and resurfacing. @param {{ key: string, tone: string, title: string, desc?: string, count?: number }} c */
-  const contentSign = c => `${sign(c)}|${c.desc || ""}`;
+  /** Full content signature including live description and the last steps, used for recency tracking and resurfacing. @param {{ key: string, tone: string, title: string, desc?: string, count?: number, steps?: Array<{ doing: string, state: string }> }} c */
+  const contentSign = c => `${sign(c)}|${c.desc || ""}|${(c.steps || []).map(x => `${x.doing}:${x.state}`).join(",")}`;
   /** Whether a box wants attention or is actively running, and so stays visible. @param {{ tone: string, said?: string }} c */
   const stays = c => c.tone === "needs" || c.tone === "talk" || c.tone === "run" || !!c.said;
 

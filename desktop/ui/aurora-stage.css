@@ -414,6 +414,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-desc 
   color: var(--fg2);
 }
 
+/* A task box's last actions, newest last, each marked with how it went, and once done its proof. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile-steps, .stage-tile-proof) {
+  display: block;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg2);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-steps li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-steps li[data-state="failed"] {
+  color: var(--bad);
+}
+
 /* An answer's new block streams in word by word. */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stream-word {
   display: inline-block;

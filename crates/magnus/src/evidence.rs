@@ -277,6 +277,33 @@ pub fn status_line(run: &Run) -> Option<String> {
     Some(doing(&last.tool))
 }
 
+/// Steps a task's card lists: its last few actions.
+pub const RECENT_STEPS_COUNT: usize = 4;
+
+/// What a task did last, newest last, as its card lists it while it works
+/// and once it is done: each action's plain words (`doing_words`, from the
+/// tool's name only, so no content a page or message wrote reaches the
+/// card) and whether it finished, failed or is still going. Run records
+/// (a plan, a note) are not actions and are left out.
+pub fn recent_steps(run: &Run, count: usize) -> Vec<Value> {
+    let mut acts: Vec<_> = run.intents.values().filter(|i| i.issuer == "model" && !crate::tool_registry::is_record(&i.tool)).collect();
+    acts.sort_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)));
+    let skip = acts.len().saturating_sub(count);
+    acts.into_iter()
+        .skip(skip)
+        .map(|i| {
+            let result = i.result.as_ref().or_else(|| run.results.get(&i.call_id));
+            let state = match result {
+                Some(r) if r.is_error => "failed",
+                Some(_) => "done",
+                None if run.status.terminal() => "stopped",
+                None => "running",
+            };
+            json!({ "doing": doing(&i.tool), "state": state, "at": i.at })
+        })
+        .collect()
+}
+
 /// Lightweight count of confirmed read-backs / cited sources recorded for
 /// a run, safe to compute while already holding a `State` read lock.
 pub fn receipts_count_in_state(s: &State, run: &Run) -> usize {

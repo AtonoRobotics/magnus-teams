@@ -2044,7 +2044,9 @@ function openPanel(what, options={}) {
   if (Panel.what !== what) {
     if (Panel.what) Panel.layers[Panel.what]=Panel.layer;
     Panel.unwatch?.(); Panel.unwatch=null;
-    Panel.layer=Panel.layers[what] || "outcome"; stopPanelLive();
+    // A task still at work opens on its steps: its result is not there yet.
+    const atWork = (App.tasks || []).some(t => `task:${t.task_id}` === what && t.status === "running");
+    Panel.layer=Panel.layers[what] || (atWork ? "trace" : "outcome"); stopPanelLive();
   }
   Panel.what = what;
   const el = $("#detail");
