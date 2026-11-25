@@ -122,10 +122,23 @@ fn read_usage(usage: &mut Usage, u: &Value) {
     usage.cache_read_tokens = u["input_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0);
 }
 
+/// The headers that name the conversation, as Codex sends them: the
+/// ChatGPT backend picks a turn's cache by these, not by the body's key
+/// alone. With only the body's key, 31 turns after 0.2.6-test.333 read
+/// nothing from cache.
+fn conversation_headers(body: &Value) -> Vec<(&'static str, String)> {
+    match body["prompt_cache_key"].as_str() {
+        Some(k) => vec![("session_id", k.to_string()), ("x-client-request-id", k.to_string())],
+        None => vec![],
+    }
+}
+
 pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink) -> anyhow::Result<()> {
     let s = &p.settings;
     let body = request_body(&p);
-    let Some(resp) = post_signed_in(http, s, &p.credential, "/responses", &body, |r| r.header("accept", "text/event-stream"), sink).await? else {
+    let headers = conversation_headers(&body);
+    let shape = |r: reqwest::RequestBuilder| headers.iter().fold(r.header("accept", "text/event-stream"), |r, (k, v)| r.header(*k, v));
+    let Some(resp) = post_signed_in(http, s, &p.credential, "/responses", &body, shape, sink).await? else {
         return Ok(());
     };
 
@@ -261,6 +274,16 @@ mod tests {
         assert_eq!(key(&turn(json!({}), "Compare the prices.", &["more", "and more"])), first, "a later turn of the same conversation got another key");
         assert_ne!(key(&turn(json!({}), "Check the inbox.", &[])), first, "two conversations shared a key");
         assert_eq!(key(&turn(json!({ "prompt_cache_key": false }), "Compare the prices.", &[])), None, "a provider set not to take the key was sent one");
+    }
+
+    /// The conversation is named in the headers too, by its cache key: the
+    /// ChatGPT backend routes a turn to its cache by them.
+    #[test]
+    fn the_conversation_is_named_in_the_headers() {
+        let body = request_body(&turn(json!({}), "Compare the prices.", &[]));
+        let k = body["prompt_cache_key"].as_str().unwrap().to_string();
+        assert_eq!(conversation_headers(&body), [("session_id", k.clone()), ("x-client-request-id", k)]);
+        assert!(conversation_headers(&request_body(&turn(json!({ "prompt_cache_key": false }), "x", &[]))).is_empty());
     }
 
     /// A reply may ask for several tool calls, so independent reads take one
