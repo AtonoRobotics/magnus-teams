@@ -1,8 +1,10 @@
-//! Unified Rust + Postgres memory engine (Phase 1: core schema, RLS store,
-//! sync ingest, and FOR SHARE-fenced async enrichment).
+//! Unified Rust + Postgres memory engine (Phase 1-2: core schema, tenant+CNF
+//! RLS store, sync ingest, fenced enrichment, and 0-LLM hybrid+graph retrieval).
 
 pub mod enrich;
+pub mod graph;
 pub mod ingest;
+pub mod retrieve;
 pub mod schema;
 pub mod store;
 
@@ -30,6 +32,21 @@ impl TaintLabel {
     pub fn join(self, other: Self) -> Self {
         Self { untrusted: self.untrusted || other.untrusted, private: self.private || other.private }
     }
+}
+
+/// Versioned reference to a single `memory_sources` revision.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct SourceRef {
+    pub source_id: String,
+    pub rev: i64,
+}
+
+/// Shared read scope passed across retrieval and graph expansion helpers.
+#[derive(Clone, Copy, Debug)]
+pub struct ReadScope<'a> {
+    pub tenant_id: &'a str,
+    pub allow_untrusted: bool,
+    pub time_range: Option<(DateTime<Utc>, DateTime<Utc>)>,
 }
 
 /// Assertion category stored in `public.memory_assertions`.

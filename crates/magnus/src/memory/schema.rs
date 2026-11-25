@@ -13,6 +13,11 @@ pub const HNSW_EF_CONSTRUCTION: usize = 64;
 pub const MIN_PGVECTOR_MAJOR: u64 = 0;
 pub const MIN_PGVECTOR_MINOR: u64 = 8;
 pub const MIN_PGVECTOR_PATCH: u64 = 0;
+/// Postgres transaction-scoped advisory lock key serializing concurrent memory migrations.
+const MIGRATE_ADVISORY_LOCK_KEY: i64 = 0x4D45_4D5F_4D49_4752;
+/// Monotonic schema version recorded in `public.memory_schema_meta` so routine
+/// restarts skip DDL and take zero table locks.
+pub const MEMORY_SCHEMA_VERSION: i32 = 1;
 
 /// Apply unified memory migrations only when `cfg.is_unified_enabled()` is true.
 /// Verifies `cfg.check()` and `pgvector >= 0.8.0` before running DDL with the
@@ -25,12 +30,49 @@ pub async fn migrate_if_enabled(admin_url: &str, kernel_url: &str, cfg: &MemoryC
     let parsed = url::Url::parse(kernel_url).context("parse kernel database url")?;
     let role = parsed.username();
     anyhow::ensure!(!role.is_empty() && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "unsafe Postgres role name in kernel database url");
-    let admin = crate::log::connect(admin_url).await?;
-    admin.batch_execute("CREATE EXTENSION IF NOT EXISTS vector;").await.context("enable pgvector extension")?;
-    let row = admin.query_one("SELECT extversion FROM pg_extension WHERE extname = 'vector'", &[]).await.context("check pgvector extension version")?;
+    let mut admin = crate::log::connect(admin_url).await?;
+    let tx = admin.transaction().await.context("begin memory migration transaction")?;
+    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&MIGRATE_ADVISORY_LOCK_KEY]).await.context("acquire memory migration advisory lock")?;
+
+    // Fast path: if schema is already at MEMORY_SCHEMA_VERSION, verify embedding_dim
+    // and return without executing any ALTER TABLE (zero table locks on restarts).
+    let meta_exists: bool = tx.query_one("SELECT to_regclass('public.memory_schema_meta') IS NOT NULL", &[]).await?.get(0);
+    if meta_exists {
+        if let Some(meta) = tx.query_opt("SELECT version, embedding_dim FROM public.memory_schema_meta WHERE id = 1", &[]).await? {
+            let ver: i32 = meta.get(0);
+            let dim: i32 = meta.get(1);
+            anyhow::ensure!(dim as usize == cfg.embedding_dim, "configured [memory] embedding_dim ({}) does not match existing database schema ({dim})", cfg.embedding_dim);
+            if ver >= MEMORY_SCHEMA_VERSION {
+                tx.commit().await.context("commit memory migration fast-path")?;
+                return Ok(());
+            }
+        }
+    }
+
+    tx.batch_execute("CREATE EXTENSION IF NOT EXISTS vector;").await.context("enable pgvector extension")?;
+    let row = tx.query_one("SELECT extversion FROM pg_extension WHERE extname = 'vector'", &[]).await.context("check pgvector extension version")?;
     let ext_ver: String = row.get(0);
     check_pgvector_version(&ext_ver)?;
-    admin.batch_execute(&migrate_sql(role, cfg.embedding_dim)).await.context("apply unified memory schema migration")?;
+    tx.batch_execute(&migrate_sql(role, cfg.embedding_dim)).await.context("apply unified memory schema migration")?;
+    tx.execute(
+        "CREATE TABLE IF NOT EXISTS public.memory_schema_meta (
+             id            INTEGER PRIMARY KEY CHECK (id = 1),
+             version       INTEGER NOT NULL,
+             embedding_dim INTEGER NOT NULL,
+             updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+         )",
+        &[],
+    )
+    .await?;
+    let dim_i32 = i32::try_from(cfg.embedding_dim).context("embedding_dim fits in i32")?;
+    tx.execute(
+        "INSERT INTO public.memory_schema_meta (id, version, embedding_dim)
+         VALUES (1, $1, $2)
+         ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, embedding_dim = EXCLUDED.embedding_dim, updated_at = now()",
+        &[&MEMORY_SCHEMA_VERSION, &dim_i32],
+    )
+    .await?;
+    tx.commit().await.context("commit memory migration transaction")?;
     Ok(())
 }
 
@@ -44,11 +86,24 @@ pub fn check_pgvector_version(ext_ver: &str) -> Result<()> {
     Ok(())
 }
 
+/// Build an idempotent `CREATE POLICY` block that avoids `DROP POLICY` lock churn on restarts.
+fn ensure_policy_sql(table: &str, name: &str, body: &str) -> String {
+    format!(
+        "DO $$ BEGIN \
+             IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = '{table}' AND policyname = '{name}') THEN \
+                 CREATE POLICY {name} ON public.{table} {body}; \
+             END IF; \
+         END $$;"
+    )
+}
+
 /// Return idempotent Postgres DDL creating all unified memory tables, composite
-/// tenant foreign keys, partial `halfvec(N)` HNSW index, and forced RLS policies.
+/// tenant foreign keys, partial `halfvec(N)` HNSW index, and forced tenant + CNF RLS policies.
 pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
     let reader = format!("{role}_reader");
+    let tenant_check = "tenant_id = current_setting('magnus.tenant', true)";
     let cnf_check = "\
+        tenant_id = current_setting('magnus.tenant', true) AND \
         NOT EXISTS ( \
             SELECT 1 FROM jsonb_array_elements(readers) AS clause \
             WHERE NOT (clause ?| ARRAY( \
@@ -58,9 +113,53 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
             )) \
         )";
 
+    let pol_sources_k = ensure_policy_sql("memory_sources", "memory_sources_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_sources_r = ensure_policy_sql("memory_sources", "memory_sources_read", &format!("FOR SELECT TO {reader} USING ({cnf_check})"));
+    let pol_assertions_k = ensure_policy_sql("memory_assertions", "memory_assertions_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_assertions_r = ensure_policy_sql("memory_assertions", "memory_assertions_read", &format!("FOR SELECT TO {reader} USING ({cnf_check})"));
+    let pol_entities_k = ensure_policy_sql("memory_entities", "memory_entities_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_entities_r = ensure_policy_sql(
+        "memory_entities",
+        "memory_entities_read",
+        &format!(
+            "FOR SELECT TO {reader} USING ({tenant_check} AND EXISTS ( \
+                 SELECT 1 FROM public.memory_edges e \
+                 WHERE e.tenant_id = memory_entities.tenant_id \
+                   AND (e.src_id = memory_entities.entity_id OR e.dst_id = memory_entities.entity_id) \
+             ))"
+        ),
+    );
+    let pol_edges_k = ensure_policy_sql("memory_edges", "memory_edges_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_edges_r = ensure_policy_sql("memory_edges", "memory_edges_read", &format!("FOR SELECT TO {reader} USING ({cnf_check})"));
+    let pol_sup_k = ensure_policy_sql("memory_supersessions", "memory_supersessions_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_sup_r = ensure_policy_sql(
+        "memory_supersessions",
+        "memory_supersessions_read",
+        &format!(
+            "FOR SELECT TO {reader} USING ({tenant_check} AND EXISTS ( \
+                 SELECT 1 FROM public.memory_assertions a \
+                 WHERE a.tenant_id = memory_supersessions.tenant_id \
+                   AND a.assertion_id = memory_supersessions.new_assertion_id \
+             ))"
+        ),
+    );
+    let pol_ev_k = ensure_policy_sql("memory_evidence", "memory_evidence_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_ev_r = ensure_policy_sql(
+        "memory_evidence",
+        "memory_evidence_read",
+        &format!(
+            "FOR SELECT TO {reader} USING ({tenant_check} AND EXISTS ( \
+                 SELECT 1 FROM public.memory_sources s \
+                 WHERE s.tenant_id = memory_evidence.tenant_id \
+                   AND s.source_id = memory_evidence.source_id \
+                   AND s.rev = memory_evidence.source_rev \
+             ))"
+        ),
+    );
+    let pol_jobs_k = ensure_policy_sql("memory_enrichment_jobs", "memory_enrichment_jobs_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+
     format!(
-        "CREATE EXTENSION IF NOT EXISTS vector;
-         DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        "DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
          DO $$ BEGIN IF NOT pg_has_role('{role}', '{reader}', 'MEMBER') THEN GRANT {reader} TO {role}; END IF; END $$;
 
          -- 1. memory_sources: FTS-only citation & raw source store (hard-deleted on erasure).
@@ -91,10 +190,8 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_sources TO {role};
          GRANT USAGE ON SCHEMA public TO {reader};
          GRANT SELECT ON public.memory_sources TO {reader};
-         DROP POLICY IF EXISTS memory_sources_kernel ON public.memory_sources;
-         CREATE POLICY memory_sources_kernel ON public.memory_sources FOR ALL TO {role} USING (true) WITH CHECK (true);
-         DROP POLICY IF EXISTS memory_sources_read ON public.memory_sources;
-         CREATE POLICY memory_sources_read ON public.memory_sources FOR SELECT TO {reader} USING ({cnf_check});
+         {pol_sources_k}
+         {pol_sources_r}
 
          -- 2. memory_assertions: facts, chunks, lessons, and pinned profile (kind = 'profile').
          CREATE TABLE IF NOT EXISTS public.memory_assertions (
@@ -125,7 +222,7 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          CREATE INDEX IF NOT EXISTS memory_assertions_hnsw_idx
              ON public.memory_assertions USING hnsw (embedding halfvec_cosine_ops)
              WITH (m = {HNSW_M}, ef_construction = {HNSW_EF_CONSTRUCTION})
-             WHERE NOT archived AND embedding IS NOT NULL;
+             WHERE NOT archived;
          CREATE INDEX IF NOT EXISTS memory_assertions_active_idx
              ON public.memory_assertions (tenant_id, kind, valid_from DESC)
              WHERE NOT archived;
@@ -134,10 +231,8 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          REVOKE ALL ON public.memory_assertions FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_assertions TO {role};
          GRANT SELECT ON public.memory_assertions TO {reader};
-         DROP POLICY IF EXISTS memory_assertions_kernel ON public.memory_assertions;
-         CREATE POLICY memory_assertions_kernel ON public.memory_assertions FOR ALL TO {role} USING (true) WITH CHECK (true);
-         DROP POLICY IF EXISTS memory_assertions_read ON public.memory_assertions;
-         CREATE POLICY memory_assertions_read ON public.memory_assertions FOR SELECT TO {reader} USING ({cnf_check});
+         {pol_assertions_k}
+         {pol_assertions_r}
 
          -- 3. memory_entities: thin canonical anchors (no readers, free-text names, aliases, or embedding).
          CREATE TABLE IF NOT EXISTS public.memory_entities (
@@ -148,15 +243,14 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
              PRIMARY KEY (tenant_id, entity_id)
          );
          CREATE INDEX IF NOT EXISTS memory_entities_ext_idx
-             ON public.memory_entities (tenant_id, entity_type, external_id)
+             ON public.memory_entities (tenant_id, lower(external_id))
              WHERE external_id IS NOT NULL;
          ALTER TABLE public.memory_entities ENABLE ROW LEVEL SECURITY;
          ALTER TABLE public.memory_entities FORCE ROW LEVEL SECURITY;
          REVOKE ALL ON public.memory_entities FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_entities TO {role};
          GRANT SELECT ON public.memory_entities TO {reader};
-         DROP POLICY IF EXISTS memory_entities_kernel ON public.memory_entities;
-         CREATE POLICY memory_entities_kernel ON public.memory_entities FOR ALL TO {role} USING (true) WITH CHECK (true);
+         {pol_entities_k}
 
          -- 4. memory_edges: entity-to-entity graph edges carrying per-edge display names + taint.
          CREATE TABLE IF NOT EXISTS public.memory_edges (
@@ -181,25 +275,18 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
              ON public.memory_edges (tenant_id, src_id, dst_id);
          CREATE INDEX IF NOT EXISTS memory_edges_dst_idx
              ON public.memory_edges (tenant_id, dst_id, src_id);
+         CREATE INDEX IF NOT EXISTS memory_edges_src_name_idx
+             ON public.memory_edges (tenant_id, lower(src_name));
+         CREATE INDEX IF NOT EXISTS memory_edges_dst_name_idx
+             ON public.memory_edges (tenant_id, lower(dst_name));
          ALTER TABLE public.memory_edges ENABLE ROW LEVEL SECURITY;
          ALTER TABLE public.memory_edges FORCE ROW LEVEL SECURITY;
          REVOKE ALL ON public.memory_edges FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_edges TO {role};
          GRANT SELECT ON public.memory_edges TO {reader};
-         DROP POLICY IF EXISTS memory_edges_kernel ON public.memory_edges;
-         CREATE POLICY memory_edges_kernel ON public.memory_edges FOR ALL TO {role} USING (true) WITH CHECK (true);
-         DROP POLICY IF EXISTS memory_edges_read ON public.memory_edges;
-         CREATE POLICY memory_edges_read ON public.memory_edges FOR SELECT TO {reader} USING ({cnf_check});
-
-         -- Reader policy on memory_entities delegates visibility to RLS-filtered memory_edges.
-         DROP POLICY IF EXISTS memory_entities_read ON public.memory_entities;
-         CREATE POLICY memory_entities_read ON public.memory_entities FOR SELECT TO {reader} USING (
-             EXISTS (
-                 SELECT 1 FROM public.memory_edges e
-                 WHERE e.tenant_id = memory_entities.tenant_id
-                   AND (e.src_id = memory_entities.entity_id OR e.dst_id = memory_entities.entity_id)
-             )
-         );
+         {pol_edges_k}
+         {pol_edges_r}
+         {pol_entities_r}
 
          -- 5. memory_supersessions: assertion-to-assertion supersession with composite FKs.
          CREATE TABLE IF NOT EXISTS public.memory_supersessions (
@@ -218,16 +305,8 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          REVOKE ALL ON public.memory_supersessions FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_supersessions TO {role};
          GRANT SELECT ON public.memory_supersessions TO {reader};
-         DROP POLICY IF EXISTS memory_supersessions_kernel ON public.memory_supersessions;
-         CREATE POLICY memory_supersessions_kernel ON public.memory_supersessions FOR ALL TO {role} USING (true) WITH CHECK (true);
-         DROP POLICY IF EXISTS memory_supersessions_read ON public.memory_supersessions;
-         CREATE POLICY memory_supersessions_read ON public.memory_supersessions FOR SELECT TO {reader} USING (
-             EXISTS (
-                 SELECT 1 FROM public.memory_assertions a
-                 WHERE a.tenant_id = memory_supersessions.tenant_id
-                   AND a.assertion_id = memory_supersessions.new_assertion_id
-             )
-         );
+         {pol_sup_k}
+         {pol_sup_r}
 
          -- 6. memory_evidence: provenance link from assertions/edges to versioned sources.
          CREATE TABLE IF NOT EXISTS public.memory_evidence (
@@ -247,17 +326,8 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          REVOKE ALL ON public.memory_evidence FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_evidence TO {role};
          GRANT SELECT ON public.memory_evidence TO {reader};
-         DROP POLICY IF EXISTS memory_evidence_kernel ON public.memory_evidence;
-         CREATE POLICY memory_evidence_kernel ON public.memory_evidence FOR ALL TO {role} USING (true) WITH CHECK (true);
-         DROP POLICY IF EXISTS memory_evidence_read ON public.memory_evidence;
-         CREATE POLICY memory_evidence_read ON public.memory_evidence FOR SELECT TO {reader} USING (
-             EXISTS (
-                 SELECT 1 FROM public.memory_sources s
-                 WHERE s.tenant_id = memory_evidence.tenant_id
-                   AND s.source_id = memory_evidence.source_id
-                   AND s.rev = memory_evidence.source_rev
-             )
-         );
+         {pol_ev_k}
+         {pol_ev_r}
 
          -- 7. memory_enrichment_jobs: durable Postgres queue with lease & forced RLS.
          CREATE TABLE IF NOT EXISTS public.memory_enrichment_jobs (
@@ -285,7 +355,6 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          ALTER TABLE public.memory_enrichment_jobs FORCE ROW LEVEL SECURITY;
          REVOKE ALL ON public.memory_enrichment_jobs FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_enrichment_jobs TO {role};
-         DROP POLICY IF EXISTS memory_enrichment_jobs_kernel ON public.memory_enrichment_jobs;
-         CREATE POLICY memory_enrichment_jobs_kernel ON public.memory_enrichment_jobs FOR ALL TO {role} USING (true) WITH CHECK (true);"
+         {pol_jobs_k}"
     )
 }

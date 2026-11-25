@@ -1,5 +1,7 @@
-//! RLS-scoped Postgres connection wrapper and atomic hard-delete revocation.
+//! RLS-scoped Postgres connection wrapper, guarded supersession, and atomic
+//! hard-delete revocation.
 
+use crate::memory::AssertionKind;
 use crate::memory_index::{HnswIterativeScan, MemoryConfig};
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
@@ -40,11 +42,12 @@ impl MemoryStore {
         self.embedding_dim
     }
 
-    /// Begin a transaction scoped to `{role}_reader` with `magnus.principals`
-    /// and `hnsw.iterative_scan` set locally.
-    pub async fn begin_reader_tx(&mut self, principals: &[String]) -> Result<Transaction<'_>> {
+    /// Begin a transaction scoped to `{role}_reader` with `magnus.tenant`,
+    /// `magnus.principals`, and `hnsw.iterative_scan` set locally.
+    pub async fn begin_reader_tx(&mut self, tenant_id: &str, principals: &[String]) -> Result<Transaction<'_>> {
         let tx = self.client.transaction().await.context("begin reader transaction")?;
         tx.batch_execute(&format!("SET LOCAL ROLE {}", self.reader_role)).await.context("switch to reader role")?;
+        tx.execute("SELECT set_config('magnus.tenant', $1, true)", &[&tenant_id]).await.context("set magnus.tenant")?;
         let principals_json = serde_json::to_string(principals).context("serialize principals")?;
         tx.execute("SELECT set_config('magnus.principals', $1, true)", &[&principals_json]).await.context("set magnus.principals")?;
         tx.execute("SELECT set_config('hnsw.iterative_scan', $1, true)", &[&self.hnsw_iterative_scan.as_sql_str()]).await.context("set hnsw.iterative_scan")?;
@@ -60,8 +63,6 @@ impl MemoryStore {
     pub async fn hard_delete_source_rev(&mut self, tenant_id: &str, source_id: &str, rev: i64) -> Result<u64> {
         let tx = self.client.transaction().await.context("begin hard_delete_source_rev tx")?;
 
-        // 1. Lock the source exclusively first so any in-flight FOR SHARE
-        //    enrichment either finishes before us or sees 0 rows after us.
         let locked = tx
             .query_opt(
                 "SELECT 1 FROM public.memory_sources
@@ -75,7 +76,6 @@ impl MemoryStore {
             return Ok(0);
         }
 
-        // 2. Single evidence lookup for all targets referencing this source rev.
         let ev_rows = tx
             .query(
                 "SELECT target_kind, target_id FROM public.memory_evidence
@@ -95,7 +95,6 @@ impl MemoryStore {
             }
         }
 
-        // 3. Hard-delete the source (cascading its memory_evidence & jobs).
         let deleted = tx
             .execute(
                 "DELETE FROM public.memory_sources
@@ -104,9 +103,6 @@ impl MemoryStore {
             )
             .await?;
 
-        // 4. Hard-delete affected distilled lessons/profile entries unconditionally
-        //    and any other assertion with 0 surviving evidence, then purge any
-        //    remaining evidence rows pointing to those deleted assertions.
         if !affected_assertions.is_empty() {
             let deleted_assertions: Vec<String> = tx
                 .query(
@@ -140,7 +136,6 @@ impl MemoryStore {
             }
         }
 
-        // 5. Hard-delete zero-evidence edges and sweep any newly orphaned entities.
         if !affected_edges.is_empty() {
             let edge_rows = tx
                 .query(
@@ -194,5 +189,73 @@ impl MemoryStore {
 
         tx.commit().await?;
         Ok(deleted)
+    }
+
+    /// Record that `new_assertion_id` supersedes `old_assertion_id` within `tenant_id`.
+    /// Enforces:
+    /// - No self-supersession or transitive cycles.
+    /// - Untrusted assertions may never supersede trusted assertions (Invariant 4).
+    /// - Non-profile assertions may never supersede `kind = 'profile'`.
+    pub async fn record_supersession(&mut self, tenant_id: &str, new_assertion_id: &str, old_assertion_id: &str) -> Result<()> {
+        anyhow::ensure!(new_assertion_id != old_assertion_id, "an assertion cannot supersede itself");
+        let tx = self.client.transaction().await.context("begin record_supersession tx")?;
+
+        let new_row = tx
+            .query_opt(
+                "SELECT kind, untrusted FROM public.memory_assertions
+                 WHERE tenant_id = $1 AND assertion_id = $2
+                 FOR SHARE",
+                &[&tenant_id, &new_assertion_id],
+            )
+            .await?
+            .context("superseding assertion not found")?;
+        let old_row = tx
+            .query_opt(
+                "SELECT kind, untrusted FROM public.memory_assertions
+                 WHERE tenant_id = $1 AND assertion_id = $2
+                 FOR SHARE",
+                &[&tenant_id, &old_assertion_id],
+            )
+            .await?
+            .context("superseded assertion not found")?;
+
+        let new_kind: String = new_row.get(0);
+        let new_untrusted: bool = new_row.get(1);
+        let old_kind: String = old_row.get(0);
+        let old_untrusted: bool = old_row.get(1);
+
+        anyhow::ensure!(!(new_untrusted && !old_untrusted), "untrusted assertion cannot supersede a trusted assertion (Invariant 4)");
+        anyhow::ensure!(!(old_kind == AssertionKind::Profile.as_str() && new_kind != AssertionKind::Profile.as_str()), "non-profile assertion cannot supersede a profile entry");
+
+        let creates_cycle = tx
+            .query_opt(
+                "WITH RECURSIVE chain AS (
+                     SELECT old_assertion_id AS cur
+                     FROM public.memory_supersessions
+                     WHERE tenant_id = $1 AND new_assertion_id = $2
+                     UNION
+                     SELECT s.old_assertion_id
+                     FROM public.memory_supersessions s
+                     JOIN chain c ON s.new_assertion_id = c.cur
+                     WHERE s.tenant_id = $1
+                 )
+                 SELECT 1 FROM chain WHERE cur = $3 LIMIT 1",
+                &[&tenant_id, &old_assertion_id, &new_assertion_id],
+            )
+            .await?
+            .is_some();
+        anyhow::ensure!(!creates_cycle, "supersession would create a cycle");
+
+        tx.execute(
+            "INSERT INTO public.memory_supersessions (tenant_id, new_assertion_id, old_assertion_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING",
+            &[&tenant_id, &new_assertion_id, &old_assertion_id],
+        )
+        .await
+        .context("insert memory_supersessions")?;
+
+        tx.commit().await?;
+        Ok(())
     }
 }

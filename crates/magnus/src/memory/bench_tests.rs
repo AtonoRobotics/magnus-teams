@@ -232,7 +232,7 @@ async fn phase1_live_rls_erasure_taint_merge_dedup_and_fencing() {
     };
     assert_eq!(commit_enrichment(&mut store, &job_bob, &out_bob).await.unwrap(), EnrichCommit::Committed);
     {
-        let tx = store.begin_reader_tx(&["org:acme".into(), "user:bob".into()]).await.unwrap();
+        let tx = store.begin_reader_tx(&tenant, &["org:acme".into(), "user:bob".into()]).await.unwrap();
         let names: Vec<String> = tx.query("SELECT src_name FROM public.memory_edges WHERE tenant_id = $1", &[&tenant]).await.unwrap().into_iter().map(|r| r.get(0)).collect();
         assert_eq!(names, vec!["Acme Corp".to_string()], "bob must not see alice's private entity name");
         tx.commit().await.unwrap();
@@ -344,4 +344,429 @@ async fn phase1_live_rls_erasure_taint_merge_dedup_and_fencing() {
         edges: vec![],
     };
     assert_eq!(commit_enrichment(&mut store, &reclaimed, &out_small).await.unwrap(), EnrichCommit::FencedDeleted);
+}
+
+#[tokio::test]
+async fn phase2_mixed_visibility_override_hop_taint_hybrid_and_selective_rls() {
+    use crate::memory::retrieve::{retrieve, HitOrigin, RetrieveRequest};
+    use chrono::Duration;
+    use std::time::Instant;
+
+    let Some((_admin_url, _kernel_url, mut store)) = setup_test_store().await else {
+        return;
+    };
+    let tenant = format!("t_{}", Uuid::new_v4());
+    let now = Utc::now();
+
+    // ------------------------------------------------------------------
+    // 1. Mixed-visibility override & revocation (Phase 0 acceptance test)
+    // ------------------------------------------------------------------
+    let shared_src = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "kb_supplier".into(),
+        rev: 1,
+        owner_id: "ops".into(),
+        readers: vec![vec!["org:acme".into()]],
+        label: TaintLabel { untrusted: false, private: false },
+        text: "Supplier Acme standard lead time is 4 weeks.".into(),
+        occurred_at: now - Duration::days(10),
+    };
+    assert!(matches!(ingest_source(&mut store, &shared_src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let j1 = claim_next_job(&mut store).await.unwrap().expect("shared job");
+    assert_eq!(
+        commit_enrichment(
+            &mut store,
+            &j1,
+            &EnrichmentOutput {
+                assertions: vec![AssertionInput {
+                    assertion_id: "a_lead_shared".into(),
+                    kind: AssertionKind::Fact,
+                    owner_id: "ops".into(),
+                    statement: "Supplier Acme lead time is 4 weeks".into(),
+                    valid_from: now - Duration::days(10),
+                    valid_to: None,
+                    confidence: 0.95,
+                    embedding: Some(vec![0.9, 0.1, 0.0, 0.0]),
+                }],
+                edges: vec![EdgeInput {
+                    edge_id: "e_acme_hq".into(),
+                    src: EntityInput { entity_type: "supplier".into(), display_name: "Acme".into(), external_id: Some("SUP-ACME".into()) },
+                    dst: EntityInput { entity_type: "city".into(), display_name: "Austin".into(), external_id: None },
+                    rel_type: "headquartered_in".into(),
+                    valid_from: now - Duration::days(10),
+                    valid_to: None,
+                    properties: json!({}),
+                }],
+            },
+        )
+        .await
+        .unwrap(),
+        EnrichCommit::Committed
+    );
+
+    // Buyer's private email overrides lead time to 6 weeks.
+    let buyer_src = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "buyer_email".into(),
+        rev: 1,
+        owner_id: "buyer".into(),
+        readers: vec![vec!["user:buyer".into()]],
+        label: TaintLabel { untrusted: false, private: true },
+        text: "Private email: Supplier Acme lead time increased to 6 weeks.".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store, &buyer_src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let j2 = claim_next_job(&mut store).await.unwrap().expect("buyer job");
+    assert_eq!(
+        commit_enrichment(
+            &mut store,
+            &j2,
+            &EnrichmentOutput {
+                assertions: vec![AssertionInput {
+                    assertion_id: "a_lead_private".into(),
+                    kind: AssertionKind::Fact,
+                    owner_id: "buyer".into(),
+                    statement: "Supplier Acme lead time is 6 weeks".into(),
+                    valid_from: now,
+                    valid_to: None,
+                    confidence: 1.0,
+                    embedding: Some(vec![0.92, 0.08, 0.0, 0.0]),
+                }],
+                edges: vec![],
+            },
+        )
+        .await
+        .unwrap(),
+        EnrichCommit::Committed
+    );
+    store.record_supersession(&tenant, "a_lead_private", "a_lead_shared").await.unwrap();
+
+    // Buyer sees 6 weeks (and NOT 4 weeks); private taint is propagated.
+    let mut buyer_req = RetrieveRequest::new(&tenant, vec!["org:acme".into(), "user:buyer".into()], "Acme lead time");
+    buyer_req.query_embedding = Some(vec![0.91, 0.09, 0.0, 0.0]);
+    let buyer_res = retrieve(&mut store, &buyer_req).await.unwrap();
+    let buyer_ids: Vec<&str> = buyer_res.hits.iter().map(|h| h.id.as_str()).collect();
+    assert!(buyer_ids.contains(&"a_lead_private"), "buyer must see private override: {buyer_ids:?}");
+    assert!(!buyer_ids.contains(&"a_lead_shared"), "buyer must not see superseded shared assertion: {buyer_ids:?}");
+    assert!(buyer_res.label.private && !buyer_res.label.untrusted);
+
+    // Teammate sees 4 weeks with zero leakage of buyer's private override.
+    let mut mate_req = RetrieveRequest::new(&tenant, vec!["org:acme".into(), "user:teammate".into()], "Acme lead time");
+    mate_req.query_embedding = Some(vec![0.91, 0.09, 0.0, 0.0]);
+    let mate_res = retrieve(&mut store, &mate_req).await.unwrap();
+    let mate_ids: Vec<&str> = mate_res.hits.iter().map(|h| h.id.as_str()).collect();
+    assert!(mate_ids.contains(&"a_lead_shared"), "teammate must still see shared assertion: {mate_ids:?}");
+    assert!(!mate_ids.contains(&"a_lead_private"), "teammate must never see buyer override");
+    assert!(!mate_res.label.private && !mate_res.label.untrusted);
+
+    // Revoking buyer's email cascades memory_supersessions and restores 4 weeks for buyer.
+    assert_eq!(store.hard_delete_source_rev(&tenant, "buyer_email", 1).await.unwrap(), 1);
+    let buyer_after = retrieve(&mut store, &buyer_req).await.unwrap();
+    let buyer_after_ids: Vec<&str> = buyer_after.hits.iter().map(|h| h.id.as_str()).collect();
+    assert!(buyer_after_ids.contains(&"a_lead_shared"), "revoking private override must restore shared view");
+    assert!(!buyer_after_ids.contains(&"a_lead_private"));
+
+    // ------------------------------------------------------------------
+    // 2. Hop-level taint isolation + 2-hop graph expansion + sync fallback
+    // ------------------------------------------------------------------
+    let untrusted_src = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "web_rumor".into(),
+        rev: 1,
+        owner_id: "ops".into(),
+        readers: vec![vec!["org:acme".into()]],
+        label: TaintLabel { untrusted: true, private: false },
+        text: "External blog rumor: Austin port is congested.".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store, &untrusted_src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let j3 = claim_next_job(&mut store).await.unwrap().expect("untrusted job");
+    assert_eq!(
+        commit_enrichment(
+            &mut store,
+            &j3,
+            &EnrichmentOutput {
+                assertions: vec![],
+                edges: vec![EdgeInput {
+                    edge_id: "e_austin_port".into(),
+                    src: EntityInput { entity_type: "city".into(), display_name: "Austin".into(), external_id: None },
+                    dst: EntityInput { entity_type: "event".into(), display_name: "Port Congestion".into(), external_id: None },
+                    rel_type: "affected_by".into(),
+                    valid_from: now,
+                    valid_to: None,
+                    properties: json!({}),
+                }],
+            },
+        )
+        .await
+        .unwrap(),
+        EnrichCommit::Committed
+    );
+
+    // Clean-only read (allow_untrusted = false): 1-hop reaches Austin, must NOT traverse untrusted hop-2 edge.
+    let clean_req = RetrieveRequest::new(&tenant, vec!["org:acme".into()], "SUP-ACME");
+    let clean_res = retrieve(&mut store, &clean_req).await.unwrap();
+    assert!(clean_res.edges.iter().any(|e| e.edge_id == "e_acme_hq"));
+    assert!(!clean_res.edges.iter().any(|e| e.edge_id == "e_austin_port"), "clean read must prune untrusted 2-hop edge");
+    assert!(!clean_res.label.untrusted);
+
+    // Normal read (allow_untrusted = true): 2-hop traverses untrusted edge and flips taint bit.
+    let mut normal_req = RetrieveRequest::new(&tenant, vec!["org:acme".into()], "SUP-ACME");
+    normal_req.allow_untrusted = true;
+    let normal_res = retrieve(&mut store, &normal_req).await.unwrap();
+    assert!(normal_res.edges.iter().any(|e| e.edge_id == "e_austin_port" && e.hop == 2));
+    assert!(normal_res.label.untrusted, "traversing untrusted edge must flip label.untrusted");
+
+    // Unenriched freshly-written source is immediately recallable via sync FTS fallback.
+    let fresh_src = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "fresh_note".into(),
+        rev: 1,
+        owner_id: "ops".into(),
+        readers: vec![vec!["org:acme".into()]],
+        label: TaintLabel { untrusted: false, private: false },
+        text: "Ticket INV-99421 approved for Q4 shipment.".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store, &fresh_src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let fresh_req = RetrieveRequest::new(&tenant, vec!["org:acme".into()], "INV-99421");
+    let fresh_res = retrieve(&mut store, &fresh_req).await.unwrap();
+    assert!(fresh_res.hits.iter().any(|h| h.origin == HitOrigin::UnenrichedSource && h.text.contains("INV-99421")));
+
+    // ------------------------------------------------------------------
+    // 3. Selective-RLS HNSW iterative scan (1,000 rows, 1% visible)
+    // ------------------------------------------------------------------
+    let sel_tenant = format!("t_sel_{}", Uuid::new_v4());
+    let tx = store.client_mut().transaction().await.unwrap();
+    for i in 0..1000_i32 {
+        let visible = i < 10;
+        let readers = if visible { json!([["user:needle"]]) } else { json!([["user:other"]]) };
+        let emb = if visible { "[0.99,0.01,0.0,0.0]" } else { "[1.0,0.0,0.0,0.0]" };
+        let aid = format!("sel_{i}");
+        let stmt = format!("Selective row {i} inventory status");
+        tx.execute(
+            "INSERT INTO public.memory_assertions (
+                 tenant_id, assertion_id, kind, owner_id, readers, untrusted, private,
+                 statement, valid_from, confidence, tsv, embedding
+             ) VALUES (
+                 $1, $2, 'fact', 'sys', $3, false, false,
+                 $4, now(), 1.0, to_tsvector('simple', $4), $5::text::halfvec
+             )",
+            &[&sel_tenant, &aid, &readers, &stmt, &emb],
+        )
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    let mut sel_req = RetrieveRequest::new(&sel_tenant, vec!["user:needle".into()], "nonmatching_lexical_term");
+    sel_req.query_embedding = Some(vec![0.99, 0.01, 0.0, 0.0]);
+    sel_req.limit = 10;
+    let t0 = Instant::now();
+    let sel_res = retrieve(&mut store, &sel_req).await.unwrap();
+    let elapsed_ms = t0.elapsed().as_millis();
+    assert_eq!(sel_res.hits.len(), 10, "iterative HNSW must recover all 10 visible rows under 1% RLS selectivity (got {}, took {elapsed_ms}ms)", sel_res.hits.len());
+}
+
+#[tokio::test]
+async fn phase2_review_fixes_tenant_rls_supersession_guards_advisory_lock_and_multiword_graph() {
+    use crate::memory::retrieve::{retrieve, RetrieveRequest};
+    use std::time::Instant;
+
+    const SELECTIVE_RLS_MAX_LATENCY_MS: u128 = 500;
+
+    let Some((admin_url, kernel_url, mut store)) = setup_test_store().await else {
+        return;
+    };
+
+    // 1. Concurrent migrate_if_enabled must succeed without pg_type catalog race.
+    let cfg = test_config();
+    let mut handles = Vec::new();
+    for _ in 0..4 {
+        let a = admin_url.clone();
+        let k = kernel_url.clone();
+        let c = cfg.clone();
+        handles.push(tokio::spawn(async move { migrate_if_enabled(&a, &k, &c).await }));
+    }
+    for h in handles {
+        h.await.unwrap().expect("concurrent migrate_if_enabled must serialize via advisory lock");
+    }
+
+    // 2. DB-enforced tenant RLS: same principal `user:shared` in tenant_a and tenant_b;
+    //    querying tenant_b inside a tenant_a reader tx must return 0 rows.
+    let tenant_a = format!("ta_{}", Uuid::new_v4());
+    let tenant_b = format!("tb_{}", Uuid::new_v4());
+    let now = Utc::now();
+    for (tid, sid, stmt) in [(&tenant_a, "s_a", "Tenant A secret"), (&tenant_b, "s_b", "Tenant B secret")] {
+        let src = SourceInput {
+            tenant_id: tid.clone(),
+            source_id: sid.into(),
+            rev: 1,
+            owner_id: "shared".into(),
+            readers: vec![vec!["user:shared".into()]],
+            label: TaintLabel { untrusted: false, private: false },
+            text: stmt.into(),
+            occurred_at: now,
+        };
+        assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    }
+    {
+        let tx = store.begin_reader_tx(&tenant_a, &["user:shared".into()]).await.unwrap();
+        let leaked: i64 = tx.query_one("SELECT count(*) FROM public.memory_sources WHERE tenant_id = $1", &[&tenant_b]).await.unwrap().get(0);
+        assert_eq!(leaked, 0, "DB RLS must block cross-tenant reads even when principal names match");
+        tx.commit().await.unwrap();
+    }
+
+    // 3. record_supersession guards: untrusted->trusted (Inv 4), cycles, non-profile->profile.
+    let t = format!("tg_{}", Uuid::new_v4());
+    let s_clean = SourceInput {
+        tenant_id: t.clone(),
+        source_id: "s_clean".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["org:acme".into()]],
+        label: TaintLabel { untrusted: false, private: false },
+        text: "Clean fact and profile".into(),
+        occurred_at: now,
+    };
+    let s_untrusted = SourceInput {
+        tenant_id: t.clone(),
+        source_id: "s_untrusted".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["org:acme".into()]],
+        label: TaintLabel { untrusted: true, private: false },
+        text: "Untrusted claim".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store, &s_clean).await.unwrap(), IngestOutcome::Inserted { .. }));
+    assert!(matches!(ingest_source(&mut store, &s_untrusted).await.unwrap(), IngestOutcome::Inserted { .. }));
+    // Drain jobs for this tenant
+    while let Some(job) = claim_next_job(&mut store).await.unwrap() {
+        if job.tenant_id != t {
+            let _ = commit_enrichment(&mut store, &job, &EnrichmentOutput::default()).await;
+            continue;
+        }
+        let out = if job.source_id == "s_clean" {
+            EnrichmentOutput {
+                assertions: vec![
+                    AssertionInput {
+                        assertion_id: "a_trusted".into(),
+                        kind: AssertionKind::Fact,
+                        owner_id: "alice".into(),
+                        statement: "Trusted policy fact".into(),
+                        valid_from: now,
+                        valid_to: None,
+                        confidence: 1.0,
+                        embedding: Some(vec![0.8, 0.6, 0.0, 0.0]),
+                    },
+                    AssertionInput {
+                        assertion_id: "a_trusted_2".into(),
+                        kind: AssertionKind::Fact,
+                        owner_id: "alice".into(),
+                        statement: "Trusted policy fact v2".into(),
+                        valid_from: now,
+                        valid_to: None,
+                        confidence: 1.0,
+                        embedding: None,
+                    },
+                    AssertionInput {
+                        assertion_id: "a_prof".into(),
+                        kind: AssertionKind::Profile,
+                        owner_id: "alice".into(),
+                        statement: "Standing profile rule".into(),
+                        valid_from: now,
+                        valid_to: None,
+                        confidence: 1.0,
+                        embedding: None,
+                    },
+                ],
+                edges: vec![EdgeInput {
+                    edge_id: "e_multi".into(),
+                    src: EntityInput { entity_type: "event".into(), display_name: "Port Congestion".into(), external_id: None },
+                    dst: EntityInput { entity_type: "city".into(), display_name: "Austin".into(), external_id: None },
+                    rel_type: "impacts".into(),
+                    valid_from: now,
+                    valid_to: None,
+                    properties: json!({}),
+                }],
+            }
+        } else {
+            EnrichmentOutput {
+                assertions: vec![AssertionInput {
+                    assertion_id: "a_untrusted".into(),
+                    kind: AssertionKind::Fact,
+                    owner_id: "alice".into(),
+                    statement: "Untrusted override attempt".into(),
+                    valid_from: now,
+                    valid_to: None,
+                    confidence: 0.5,
+                    embedding: None,
+                }],
+                edges: vec![],
+            }
+        };
+        assert_eq!(commit_enrichment(&mut store, &job, &out).await.unwrap(), EnrichCommit::Committed);
+    }
+
+    assert!(store.record_supersession(&t, "a_untrusted", "a_trusted").await.is_err(), "untrusted must not supersede trusted");
+    assert!(store.record_supersession(&t, "a_trusted", "a_prof").await.is_err(), "fact must not supersede profile");
+    store.record_supersession(&t, "a_trusted_2", "a_trusted").await.unwrap();
+    assert!(store.record_supersession(&t, "a_trusted", "a_trusted_2").await.is_err(), "supersession cycle must be rejected");
+
+    // 4. Multi-word entity lookup ("Port Congestion") finds the edge directly.
+    let mw_req = RetrieveRequest::new(&t, vec!["org:acme".into()], "Tell me about Port Congestion");
+    let mw_res = retrieve(&mut store, &mw_req).await.unwrap();
+    assert!(mw_res.edges.iter().any(|e| e.edge_id == "e_multi"), "multi-word entity name must be found by n-gram seed lookup");
+
+    // 5. Reject max_graph_hops > MAX_GRAPH_HOPS rather than silently clamping.
+    let mut bad_hops = RetrieveRequest::new(&t, vec!["org:acme".into()], "Port Congestion");
+    bad_hops.max_graph_hops = crate::memory::graph::MAX_GRAPH_HOPS + 1;
+    assert!(retrieve(&mut store, &bad_hops).await.is_err());
+
+    // 6. Real selective-RLS iterative HNSW test: 500 invisible rows CLOSER ([1,0,0,0])
+    //    than 10 visible rows ([0.8,0.6,0,0]) with enable_seqscan = off.
+    let t_sel = format!("tsel_{}", Uuid::new_v4());
+    let tx = store.client_mut().transaction().await.unwrap();
+    for i in 0..510_i32 {
+        let visible = i < 10;
+        let readers = if visible { json!([["user:needle"]]) } else { json!([["user:other"]]) };
+        let emb = if visible { "[0.8,0.6,0.0,0.0]" } else { "[1.0,0.0,0.0,0.0]" };
+        let aid = format!("hnsw_{i}");
+        let stmt = format!("Vector row {i}");
+        tx.execute(
+            "INSERT INTO public.memory_assertions (
+                 tenant_id, assertion_id, kind, owner_id, readers, untrusted, private,
+                 statement, valid_from, confidence, tsv, embedding
+             ) VALUES (
+                 $1, $2, 'fact', 'sys', $3, false, false,
+                 $4, now(), 1.0, to_tsvector('simple', $4), $5::text::halfvec
+             )",
+            &[&t_sel, &aid, &readers, &stmt, &emb],
+        )
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    // Verify via reader tx with enable_seqscan = off and hnsw.iterative_scan = relaxed_order
+    let t0 = Instant::now();
+    {
+        let tx = store.begin_reader_tx(&t_sel, &["user:needle".into()]).await.unwrap();
+        tx.batch_execute("SET LOCAL enable_seqscan = off;").await.unwrap();
+        let rows = tx
+            .query(
+                "SELECT assertion_id FROM public.memory_assertions
+                 WHERE tenant_id = $1 AND NOT archived
+                 ORDER BY embedding <=> '[1.0,0.0,0.0,0.0]'::halfvec ASC
+                 LIMIT 10",
+                &[&t_sel],
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 10, "iterative_scan must recover all 10 visible rows behind 500 closer invisible rows");
+        tx.commit().await.unwrap();
+    }
+    let elapsed_ms = t0.elapsed().as_millis();
+    assert!(elapsed_ms <= SELECTIVE_RLS_MAX_LATENCY_MS, "selective HNSW took {elapsed_ms}ms > {SELECTIVE_RLS_MAX_LATENCY_MS}ms");
 }
