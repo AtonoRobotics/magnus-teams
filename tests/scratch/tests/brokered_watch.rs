@@ -37,7 +37,7 @@ async fn a_brokered_watch_polls_with_its_arguments_and_wakes_on_new_items() {
         }
     }))
     .await;
-    let mut app = Appliance::start(Spec::default().proactive(json!({ "on": true })), &m).await;
+    let mut app = Appliance::start(Spec::default().proactive(json!({ "on": true, "arrival_gather_minutes": 0 })), &m).await;
     let provider = FakeOAuthApp::provider_api(3600).await;
     let image = image("magnus-brokered-test");
     let input = json!({ "host": api.host, "path": "/items" });

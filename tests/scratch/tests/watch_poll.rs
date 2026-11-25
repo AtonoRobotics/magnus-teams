@@ -59,7 +59,7 @@ async fn a_watch_with_an_interval_polls_without_reads() {
     }))
     .await;
     let app = Appliance::start(
-        Spec::default().proactive(json!({ "on": true })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch_poll(
+        Spec::default().proactive(json!({ "on": true, "arrival_gather_minutes": 0 })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch_poll(
             "mail",
             "list_inbox",
             "/messages",
@@ -171,7 +171,7 @@ async fn a_poll_with_a_transient_read_error_retries_quietly() {
     }))
     .await;
     let app = Appliance::start(
-        Spec::default().proactive(json!({ "on": true })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch_poll(
+        Spec::default().proactive(json!({ "on": true, "arrival_gather_minutes": 0 })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch_poll(
             "mail",
             "list_inbox",
             "/messages",
@@ -225,7 +225,7 @@ async fn a_task_read_postpones_the_next_poll() {
     }))
     .await;
     let app = Appliance::start(
-        Spec::default().proactive(json!({ "on": true })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch_poll(
+        Spec::default().proactive(json!({ "on": true, "arrival_gather_minutes": 0 })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch_poll(
             "mail",
             "list_inbox",
             "/messages",

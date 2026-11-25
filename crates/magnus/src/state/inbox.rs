@@ -77,6 +77,9 @@ pub struct Inbox {
     /// When each review of the last day woke, by person, oldest first: what
     /// their wake budget counts (`wake_budget`).
     wakes: HashMap<String, VecDeque<DateTime<Utc>>>,
+    /// When each person's latest review of new items in their apps woke:
+    /// later items gather until a while after it (`wake_budget::gathering`).
+    arrival_reviews: HashMap<String, DateTime<Utc>>,
 }
 
 /// Their items and those of their runs, with their opened and resolved
@@ -96,6 +99,7 @@ impl crate::forget::Forget for Inbox {
         self.review_runs.retain(|_, x| x != p);
         self.wake_marks.retain(|k, _| k.split_once(':').is_some_and(|(x, _)| x != p));
         self.wakes.remove(p);
+        self.arrival_reviews.remove(p);
     }
 }
 
@@ -154,6 +158,9 @@ impl Inbox {
                 wakes.push_back(e.at);
                 while wakes.front().is_some_and(|t| *t < e.at - chrono::Duration::seconds(crate::wake_budget::DAY_SECS)) {
                     wakes.pop_front();
+                }
+                if reason.contains(" new in ") {
+                    self.arrival_reviews.insert(person.clone(), e.at);
                 }
                 if reason == "overnight" {
                     let tz = crate::cadence::zone_of(prefs.get(person));
@@ -295,6 +302,11 @@ impl Inbox {
         self.wakes.get(person).into_iter().flatten()
     }
 
+    /// When the person's latest review of new items in their apps woke.
+    pub fn arrival_review_of(&self, person: &str) -> Option<DateTime<Utc>> {
+        self.arrival_reviews.get(person).copied()
+    }
+
     #[cfg(test)]
     pub(crate) fn canonical_fields(&self) -> Vec<(&'static str, String)> {
         vec![
@@ -308,6 +320,7 @@ impl Inbox {
             ("review_runs", format!("{:?}", self.review_runs)),
             ("wake_marks", format!("{:?}", self.wake_marks)),
             ("wakes", format!("{:?}", self.wakes)),
+            ("arrival_reviews", format!("{:?}", self.arrival_reviews)),
         ]
     }
 }

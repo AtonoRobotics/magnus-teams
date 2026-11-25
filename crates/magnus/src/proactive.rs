@@ -354,11 +354,14 @@ impl crate::kernel::Kernel {
     /// advances its baseline only then, so a dropped wake retries on
     /// the next read. The reason carries the count only; the review
     /// pulls the items itself, tainting normally through the boundary.
-    pub async fn review_wake_items(self: &Arc<Self>, person: &str, app: &str, n: usize) -> bool {
+    /// Items gather for a while after the last such review, unless they
+    /// are `urgent` (`wake_budget::gathering`).
+    pub async fn review_wake_items(self: &Arc<Self>, person: &str, app: &str, n: usize, urgent: bool) -> bool {
         if !self.cfg.proactive.on {
             return false;
         }
-        if self.read(|s| s.reviewing(person)) {
+        let gather = self.cfg.proactive.arrival_gather_minutes.unwrap_or(crate::wake_budget::ARRIVAL_GATHER_MINUTES);
+        if self.read(|s| s.reviewing(person) || (!urgent && crate::wake_budget::gathering(s, person, Utc::now(), gather))) {
             return false;
         }
         self.start_review(person, format!("{n} new in {app}"), None).await
@@ -414,7 +417,7 @@ impl crate::kernel::Kernel {
                     self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
                 continue;
             }
-            if self.review_wake_items(person, app, n).await {
+            if self.review_wake_items(person, app, n, triage.urgency == crate::ambient_watch::Urgency::High).await {
                 let _ =
                     self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
             }
