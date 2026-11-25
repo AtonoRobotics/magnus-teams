@@ -46,12 +46,19 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
     if (!b || typeof Server === "undefined") return;
     e.preventDefault();
     const callId = b.dataset.receiptUndo, what = b.dataset.receiptWhat || b.dataset.receiptTool || "that action";
+    const taskId = typeof Panel !== "undefined" ? Panel.task?.task_id : null;
     const thread = typeof Panel !== "undefined" ? Panel.task?.thread : null;
     b.disabled = true;
     try {
-      const r = await Server.chat.send({ text: `Undo this action (${callId}): ${what}`, ...(thread ? { thread } : {}) });
-      if (typeof toast === "function") toast("Started an undo request.");
-      if (r?.thread && typeof location !== "undefined") location.hash = `#/chat/${encodeURIComponent(r.thread)}`;
+      if (taskId && Server.tasks?.undo) {
+        const u = await Server.tasks.undo(taskId, callId);
+        if (typeof toast === "function") toast("Undo started.");
+        if (u?.task_id && typeof openPanel === "function") await openPanel(`task:${u.task_id}`);
+      } else {
+        const r = await Server.chat.send({ text: `Undo this action (${callId}): ${what}`, ...(thread ? { thread } : {}) });
+        if (typeof toast === "function") toast("Started an undo request.");
+        if (r?.thread && typeof location !== "undefined") location.hash = `#/chat/${encodeURIComponent(r.thread)}`;
+      }
     } catch (err) {
       b.disabled = false;
       if (typeof toast === "function") toast(err.message);

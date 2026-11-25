@@ -175,7 +175,8 @@ impl Kernel {
             })
             .collect();
         let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
-        let mut hits: Vec<_> = self
+        let now = chrono::Utc::now();
+        let mut matched: Vec<(usize, crate::recall::Remembered)> = self
             .remembered(&person, |_| true)
             .await?
             .into_iter()
@@ -187,8 +188,25 @@ impl Kernel {
             // nothing): everything kept, newest first.
             .filter(|(n, _)| *n > 0 || terms.is_empty())
             .collect();
-        hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        Ok(hits.into_iter().take(20).map(|(_, m)| m).collect())
+        matched.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
+        let mut scored: Vec<(f64, crate::recall::Remembered)> = matched
+            .into_iter()
+            .enumerate()
+            .map(|(rank, (_, m))| {
+                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / 86_400.0;
+                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate {
+                    id: m.entry.id.clone(),
+                    fts_rank: Some(rank),
+                    vec_rank: None,
+                    untrusted: m.entry.label.untrusted,
+                    age_days,
+                    access_count: 0,
+                });
+                (score, m)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
+        Ok(scored.into_iter().take(20).map(|(_, m)| m).collect())
     }
 }
 

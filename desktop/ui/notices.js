@@ -11,22 +11,54 @@
 /** How long a pop-up stays, how many show at once, how far back each look
  * overlaps the last so a message stamped just before it is not missed, and
  * how many shown ones are remembered so none shows twice. */
-const NOTICE_SHOW_MS = 8000, NOTICE_MAX_SHOWN = 3, NOTICE_OVERLAP_MS = 10000, NOTICE_SEEN_MAX = 500;
+const NOTICE_SHOW_MS = 8000, NOTICE_MAX_SHOWN = 3, NOTICE_OVERLAP_MS = 10000, NOTICE_SEEN_MAX = 500, NOTICE_HISTORY_MAX = 30;
 /** Where this device keeps whether the system's notifications are on. */
-const NOTICE_DEVICE_KEY = "magnus.system-notifications", NOTICE_OFFERED_KEY = "magnus.system-notifications-offered";
+const NOTICE_DEVICE_KEY = "magnus.system-notifications", NOTICE_OFFERED_KEY = "magnus.system-notifications-offered", NOTICE_DND_KEY = "magnus.dnd-until";
 
 /**
  * @typedef {{ id: string, kind: "direct"|"mention"|"message"|"answer", workspace: string, workspace_name: string, channel: string, channel_name: string, direct: ?string[], thread: ?string, sender: string, at: string, preview: string }} TeamNotice
- * @typedef {{ key: string, title: string, body: string, system: string, href: string }} Shown
+ * @typedef {{ key: string, title: string, body: string, system: string, href: string, at?: string }} Shown
  */
 
 const Notices = {
   /** The server's time of the last look; none until the first. */
   after: /** @type {?string} */ (null),
   seen: new Set(),
+  /** @type {Shown[]} */
+  history: [],
   polling: false,
 
-  reset() { this.after = null; this.seen = new Set(); this.polling = false; $("#notices")?.remove(); },
+  reset() { this.after = null; this.seen = new Set(); this.history = []; this.polling = false; $("#notices")?.remove(); },
+
+  /** Whether Do Not Disturb / Snooze is currently active on this device. */
+  isDnd() {
+    try {
+      const until = Number(localStorage.getItem(NOTICE_DND_KEY) || "0");
+      return Number.isFinite(until) && until > Date.now();
+    } catch { return false; }
+  },
+
+  /** Snooze non-blocking notifications for `minutes` (0 clears DND). @param {number} minutes */
+  snooze(minutes) {
+    try {
+      if (minutes > 0) localStorage.setItem(NOTICE_DND_KEY, String(Date.now() + minutes * 60_000));
+      else localStorage.removeItem(NOTICE_DND_KEY);
+    } catch { /* private window */ }
+  },
+
+  clearHistory() { this.history = []; },
+
+  /** Render the Notification Center popover contents. */
+  centerHtml() {
+    const dnd = this.isDnd();
+    const rows = this.history.length
+      ? this.history.map(n => `<a class="gbox-row" href="${esc(n.href || "#/home")}" data-notice-item><strong>${esc(n.title)}</strong>${n.body ? `<span class="small muted">${esc(n.body)}</span>` : ""}</a>`).join("")
+      : `<p class="small muted" style="padding:8px 0">No recent notifications.</p>`;
+    return `<div class="spread" style="margin-bottom:8px"><strong>Notifications</strong><div class="row">
+      <button type="button" class="small" data-dnd-toggle>${dnd ? "Resume alerts" : "Snooze 1h"}</button>
+      ${this.history.length ? `<button type="button" class="link small" data-notices-clear>Clear</button>` : ""}
+    </div></div>${dnd ? `<p class="small muted" style="margin:0 0 8px">Do Not Disturb is on. Non-blocking pop-ups are silenced.</p>` : ""}<div class="stack">${rows}</div>`;
+  },
 
   /** One look for new team messages to tell about. */
   async poll() {
@@ -50,6 +82,9 @@ const Notices = {
     if (this.seen.has(s.key)) return;
     this.seen.add(s.key);
     if (this.seen.size > NOTICE_SEEN_MAX) this.seen.delete(this.seen.values().next().value);
+    this.history.unshift({ ...s, at: s.at || new Date().toISOString() });
+    if (this.history.length > NOTICE_HISTORY_MAX) this.history.length = NOTICE_HISTORY_MAX;
+    if (this.isDnd()) return;
     const away = document.hidden || !document.hasFocus();
     if (!away && s.href && location.hash.startsWith(s.href.split("/t/")[0])) return;
     // Aurora shows it on its stage instead of over it.

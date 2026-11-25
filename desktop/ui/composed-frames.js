@@ -75,9 +75,14 @@ function drawUiBlocks(root) {
     block._drawn = body + closed;
     if (kind === "html") {
       if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
-      block.innerHTML = `<div class="row small" style="justify-content:flex-end;margin-bottom:4px"><button type="button" class="link small" data-html-fullscreen>Fullscreen</button></div><iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
+      const editBtn = docId ? `<button type="button" class="link small" data-ui-edit-block="${esc(docId)}">Edit with Magnus</button>` : "";
+      block.innerHTML = `<div class="row small" style="justify-content:flex-end;margin-bottom:4px">${editBtn}<button type="button" class="link small" data-html-fullscreen>Fullscreen</button></div><iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
       const frame = block.querySelector("iframe");
       block.querySelector("[data-html-fullscreen]")?.addEventListener("click", () => frame?.requestFullscreen?.().catch(() => {}));
+      block.querySelector("[data-ui-edit-block]")?.addEventListener("click", () => {
+        const box = $("#msg");
+        if (box) { box.value = `Update block ${docId}: `; box.dispatchEvent(new Event("input", { bubbles: true })); box.focus(); }
+      });
       Magnus.sandboxUrl(HtmlFrame.wrap(body, ...look())).then(url => { if (frame?.isConnected) frame.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
       return;
     }
@@ -87,8 +92,15 @@ function drawUiBlocks(root) {
     if (!view.length) { block.innerHTML = `<div class="small faint">Drawing…</div>`; return; }
     if (closed) view.filter(c => c.type === "app").forEach(c => drawAppView(block, c.view));
     if (view.every(c => c.type === "app")) return;
-    if (!block.firstChild?.matches?.("iframe")) block.innerHTML = `<iframe class="composed" sandbox="allow-same-origin" title="What Magnus showed" data-sized=""></iframe>`;
-    const frame = block.firstChild;
+    if (!block.querySelector("iframe.composed")) {
+      const editBar = docId ? `<div class="row small" style="justify-content:flex-end;margin-bottom:4px"><button type="button" class="link small" data-ui-edit-block="${esc(docId)}">Edit with Magnus</button></div>` : "";
+      block.innerHTML = `${editBar}<iframe class="composed" sandbox="allow-same-origin" title="What Magnus showed" data-sized=""></iframe>`;
+      block.querySelector("[data-ui-edit-block]")?.addEventListener("click", () => {
+        const box = $("#msg");
+        if (box) { box.value = `Update block ${docId}: `; box.dispatchEvent(new Event("input", { bubbles: true })); box.focus(); }
+      });
+    }
+    const frame = block.querySelector("iframe.composed");
     const drawn = JSON.stringify(view);
     if (block._view === drawn) return;
     block._view = drawn;

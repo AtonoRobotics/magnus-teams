@@ -1,0 +1,33 @@
+id = "notion"
+version = "1.0.0"
+name = "Notion"
+summary = "Magnus can search and read your Notion pages and databases, and create or update pages and comments when your request needs it."
+publisher = "Notion"
+category = "files"
+abilities = ["Search across pages, wikis and databases you share with Magnus", "Read page contents, database rows and comments", "Create or update pages and post comments when your request needs it"]
+asks = ["Read the Notion pages and databases you choose when signing in", "Create or edit pages and comments when your request needs it"]
+can = "Search and read the Notion pages and databases you grant access to, and create, update or comment on them when your request needs it"
+cannot = "See pages you did not share during sign-in, or edit or share anything you did not ask for without asking you first"
+letters = "No"
+tint = "#191919"
+kind = "remote"
+endpoint = "https://mcp.notion.com/mcp"
+audience = "public"
+label = "private+untrusted"
+registration = "dcr"
+remove_access = "https://www.notion.so/my-integrations"
+scopes = ["read", "write"]
+
+[tools]
+search = "read"
+fetch = "read"
+get_page = "read"
+get_database = "read"
+query_database = "read"
+list_comments = "read"
+list_users = "read"
+create_pages = "irreversible"
+update_page = "irreversible"
+create_comment = "irreversible"
+create_database = "irreversible"
+update_database = "irreversible"

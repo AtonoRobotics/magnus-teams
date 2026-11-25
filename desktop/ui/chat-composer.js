@@ -30,7 +30,7 @@ function composer(placeholder, bar, o = {}) {
     : `<label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}" required></textarea>`;
   return `<form${id("say")} class="say">${label}${o.mentions ? `<div class="say-mentions" role="listbox" aria-label="Mention" hidden></div>` : ""}
     <div class="row small pending"${id("pending")}></div>
-    <div class="say-bar">${bar}<span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button type="button" class="icon-btn say-stop" data-say-stop aria-label="Stop" title="Stop" hidden>${icon("stop")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
+    <div class="say-bar">${bar}<span class="chip run" data-steer-pill hidden>Steering active task</span><span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button type="button" class="icon-btn say-stop" data-say-stop aria-label="Stop" title="Stop" hidden>${icon("stop")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
 }
 
 /** The @word being typed at the caret, if any. @param {string} text @param {number} caret */
@@ -44,7 +44,7 @@ function mentionAt(text, caret) {
  * @param {ComposerConversation} conv
  */
 function wireComposer(form, record, conv) {
-  const box = $("textarea", form), pending = $(".pending", form), input = $("[data-attach]", form), send = $(".send", form), sideStop = $("[data-say-stop]", form), epoch = MessageDrafts.epoch();
+  const box = $("textarea", form), pending = $(".pending", form), input = $("[data-attach]", form), send = $(".send", form), sideStop = $("[data-say-stop]", form), steerPill = $("[data-steer-pill]", form), epoch = MessageDrafts.epoch();
   let replacing = null, active = true, stopMode = false;
   box.value = record.text;
   const model = $("[data-model]", form);
@@ -105,6 +105,7 @@ function wireComposer(form, record, conv) {
       send.title = "Send message";
     }
     send.classList.toggle("is-steer", steer);
+    if (steerPill) steerPill.hidden = !steer;
     send.disabled = stopMode ? stopping : (!!record.sending || record.files.some(f => f.state !== "ready"));
     send.classList.toggle("is-empty", !stopMode && !box.value.trim() && !record.files.length);
     if (sideStop) {

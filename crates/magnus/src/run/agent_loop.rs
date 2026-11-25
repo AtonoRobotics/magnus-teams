@@ -32,7 +32,7 @@ const MOST_BACKOFF_DOUBLINGS: u32 = 6;
 /// The longest wait between attempts at a failed model call (the backoff
 /// below doubles from one second up to this).
 /// How long an app's live tool list is reused before it is asked again.
-pub(super) const LIVE_TOOLS_FRESH: Duration = Duration::from_secs(2);
+pub(super) const LIVE_TOOLS_FRESH: Duration = Duration::from_secs(30);
 const LONGEST_BACKOFF: Duration = Duration::from_millis(500 * 2u64.pow(MOST_BACKOFF_DOUBLINGS));
 
 /// How long to wait before attempt `next_attempt` (1 for the first retry)
@@ -208,12 +208,17 @@ impl Kernel {
         }
 
         // Finish the tool calls of the latest reply: consecutive delegation
-        // calls (`start_sub_agent`, `research_web`) fan out concurrently so
-        // multiple sub-agents run side by side instead of blocking each other.
+        // calls (`start_sub_agent`, `research_web`) and pure read-only tool
+        // calls fan out concurrently so multi-source reads complete in parallel
+        // while writes remain strictly sequential.
         let pending = run.pending_calls();
         if !pending.is_empty() {
             let step = run.replies.last().map(|r| r.step).unwrap_or(0);
-            let parallel: Vec<_> = pending.iter().take_while(|(_, _, name, _)| matches!(name.as_str(), "start_sub_agent" | "research_web")).cloned().collect();
+            let is_parallelizable = |name: &str| {
+                matches!(name, "start_sub_agent" | "research_web")
+                    || (!crate::tools::RECORDS.contains(&name) && crate::boundary::facts(self, name).is_some_and(|f| f.risk == crate::tools::Risk::Read))
+            };
+            let parallel: Vec<_> = pending.iter().take_while(|(_, _, name, _)| is_parallelizable(name)).cloned().collect();
             if parallel.len() > 1 {
                 let futs = parallel.into_iter().map(|(index, call_id, name, input)| {
                     let step_id = format!("s{step}.{index}");

@@ -93,6 +93,8 @@ const Server = (() => {
     me: () => get("/v1/me"),
     /** What this server runs. @param {CallOptions} [opts] */
     version: opts => get("/v1/version", opts),
+    /** Synthesized executive briefing for the signed-in person. */
+    briefing: () => get("/v1/briefing"),
     /** Search everything of the person's. */
     search: (/** @type {string} */ q) => get(`/v1/search?q=${enc(q)}`),
     /** Read aloud: one sentence's audio. */
@@ -115,6 +117,7 @@ const Server = (() => {
       pause: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/pause`),
       resume: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/resume`),
       steer: (/** @type {Id} */ id, /** @type {string} */ text) => post(`/v1/tasks/${enc(id)}/steer`, { text }),
+      undo: (/** @type {Id} */ id, /** @type {Id} */ callId) => post(`/v1/tasks/${enc(id)}/undo/${enc(callId)}`),
       stopAll: () => post("/v1/tasks/stop-all"),
       /** One of a result's actions, started as a new request. @param {Id} id @param {number|string} index @param {any} [body] */
       action: (id, index, body) => call("POST", `/v1/tasks/${enc(id)}/actions/${enc(index)}`, body),

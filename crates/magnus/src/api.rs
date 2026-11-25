@@ -149,6 +149,8 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/tasks/{id}/cancel", post(cancel))
         .route("/v1/tasks/{id}/steer", post(steer))
         .route("/v1/tasks/{id}/verdict", post(verdict))
+        .route("/v1/tasks/{id}/undo/{call_id}", post(undo_task_action))
+        .route("/v1/briefing", get(briefing))
         .route("/v1/search", get(search))
         .route("/v1/inbox", get(inbox_list))
         .route("/v1/inbox/{id}", post(respond))
@@ -429,6 +431,124 @@ async fn pause_task(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> A
     let actor = format!("person:{}", p.id);
     k.emit(&actor, Ev::Suspended { run: run.id.clone(), reason: "paused_by_user".into(), item: None }).await?;
     Ok(Json(json!({ "ok": true, "status": "suspended" })).into_response())
+}
+
+/// Recent-window horizon for Morning Briefing completed tasks.
+const BRIEFING_RECENT_HOURS: i64 = 24;
+
+/// Synthesized, instant server-side executive briefing for the signed-in person.
+async fn briefing(State(k): K, Caller(p): Caller) -> ApiResult {
+    let now = chrono::Utc::now();
+    let cutoff = now - chrono::Duration::hours(BRIEFING_RECENT_HOURS);
+    let (needs, staged_count, active_tasks, completed_recent, upcoming, cmt_meta) = k.read(|s| {
+        let needs: Vec<Value> = s
+            .inbox
+            .items()
+            .values()
+            .filter(|i| i.resolution.is_none() && crate::inbox::may_respond(s, &p, i))
+            .map(|i| json!({ "id": i.id, "kind": crate::inbox::inbox_kind(&i.kind), "summary": i.summary, "blocking": crate::inbox::blocking(s, i), "created_at": i.created_at }))
+            .collect();
+        let staged_count = s.staged.open_for(&p.id).len();
+        let mut active_tasks = Vec::new();
+        let mut completed_recent = Vec::new();
+        for t in s.tasks.values().filter(|t| t.person == p.id && !t.review && !t.poll) {
+            let Some(r) = s.runs.get(&t.run_id) else { continue };
+            if !r.status.terminal() {
+                active_tasks.push(json!({ "task_id": t.task_id, "status": r.status, "waiting_item": r.waiting_item, "created_at": t.created_at }));
+            } else if r.status == crate::state::Status::Completed && r.ended_at.unwrap_or(t.created_at) >= cutoff {
+                completed_recent.push(json!({
+                    "task_id": t.task_id,
+                    "summary": r.summary.as_deref().unwrap_or_default().chars().take(180).collect::<String>(),
+                    "ended_at": r.ended_at,
+                }));
+            }
+        }
+        let mut upcoming: Vec<(chrono::DateTime<chrono::Utc>, Value)> = s
+            .arrangements
+            .schedules()
+            .values()
+            .filter(|sc| sc.person == p.id && sc.ended.is_none() && sc.paused.is_none())
+            .filter_map(|sc| {
+                let next = sc.next_due()?;
+                Some((next, json!({ "id": sc.id, "next": next, "every_minutes": sc.every_minutes, "daily_at": sc.daily_at })))
+            })
+            .collect();
+        upcoming.sort_by_key(|(next, _)| *next);
+        let upcoming: Vec<Value> = upcoming.into_iter().take(5).map(|(_, v)| v).collect();
+        let zone = s.identity.zone(&p.id);
+        let cmt_meta: Vec<(String, i64, Option<String>, bool)> = s
+            .arrangements
+            .commitments()
+            .values()
+            .filter(|c| c.person == p.id && c.status == "open")
+            .filter_map(|c| {
+                let due = c.by.as_deref().and_then(|b| crate::commitments::due(b, zone))?;
+                let overdue = due < now;
+                (overdue || due <= now + chrono::Duration::hours(BRIEFING_RECENT_HOURS)).then(|| (c.id.clone(), c.seq, c.by.clone(), overdue))
+            })
+            .collect();
+        (needs, staged_count, active_tasks, completed_recent, upcoming, cmt_meta)
+    });
+    let c_seqs: Vec<i64> = cmt_meta.iter().map(|(_, seq, ..)| *seq).collect();
+    let c_content = if c_seqs.is_empty() { std::collections::HashMap::new() } else { k.recall.content(&p.id, &c_seqs).await.unwrap_or_default() };
+    let commitments: Vec<Value> = cmt_meta
+        .into_iter()
+        .map(|(id, seq, by, overdue)| {
+            let what = c_content.get(&seq).and_then(|v| v["what"].as_str()).unwrap_or_default();
+            let to = c_content.get(&seq).and_then(|v| v["to"].as_str());
+            json!({ "id": id, "what": what, "to": to, "by": by, "overdue": overdue })
+        })
+        .collect();
+    Ok(Json(json!({
+        "generated_at": now,
+        "needs_attention": needs,
+        "staged_count": staged_count,
+        "active_tasks": active_tasks,
+        "completed_recent": completed_recent,
+        "upcoming_schedules": upcoming,
+        "overdue_commitments": commitments,
+        "stats": {
+            "needs_count": needs.len(),
+            "staged_count": staged_count,
+            "active_count": active_tasks.len(),
+            "completed_24h": completed_recent.len(),
+            "overdue_count": commitments.iter().filter(|c| c["overdue"] == true).count(),
+        }
+    }))
+    .into_response())
+}
+
+/// Start a scoped undo task for a reversible action receipt in one of the person's tasks.
+async fn undo_task_action(State(k): K, Caller(p): Caller, Path((id, call_id)): Path<(String, String)>) -> ApiResult {
+    let found = k.read(|s| {
+        let task = s.tasks.get(&id)?;
+        let run = s.runs.get(&task.run_id)?;
+        let intent = run.intents.values().find(|i| i.call_id == call_id)?.clone();
+        Some((task.person.clone(), intent))
+    });
+    let Some((owner, intent)) = found else {
+        return refuse(StatusCode::NOT_FOUND, "no such task action");
+    };
+    if owner != p.id {
+        return refuse(StatusCode::FORBIDDEN, "only the task's owner may undo an action");
+    }
+    let reversible = crate::boundary::facts(&k, &intent.tool).is_some_and(|f| f.risk == crate::tools::Risk::ReversibleWrite);
+    if !reversible {
+        return refuse(StatusCode::CONFLICT, "this action is not marked as a reversible write");
+    }
+    let prompt = format!("Undo the reversible action `{}` (call `{}`) from task `{}`. Original arguments: {}. Confirm once reverted.", intent.tool, call_id, id, intent.input);
+    let actor = format!("person:{}", p.id);
+    let (task_id, run_id) = match k.create_run(&actor, &p.id, prompt, vec![], crate::kernel::NewRun { title: Some(format!("Undo {}", intent.tool)), ..Default::default() }).await {
+        Ok(ids) => ids,
+        Err(e) => return Ok(internal(e)),
+    };
+    let k_drive = k.clone();
+    tokio::spawn(async move {
+        if let Err(e) = k_drive.drive(&run_id).await {
+            tracing::warn!("undo run {run_id} failed: {e:#}");
+        }
+    });
+    Ok((StatusCode::CREATED, Json(json!({ "task_id": task_id, "undoes_call_id": call_id }))).into_response())
 }
 
 async fn explore_scan(State(k): K, Caller(p): Caller) -> ApiResult {

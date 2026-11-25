@@ -61,19 +61,32 @@ function groupBlock(g, section) {
 // Tasks, as a view over the same tasks the conversations show: grouped by
 // the request that started them, in sections by where they stand.
 const MORE = new Set();
+const TaskFilter = { q: "", state: "all" };
 function tasksView() {
   const LIMIT = { done: 15, failed: 15 };
-  const sections = groupTasks(App.tasks);
+  const q = TaskFilter.q.trim().toLowerCase();
+  const filtered = App.tasks.filter(t => {
+    if (TaskFilter.state !== "all" && STATE(t) !== TaskFilter.state) return false;
+    if (q && !`${t.title || ""} ${t.text || ""} ${t.summary || ""}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const sections = groupTasks(filtered);
   const activeCount = App.tasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended).length;
+  const endedTasks = App.tasks.filter(t => typeof ENDED !== "undefined" && ENDED.includes(t.status));
   const stopBar = activeCount ? `<div class="spread" style="margin-bottom:8px"><span class="small muted">Active work running or scheduled</span><button type="button" class="danger small" data-stop-all-work>Stop my active work</button></div>` : "";
-  return sections.length ? `${stopBar}${sections.map(sec => {
+  const chips = [["all", "All"], ["needs", "Needs you"], ["running", "Running"], ["done", "Done"], ["failed", "Failed"]];
+  const filterBar = App.tasks.length ? `<div class="stack" data-tasks-filter style="margin-bottom:10px;gap:6px">
+    <div class="row"><input type="search" id="tasks-q" value="${esc(TaskFilter.q)}" placeholder="Filter tasks…" aria-label="Filter tasks" style="flex:1">${endedTasks.length ? `<button type="button" class="small" data-clear-ended-tasks>Clear ended (${endedTasks.length})</button>` : ""}</div>
+    <div class="row small" style="flex-wrap:wrap;gap:4px">${chips.map(([k, lbl]) => `<button type="button" class="small${TaskFilter.state === k ? " primary" : ""}" data-task-filter="${k}">${lbl}</button>`).join("")}</div>
+  </div>` : "";
+  return sections.length ? `${stopBar}${filterBar}${sections.map(sec => {
     const n = sec.groups.reduce((k, g) => k + g.count[sec.state], 0);
     const cap = LIMIT[sec.state] && !MORE.has(sec.state) ? LIMIT[sec.state] : Infinity;
     const left = sec.groups.length - Math.min(cap, sec.groups.length);
     return `<section class="tsec" data-section="${sec.state}"><h3>${esc(sec.label)} <span class="count">${n}</span></h3>
       ${sec.groups.slice(0, cap).map(g => groupBlock(g, sec.state)).join("")}
       ${left ? `<button class="link small" data-more="${sec.state}">Show ${left} more</button>` : ""}</section>`;
-  }).join("")}` : offered("No tasks yet. Ask for something in a conversation.");
+  }).join("")}` : (App.tasks.length ? `${stopBar}${filterBar}<p class="empty">No tasks match that filter.</p>` : offered("No tasks yet. Ask for something in a conversation."));
 }
 
 // An empty Tasks or Schedules: what Magnus offered to take over (its ideas

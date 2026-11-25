@@ -26,6 +26,24 @@ fn plain(slide: &Value) -> (String, Vec<String>) {
         "bullets" => (str_of(slide, "title").to_string(), items().into_iter().map(|i| format!("\u{2022} {i}")).collect()),
         "quote" => (String::new(), vec![format!("\u{201c}{}\u{201d}", str_of(slide, "text")), str_of(slide, "subtitle").to_string()]),
         "image" => (str_of(slide, "title").to_string(), vec![format!("[{}]", str_of(slide, "file"))]),
+        "table" => {
+            let mut lines = Vec::new();
+            if let Some(cols) = slide["columns"].as_array() {
+                let header = cols.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" | ");
+                if !header.is_empty() {
+                    lines.push(header);
+                }
+            }
+            if let Some(rows) = slide["rows"].as_array() {
+                for row in rows {
+                    if let Some(cells) = row.as_array() {
+                        let line = cells.iter().map(|c| c.as_str().map(String::from).unwrap_or_else(|| c.to_string())).collect::<Vec<_>>().join(" | ");
+                        lines.push(line);
+                    }
+                }
+            }
+            (str_of(slide, "title").to_string(), lines)
+        }
         _ => (str_of(slide, "title").to_string(), str_of(slide, "text").split('\n').map(String::from).collect()),
     }
 }
@@ -153,15 +171,25 @@ pub fn pptx(deck: &Value) -> Vec<u8> {
     zip(&files)
 }
 
-/// Text for a PDF string: its own escapes, and Latin-1 where it can be.
+/// Text for a PDF string: its own escapes, WinAnsi punctuation, and readable ASCII fallbacks.
 fn pdf_text(s: &str) -> Vec<u8> {
     let mut out = vec![];
     for c in s.chars() {
         match c {
             '(' | ')' | '\\' => out.extend([b'\\', c as u8]),
             '\u{2022}' => out.push(0x95),
+            '\u{2018}' => out.push(0x91),
+            '\u{2019}' => out.push(0x92),
             '\u{201c}' => out.push(0x93),
             '\u{201d}' => out.push(0x94),
+            '\u{2013}' => out.push(0x96),
+            '\u{2014}' => out.push(0x97),
+            '\u{2026}' => out.push(0x85),
+            '\u{20ac}' => out.push(0x80),
+            '\u{2192}' => out.extend_from_slice(b"->"),
+            '\u{2190}' => out.extend_from_slice(b"<-"),
+            '\u{2713}' | '\u{2714}' => out.extend_from_slice(b"[ok]"),
+            '\u{00a0}' => out.push(b' '),
             c if (c as u32) < 256 => out.push(c as u32 as u8),
             _ => out.push(b'?'),
         }

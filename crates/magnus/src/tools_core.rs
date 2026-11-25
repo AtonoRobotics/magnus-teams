@@ -204,6 +204,14 @@ impl Kernel {
                 if memories_written(&run) >= crate::memory_index::MAX_MEMORY_WRITES_PER_RUN {
                     return Ok((format!("memory write limit ({}) reached for this run; skip further writes.", crate::memory_index::MAX_MEMORY_WRITES_PER_RUN), true, None));
                 }
+                let fact = s("fact");
+                if fact.split_whitespace().count() >= 4 {
+                    if let Ok(existing) = self.remembered(&run.person, |_| true).await {
+                        if let Some(dup) = existing.iter().find(|m| crate::memory_index::is_near_duplicate(&fact, &m.fact, None, None)) {
+                            return Ok((format!("already remembered ({})", dup.entry.id), false, None));
+                        }
+                    }
+                }
                 let label = Label { untrusted: run.untrusted, private: run.private };
                 let sources: Vec<String> = run.private_from.iter().cloned().collect();
                 let id = new_id("mem");
@@ -213,7 +221,7 @@ impl Kernel {
                         id: id.clone(),
                         person: run.person.clone(),
                         run: a.run.clone(),
-                        fact: s("fact"),
+                        fact,
                         topic: a.input["topic"].as_str().map(String::from),
                         label,
                         sources,

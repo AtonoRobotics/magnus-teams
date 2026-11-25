@@ -164,7 +164,10 @@ function personalTransport(thread) {
   const entry = (id, act, body) => Server.chat.entry(thread, id, act, body);
   return {
     text: e => entryText(e),
-    resend: (e, text) => entry(e.id, "resend", { text }),
+    resend: async (e, text) => {
+      if (typeof ask === "function" && !(await ask("Edit and resend this message? Replies after it will be replaced.", "Edit & resend"))) return;
+      return entry(e.id, "resend", { text });
+    },
     retry: e => entry(e.id, "resend"),
     branch: async e => { const r = await entry(e.id, "branch"); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; },
     people: async () => (await Server.directory()).people,

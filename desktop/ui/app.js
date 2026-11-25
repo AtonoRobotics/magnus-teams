@@ -427,7 +427,7 @@ function navigationTree() {
   const waitingThreads=new Set(needsMe().map(i=>i.thread).filter(Boolean));
   const activeThreads=new Set(App.tasks.filter(t=>!ENDED.includes(t.status) && t.thread).map(t=>t.thread));
   const dot=t=>waitingThreads.has(t.thread) ? '<span class="nav-dot warn" aria-hidden="true"></span>' : activeThreads.has(t.thread) ? '<span class="nav-dot run" aria-hidden="true"></span>' : "";
-  const conv=t=>{const ttl=displayTitle(t.title);return `<a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(ttl)}">${dot(t)}<span class="ttl">${esc(ttl)}</span></a>`;};
+  const conv=t=>{const ttl=displayTitle(t.title);return `<div class="nav-conv-row"><a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(ttl)}">${dot(t)}<span class="ttl">${esc(ttl)}</span></a><button type="button" class="nav-conv-del" data-trash="${esc(t.thread)}" data-trash-label="Delete conversation"${t.thread===App.thread ? ' data-then="#/home"' : ""} title="Delete conversation" aria-label="Delete ${esc(ttl)}">${icon("trash")}</button></div>`;};
   const loose=App.threads.filter(t=>!t.project);
   const DAY_MS=86_400_000, cutoff=Date.now()-DAY_MS;
   const today=loose.filter(t=>{const ts=Date.parse(t.updated_at||t.created_at||"");return Number.isNaN(ts)||ts>=cutoff;});
@@ -1169,7 +1169,10 @@ async function refresh() {
     const staged = typeof Server !== "undefined" && Server.staged?.list
       ? Server.staged.list().then(r => { App.staged = r?.items || []; }, () => {})
       : Promise.resolve();
-    const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version, staged]);
+    const briefing = typeof Server !== "undefined" && Server.briefing
+      ? Server.briefing().then(b => { App.briefing = b; }, () => {})
+      : Promise.resolve();
+    const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version, staged, briefing]);
     if (!App.me) return;
     // Magnus's own background reviews are plumbing, not the person's tasks
     // (owner, 2026-11-07): developers see them in the run inspector.
@@ -1293,9 +1296,12 @@ function convHead(thread, project) {
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
   const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share into a shared project (clean-room)">${icon("team")}<span>Share</span></button>` : "";
   const pending = needsMe().length;
+  const dnd = typeof Notices !== "undefined" && Notices.isDnd?.();
+  const nCount = typeof Notices !== "undefined" && Array.isArray(Notices.history) ? Notices.history.length : 0;
+  const noticeBtn = `<div class="notice-center-wrap"><button type="button" class="icon-btn stage-dock-btn${dnd ? " muted" : ""}" data-toggle-notices aria-expanded="false" aria-controls="notice-center" title="${dnd ? "Notifications snoozed (click to open)" : "Notifications & Do Not Disturb"}" aria-label="${dnd ? "Notifications snoozed" : `Notifications${nCount ? `, ${nCount} recent` : ""}`}">${icon("bell")}${!dnd && nCount ? `<span class="stage-dock-badge" aria-hidden="true">${Math.min(nCount, 99)}</span>` : ""}</button><div id="notice-center" class="notice-center card" role="region" aria-label="Notifications" hidden></div></div>`;
   const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${computerChip(App.computers)}${shareBtn}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}${sidebarBtn}</div>`);
+    <div class="row">${computerChip(App.computers)}${shareBtn}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}${noticeBtn}${sidebarBtn}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -1988,9 +1994,28 @@ function activityParts(composed) {
   const updates = (feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : "";
   return { active, done, pending, scheds, hb, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
 }
+function briefingCard() {
+  const b = App.briefing;
+  if (!b) return "";
+  const total = (b.needs_count || 0) + (b.staged_count || 0) + (b.active_count || 0) + (b.completed_24h || 0) + (b.overdue_count || 0);
+  if (!total) return "";
+  const stat = (n, lbl, attrs) => n ? `<a class="briefing-stat" ${attrs}><strong>${n}</strong><span>${esc(lbl)}</span></a>` : "";
+  const stats = [
+    stat(b.needs_count, "waiting", 'href="#/inbox" data-open="needs"'),
+    stat(b.staged_count, "drafts", 'href="#/inbox" data-open="needs"'),
+    stat(b.active_count, "running", 'href="#/tasks" data-open="tasks"'),
+    stat(b.completed_24h, "done 24h", 'href="#/tasks" data-open="tasks"'),
+    stat(b.overdue_count, "overdue", 'href="#/settings/memory"'),
+  ].filter(Boolean).join("");
+  const overdue = Array.isArray(b.overdue) && b.overdue.length
+    ? `<ul class="small muted" style="margin:8px 0 0;padding-left:16px">${b.overdue.slice(0, 3).map(o => `<li><strong>${esc(o.what || "Promise")}</strong>${o.to ? ` · ${esc(o.to)}` : ""}${o.by ? ` <span class="faint">(due ${esc(when(o.by))})</span>` : ""}</li>`).join("")}</ul>`
+    : "";
+  return `<section class="card flat briefing-card" data-briefing><div class="spread"><strong class="small">Briefing</strong><span class="small faint">Last 24h</span></div><div class="briefing-stats">${stats}</div>${overdue}</section>`;
+}
 function activityView(composed) {
   const p = activityParts(composed);
-  return `${p.needsBanner}
+  return `${typeof briefingCard === "function" ? briefingCard() : ""}
+    ${p.needsBanner}
     ${p.activeCard}
     <section class="companion-timeline">
       <div class="companion-sec-head"><span>Recent Work</span><span>Today</span></div>
@@ -2342,7 +2367,7 @@ async function fileView(id) {
   const path = `/v1/files/${enc(id)}`;
   const body = `<h2 class="ptitle">${esc(f.name)}</h2>
     <p class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${fileFrom(f)} · ${esc(kb(f.size))} · ${esc(when(f.at))}</p>
-    <div class="row"><button class="primary" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button> ${moveControl(f.id, f.project, App.projects)} ${trashButton(f.id, "Delete file")}</div>
+    <div class="row"><button class="primary" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button> <button type="button" data-act="ask-file" data-file-id="${esc(f.id)}" data-file-name="${esc(f.name)}">Ask Magnus</button> ${moveControl(f.id, f.project, App.projects)} ${trashButton(f.id, "Delete file")}</div>
     <iframe class="composed" sandbox="allow-same-origin" title="${esc(f.name)}" id="fview"></iframe>`;
   return {
     body,
@@ -2662,6 +2687,7 @@ function projectsView() {
 async function projectView(id) {
   const p = await Server.projects.get(id);
   return plain(`<div class="spread"><h2 class="ptitle">${esc(p.name)}</h2>${trashButton(id, "Delete project")}</div>
+    <details class="small" data-rename-project-wrap style="margin-bottom:8px"><summary class="muted">Rename project</summary><form class="row small" data-rename-project="${esc(id)}" style="margin-top:6px"><input name="name" value="${esc(p.name)}" required aria-label="Project name" style="flex:1"><button type="submit" class="primary small">Save</button></form></details>
     <div class="row"><a class="button primary" href="#/chat/new/${enc(id)}">New conversation in this project</a><button type="button" class="shared-promote-btn" data-project-share="${esc(id)}" data-project-name="${esc(p.name)}" title="Promote into a shared project (clean-room)">${icon("team")}<span>Share</span></button></div>
     <h3>Instructions</h3><p class="small muted">Applied to every task and conversation in this project. Only you change them; Magnus reads them.</p>
       <textarea id="pin" rows="4" data-draft="pin-${esc(id)}">${esc(p.instructions || "")}</textarea><div class="row"><button data-act="save-ins" data-id="${esc(id)}">Save instructions</button></div>
@@ -2694,6 +2720,19 @@ function wirePanel() {
     if (l) { Panel.layer = l.dataset.layer; return drawPanel(); }
     const m = e.target.closest("[data-more]");
     if (m) { MORE.add(m.dataset.more); return drawPanel(); }
+    const tf = e.target.closest("[data-task-filter]");
+    if (tf && typeof TaskFilter !== "undefined") { TaskFilter.state = tf.dataset.taskFilter || "all"; return drawPanel(); }
+    if (e.target.closest("[data-clear-ended-tasks]")) {
+      const ended = App.tasks.filter(x => ENDED.includes(x.status));
+      if (!ended.length) return;
+      if (!await ask(`Move ${ended.length} ended task${ended.length === 1 ? "" : "s"} to the trash? You can restore them from Trash.`, "Clear ended tasks")) return;
+      try {
+        await Promise.all(ended.map(x => Server.trash.add(x.task_id)));
+        toast(`Cleared ${ended.length} ended task${ended.length === 1 ? "" : "s"}.`);
+        await refresh();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const a = e.target.closest("button[data-act]");
     if (!a) return;
     const id = a.dataset.id;
@@ -2730,6 +2769,13 @@ function wirePanel() {
         case "fullscreen-deliverable": {
           const frame = $("#pview", el);
           if (frame?.requestFullscreen) frame.requestFullscreen().catch(() => {});
+          return;
+        }
+        case "ask-file": {
+          const fname = a.dataset.fileName || "this file";
+          const fid = a.dataset.fileId || "";
+          App.appSearch = `Look at ${fname}${fid ? ` (file ${fid})` : ""} and `;
+          location.hash = "#/chat/new";
           return;
         }
         case "run-schedule": {
@@ -2822,6 +2868,18 @@ function wirePanel() {
   });
   let t;
   el.addEventListener("input", e => {
+    if (e.target.id === "tasks-q" && typeof TaskFilter !== "undefined") {
+      const inp = /** @type {HTMLInputElement} */ (e.target);
+      const pos = [inp.selectionStart ?? inp.value.length, inp.selectionEnd ?? inp.value.length];
+      TaskFilter.q = inp.value;
+      clearTimeout(t);
+      t = setTimeout(async () => {
+        await drawPanel();
+        const next = /** @type {?HTMLInputElement} */ ($("#tasks-q", el));
+        if (next) { next.focus(); try { next.setSelectionRange(pos[0], pos[1]); } catch { /* ignore */ } }
+      }, 150);
+      return;
+    }
     if (e.target.id !== "lq") return;
     clearTimeout(t);
     t = setTimeout(() => { Panel.lib.q = e.target.value.trim(); drawPanel(); }, 200);
@@ -2857,6 +2915,19 @@ function wirePanel() {
     return body;
   };
   el.addEventListener("submit", async e => {
+    const renameProj = e.target.closest("form[data-rename-project]");
+    if (renameProj) {
+      e.preventDefault();
+      const pid = renameProj.dataset.renameProject;
+      const name = String(new FormData(renameProj).get("name") || "").trim();
+      if (!name) { toast("Enter a project name."); return; }
+      try {
+        await Server.projects.update(pid, { name });
+        toast("Project renamed.");
+        await refresh();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const createSched = e.target.closest("form[data-create-schedule]");
     if (createSched) {
       e.preventDefault();
@@ -3336,6 +3407,42 @@ async function boot() {
       const t = /** @type {HTMLElement} */ (e.target);
       if (t.closest("[data-open-discovery]")) { e.preventDefault(); openDiscoveryWizard().catch(() => {}); }
       else if (t.closest("[data-open-setup]")) { e.preventDefault(); openSetupWizard().catch(() => {}); }
+      else if (t.closest("[data-toggle-notices]")) {
+        e.preventDefault();
+        const pop = $("#notice-center");
+        const btn = t.closest("[data-toggle-notices]");
+        if (pop) {
+          const open = pop.hidden;
+          if (open && typeof Notices !== "undefined" && Notices.centerHtml) paint(pop, Notices.centerHtml());
+          pop.hidden = !open;
+          btn?.setAttribute("aria-expanded", String(open));
+        }
+      }
+      else if (t.closest("[data-dnd-toggle]")) {
+        e.preventDefault();
+        if (typeof Notices !== "undefined" && Notices.snooze) {
+          const next = Notices.isDnd() ? 0 : 60;
+          Notices.snooze(next);
+          toast(next ? "Notifications snoozed for 1 hour." : "Notifications resumed.");
+          const pop = $("#notice-center");
+          if (pop && !pop.hidden) paint(pop, Notices.centerHtml());
+          convHead(App.thread);
+        }
+      }
+      else if (t.closest("[data-notices-clear]")) {
+        e.preventDefault();
+        if (typeof Notices !== "undefined" && Notices.clearHistory) {
+          Notices.clearHistory();
+          const pop = $("#notice-center");
+          if (pop && !pop.hidden) paint(pop, Notices.centerHtml());
+          convHead(App.thread);
+        }
+      }
+      else if (t.closest("[data-notice-item]")) {
+        const pop = $("#notice-center");
+        if (pop) pop.hidden = true;
+        $("[data-toggle-notices]")?.setAttribute("aria-expanded", "false");
+      }
       else if (t.closest("[data-toggle-inspector]")) {
         e.preventDefault();
         if (Panel.what) closePanel(true);
@@ -3389,6 +3496,13 @@ async function boot() {
           await refresh();
         } catch (err) { toast(err.message); b.disabled = false; }
       }
+      else {
+        const pop = $("#notice-center");
+        if (pop && !pop.hidden && !t.closest("#notice-center")) {
+          pop.hidden = true;
+          $("[data-toggle-notices]")?.setAttribute("aria-expanded", "false");
+        }
+      }
     });
   }
   go();
@@ -3411,7 +3525,7 @@ function stop() {
   stopPanelLive();
   adminStop();
   Panel.unwatch?.(); Panel.unwatch=null; Panel.anchors={}; Panel.layers={}; Panel.opener=null; Panel.drawn=null; Panel.what=null; App.draftRecord=null;
-  App.me = null; App.computers = null; App.connectors = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
+  App.me = null; App.computers = null; App.connectors = null; App.inbox = []; App.staged = []; App.briefing = null; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
   // What one person was typing or filtering by is not the next one's here.
   Panel.lib = { q: "", project: "", kind: "all" };
   delete Lib.all; Lib.q=""; Lib.cat="all"; Lib.tab="discover";

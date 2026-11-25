@@ -396,6 +396,12 @@ impl crate::kernel::Kernel {
                 continue;
             }
             let n = fresh.len();
+            let triage = crate::ambient_watch::triage_watched_diff(app, remote, n, data);
+            if !triage.actionable || triage.urgency == crate::ambient_watch::Urgency::Ignore {
+                let _ =
+                    self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
+                continue;
+            }
             if self.review_wake_items(person, app, n).await {
                 let _ =
                     self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;

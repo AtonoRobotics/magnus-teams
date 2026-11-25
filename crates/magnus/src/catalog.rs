@@ -31,6 +31,8 @@ const SOURCES: &[&str] = &[
     include_str!("../../../catalog/microsoft-outlook.toml"),
     include_str!("../../../catalog/microsoft-calendar.toml"),
     include_str!("../../../catalog/microsoft-onedrive.toml"),
+    include_str!("../../../catalog/linear.toml"),
+    include_str!("../../../catalog/notion.toml"),
 ];
 
 #[derive(Deserialize, Clone, Debug)]

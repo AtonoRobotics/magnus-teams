@@ -227,6 +227,35 @@ impl Kernel {
                     t.push_str(&format!("- {name} ({media}, {} KB)\n", size.div_ceil(1024)));
                 }
             }
+            let recent_done: Vec<(String, chrono::DateTime<chrono::Utc>)> = self.read(|s| {
+                let mut rows: Vec<(String, chrono::DateTime<chrono::Utc>)> = s
+                    .tasks
+                    .values()
+                    .filter(|other| {
+                        other.person == run.person
+                            && other.task_id != run.task
+                            && !other.review
+                            && !other.poll
+                            && s.project_of(&other.task_id).as_deref() == Some(p.id.as_str())
+                            && s.runs.get(&other.run_id).is_some_and(|r| r.status == crate::state::Status::Completed)
+                    })
+                    .filter_map(|other| {
+                        let r = s.runs.get(&other.run_id)?;
+                        let summary = r.summary.as_deref().map(str::trim).filter(|x| !x.is_empty())?;
+                        let short: String = summary.chars().take(180).collect();
+                        Some((format!("{}: {short}", other.task_id), r.ended_at.unwrap_or(other.created_at)))
+                    })
+                    .collect();
+                rows.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
+                rows.truncate(5);
+                rows
+            });
+            if !recent_done.is_empty() {
+                t.push_str("\n\nRecent completed work in this project (for continuity):\n");
+                for (line, at) in recent_done {
+                    t.push_str(&format!("- [{}] {line}\n", at.format("%Y-%m-%d")));
+                }
+            }
             first.push(Block::Text { text: t });
         }
         if let Some(c) = chat.as_ref().filter(|c| !c.turn && !c.conversation.is_empty()) {
@@ -414,17 +443,22 @@ impl Kernel {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
         let team = self.run_kind(&run.id).in_team();
-        for c in self.connectors() {
-            // A team run acts through the workspace's own sign-in, never a member's (team::sign_in).
-            let owner = self.app_owner(run, &c);
-            if team && crate::team::signs_in_per_person(&c) && owner == run.person {
-                continue;
-            }
-            // An app people sign in to is offered only once its owner signed in.
-            if !self.connected(&c, &owner) || self.lapsed(&c, &owner) {
-                continue;
-            }
-            let live = self.live_app_tools(&c, &owner).await;
+        let eligible: Vec<_> = self
+            .connectors()
+            .into_iter()
+            .filter_map(|c| {
+                let owner = self.app_owner(run, &c);
+                if team && crate::team::signs_in_per_person(&c) && owner == run.person {
+                    return None;
+                }
+                if !self.connected(&c, &owner) || self.lapsed(&c, &owner) {
+                    return None;
+                }
+                Some((c, owner))
+            })
+            .collect();
+        let fetched = futures::future::join_all(eligible.iter().map(|(c, owner)| self.live_app_tools(c, owner))).await;
+        for ((c, owner), live) in eligible.into_iter().zip(fetched) {
             // An app refusing Magnus its tools offers none, not even those
             // pinned before: the index says it refuses (app_tools.rs).
             if live.is_none() && self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&crate::connectors::connection_name(&c.name, &owner)) {
