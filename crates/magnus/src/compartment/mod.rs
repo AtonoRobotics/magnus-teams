@@ -25,11 +25,25 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Fraction of parent budget granted to an `OpenWeb` research worker.
-const RESEARCH_BUDGET_SHARE: f64 = 0.25;
-/// Hard per-worker call ceiling so `research_web` finishes quickly instead of
-/// crawling dozens of turns.
-const RESEARCH_MAX_MODEL_CALLS: u32 = 8;
-const RESEARCH_MAX_ACTIONS: u32 = 12;
+const RESEARCH_BUDGET_SHARE: f64 = 0.5;
+/// Per-worker runaway guard: generous enough for multi-page search + fetch +
+/// browser inspection without choking normal research tasks.
+const RESEARCH_MAX_MODEL_CALLS: u32 = 30;
+const RESEARCH_MAX_ACTIONS: u32 = 45;
+const RESEARCH_TITLE_MAX_CHARS: usize = 72;
+
+fn research_title(query: &str) -> String {
+    let first = query.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(query.trim());
+    let mut out: String = first.chars().take(RESEARCH_TITLE_MAX_CHARS).collect();
+    if first.chars().count() > RESEARCH_TITLE_MAX_CHARS {
+        out.push('…');
+    }
+    if out.is_empty() {
+        "Web research".into()
+    } else {
+        out
+    }
+}
 
 /// Tools always admitted in an `OpenWeb` compartment (autonomous public browsing & search).
 const OPEN_WEB_READ_TOOLS: [&str; 7] = ["web_search", "web_fetch", "browser_navigate", "browser_click", "browser_snapshot", "browser_screenshot", "browser_back"];
@@ -185,6 +199,7 @@ impl Kernel {
             budget: Some(budget),
             model: Some(worker_model),
             ids: Some((task.clone(), child.clone())),
+            title: Some(research_title(query)),
             team: self.team_of(&parent.task).map(|t| crate::team::TeamRun { sub: true, ..t }),
             ..Default::default()
         };
@@ -241,5 +256,18 @@ mod tests {
         // Quarantined has zero tools.
         assert!(ledger.refusal("r_quar", "web_search").is_some());
         assert!(ledger.refusal("r_quar", "web_fetch").is_some());
+    }
+
+    #[test]
+    fn research_worker_budget_and_title_are_practical() {
+        let cap = crate::config::Budget { max_model_calls: RESEARCH_MAX_MODEL_CALLS, max_actions: RESEARCH_MAX_ACTIONS, max_usd: f64::INFINITY };
+        let parent = crate::config::Budget::default();
+        let got = parent.within(&cap);
+        assert!(got.max_model_calls >= 25, "research_web call limit must not choke normal research: {}", got.max_model_calls);
+        assert!(got.max_actions >= 30, "research_web action limit must allow multi-page fetches: {}", got.max_actions);
+        assert_eq!(research_title("Notion and Confluence sync options\nCheck official docs"), "Notion and Confluence sync options");
+        assert_eq!(research_title(""), "Web research");
+        let long = "a".repeat(RESEARCH_TITLE_MAX_CHARS + 10);
+        assert!(research_title(&long).ends_with('…'));
     }
 }

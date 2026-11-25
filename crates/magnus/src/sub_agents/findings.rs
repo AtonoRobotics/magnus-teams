@@ -122,7 +122,8 @@ pub(crate) fn render_deliverable(view: &Value) -> String {
 pub(crate) fn format_child_findings(k: &Kernel, r: &Run) -> String {
     let mut sections = Vec::new();
     let deliverable = r.outcome_view.as_ref().map(render_deliverable).unwrap_or_default();
-    if !deliverable.is_empty() {
+    let has_deliverable = !deliverable.is_empty();
+    if has_deliverable {
         sections.push(deliverable);
     }
     if let Some(summary) = r.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -132,6 +133,14 @@ pub(crate) fn format_child_findings(k: &Kernel, r: &Run) -> String {
                 sections.push(summary.to_string());
             } else {
                 sections.push(format!("Summary: {summary}"));
+            }
+        }
+    }
+    if !has_deliverable && r.status == crate::state::Status::Failed {
+        if let Some(partial) = r.replies.iter().rev().map(|rep| rep.text()).find(|t| !t.trim().is_empty()) {
+            let trimmed = partial.trim();
+            if !sections.iter().any(|s| s.contains(trimmed)) {
+                sections.push(format!("Partial findings before stopping:\n{trimmed}"));
             }
         }
     }

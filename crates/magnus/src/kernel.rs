@@ -597,7 +597,15 @@ impl Kernel {
     }
 
     /// Code stops a run and tells the person why, with the evidence (K24).
+    /// A sub-agent hitting its own budget slice returns control to its parent
+    /// rather than spamming the person with a blocking approval card per child.
     pub async fn suspend_with_notice(&self, run: &str, reason: &str, summary: String, details: serde_json::Value) -> Result<()> {
+        if reason == "budget" && self.read(|s| s.sub_agents.get(run).is_some()) {
+            let ended = Ev::Failed { run: run.into(), reason: summary, by: "kernel".into() };
+            self.emit("kernel", ended).await?;
+            self.on_stop(run, true).await;
+            return Ok(());
+        }
         let (task, person) = self.read(|s| s.runs.get(run).map(|r| (r.task.clone(), r.person.clone()))).unwrap_or_default();
         let (id, ev) = notice_event(Some(task), Some(run.into()), person, summary, serde_json::json!({ "reason": reason, "evidence": details }));
         self.suspend_on(run, reason, id, Some(ev)).await

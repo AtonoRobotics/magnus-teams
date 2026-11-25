@@ -1,0 +1,8 @@
+# Consolidate sub-agent cards and stop sub-agent budget card spam
+
+**Choice.**
+1. **Raise `research_web` call/action ceilings & give readable titles:** Increased `RESEARCH_MAX_MODEL_CALLS` from `8` to `30`, `RESEARCH_MAX_ACTIONS` from `12` to `45`, and `RESEARCH_BUDGET_SHARE` from `0.25` to `0.5` in `crates/magnus/src/compartment/mod.rs`. Set `NewRun.title` from the concise query text instead of internal prompt boilerplate.
+2. **Sub-agent budget stops return to their parent without creating human approval cards:** In `Kernel::suspend_with_notice` (`crates/magnus/src/kernel.rs`), when a sub-agent (`s.sub_agents.get(run).is_some()`) hits `reason == "budget"`, it ends cleanly (`Ev::Failed`) instead of suspending and putting a blocking `"Stopped after N model calls"` notice card in the person's inbox. `format_child_findings` (`crates/magnus/src/sub_agents/findings.rs`) also preserves any partial reply text the child produced before stopping so the parent can continue seamlessly. Top-level tasks and real policy/security approvals (`approval`, `spend_limit`, etc.) still reach the user normally.
+3. **Collapse per-sub-agent bento cards into one Live Workspace tile:** Removed the per-sub-agent `sub:<run>` bento tile loop in `desktop/ui/aurora-stage.js` and rolled sub-agents into compact pills inside the single `Live Workspace` tile (`subAgents`). Lowered stage caps to `SHOWN_BOXES = 3`, `MAX_APPROVAL_BOXES = 1`, and `MAX_CONCURRENT_TASK_BOXES = 1`.
+
+**Reason.** Owner feedback (2026-11-25): spawning a separate card for every sub-agent on top of the task start card and on top of a `"Stopped after 8 model calls"` approval card per sub-agent flooded the UI and interrupted every research task with arbitrary 8-call limits.

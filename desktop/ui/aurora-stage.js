@@ -48,9 +48,9 @@ const AuroraStage = (() => {
   const WORD_ANIM_MS = 340;
   const WORD_UNWRAP_BUFFER_MS = 80;
   const WORDS_STREAMED = 120;
-  const SHOWN_BOXES = 6;
-  const MAX_APPROVAL_BOXES = 2;
-  const MAX_CONCURRENT_TASK_BOXES = 3;
+  const SHOWN_BOXES = 3;
+  const MAX_APPROVAL_BOXES = 1;
+  const MAX_CONCURRENT_TASK_BOXES = 1;
   const PREVIEW_ROWS_MAX = 6;
   const PREVIEW_BODY_MAX_CHARS = 600;
   const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files", "shared"]);
@@ -175,6 +175,7 @@ const AuroraStage = (() => {
         steps: run.recent_steps,
         pct: pctOf(run),
         planSteps: planUnitsOf(run),
+        subAgents: threadSubs.slice(0, 6),
         canStop: true,
         count: activeAll.length > 1 ? activeAll.length : 0,
         updatedAt: tsOf(run.updated_at || run.created_at),
@@ -187,6 +188,7 @@ const AuroraStage = (() => {
         href: "#/tasks",
         title: activeSubs.length === 1 ? activeSubs[0].goal : `${plural(activeSubs.length, "sub-agent")} working`,
         desc: activeSubs[0].sub || "Working on your request…",
+        subAgents: activeSubs.slice(0, 6),
         count: activeSubs.length > 1 ? activeSubs.length : 0,
         updatedAt: Date.now(),
       });
@@ -199,29 +201,13 @@ const AuroraStage = (() => {
         title: named(last),
         desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped"),
         steps: last.recent_steps,
+        subAgents: threadSubs.slice(0, 6),
         proof: proofOf(last),
         verified: !!(last.verified || last.receipts_count > 0 || last.has_deliverable),
         updatedAt: tsOf(last.ended_at || last.created_at),
       });
     }
-    // Give each active or recently finished sub-agent its own bento tile so parallel tracks compose across the side & bottom.
-    const shownSubs = activeSubs.length ? threadSubs : (last ? threadSubs.slice(0, 3) : []);
-    for (const s of shownSubs) {
-      const tone = s.status === "suspended" ? "needs" : s.status === "running" ? "run" : s.status === "completed" ? "done" : "idle";
-      const taskId = s.open.startsWith("task:") ? s.open.slice(5) : "";
-      list.push({
-        key: `sub:${s.run}`,
-        label: s.status === "running" ? "Sub-agent · Working" : s.status === "suspended" ? "Sub-agent · Waiting" : "Sub-agent",
-        icon: "sparkles",
-        tone,
-        open: s.open || "tasks",
-        href: taskId ? `#/task/${enc(taskId)}` : "#/tasks",
-        title: s.goal,
-        desc: s.sub || s.summary || (s.status === "completed" ? "Completed" : "Working…"),
-        updatedAt: s.status === "running" || s.status === "suspended" ? Date.now() : 0,
-      });
-    }
-    // Surface concurrent autonomous tasks running in parallel (this thread or others).
+    // Surface at most one concurrent background task from another thread.
     const othersRunning = activeAll.filter(t => !run || t.task_id !== run.task_id).slice(0, MAX_CONCURRENT_TASK_BOXES);
     for (const other of othersRunning) {
       const step = stepOf(other);
@@ -247,7 +233,7 @@ const AuroraStage = (() => {
     const pending = Panel.what === "needs" ? [] : needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
     if (held && held.until > Date.now()) list.push(held.box);
     else held = null;
-    // Show up to MAX_APPROVAL_BOXES unclosed pending decisions with full structured previews & 1-tap actions.
+    // Show at most MAX_APPROVAL_BOXES unclosed pending decision with full structured preview & 1-tap actions.
     const ask = (i, idx) => {
       const fields = typeof askSummaryFields === "function" ? askSummaryFields(i) : { rows: [], body: "" };
       return {
@@ -331,28 +317,46 @@ const AuroraStage = (() => {
     return out;
   }
 
-  /** A box's inside: composes structured previews, plan steps, sub-agents, progress bars, and direct controls. */
+  const SUB_STATE_LABEL = /** @type {Record<string, string>} */ ({ running: "Working", suspended: "Waiting", completed: "Done", failed: "Stopped", cancelled: "Stopped" });
+
+  /** Whether a stage box contains inline expandable items or controls (so clicking it never yanks open the right sidebar). */
+  function isInlineCard(c) {
+    return !!(c.answers || c.said || c.canStop || c.key === "live" || (Array.isArray(c.subAgents) && c.subAgents.length) || (Array.isArray(c.planSteps) && c.planSteps.length) || (Array.isArray(c.steps) && c.steps.length));
+  }
+
+  /** A box's inside: single calm card with clickable inline expandable line items instead of spawning many cards or opening the sidebar on every click. */
   function boxInner(c) {
-    const interactive = !!(c.answers || c.said || c.canStop);
-    const title = interactive ? `<a class="stage-tile-title" href="${html(c.href)}" data-open="${html(c.open)}">${html(c.title)}</a>` : `<strong class="stage-tile-title">${html(c.title)}</strong>`;
+    const inline = isInlineCard(c);
+    const title = `<strong class="stage-tile-title">${html(c.title)}</strong>`;
     const close = c.said ? "" : `<button type="button" class="stage-tile-close" aria-label="Close ${html(c.label)}" title="Close">${icon("close")}</button>`;
     const verifiedPill = c.verified ? `<span class="aurora-verified-pill">✓ Verified</span>` : "";
     const bar = typeof c.pct === "number" ? `<div class="stage-tile-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${c.pct}"><span style="width:${c.pct}%"></span></div>` : "";
     const planStepsHtml = Array.isArray(c.planSteps) && c.planSteps.length
-      ? `<ul class="stage-plan-steps">${c.planSteps.map(u => `<li data-step="${html(u.status)}"><span class="stage-step-dot" aria-hidden="true"></span><span>${html(u.goal)}</span></li>`).join("")}</ul>`
+      ? `<div class="stage-items">${c.planSteps.map((u, idx) => `<details class="stage-item" data-key="plan:${idx}" data-status="${html(u.status)}"><summary class="stage-item-row"><span class="stage-step-dot" aria-hidden="true"></span><span class="stage-item-title">${html(u.goal)}</span><span class="stage-item-meta">${html(u.status === "done" ? "Done" : u.status === "active" ? "In progress" : "Queued")}</span></summary><div class="stage-item-body"><p>${html(u.goal)}</p></div></details>`).join("")}</div>`
       : "";
     const subsHtml = Array.isArray(c.subAgents) && c.subAgents.length
-      ? `<div class="stage-sub-list">${c.subAgents.map(s => `<span class="stage-sub-pill" data-status="${html(s.status)}"><span class="stage-step-dot" aria-hidden="true"></span><strong>${html(s.goal)}</strong>${s.sub ? `<span class="muted"> · ${html(s.sub)}</span>` : ""}</span>`).join("")}</div>`
+      ? `<div class="stage-items">${c.subAgents.map(s => {
+        const meta = SUB_STATE_LABEL[s.status] || s.status || "Working";
+        const detail = s.summary || s.sub || (s.status === "completed" ? "Finished." : "Working in background…");
+        const taskId = s.open?.startsWith("task:") ? s.open.slice(5) : "";
+        const link = s.open ? `<a class="stage-item-link" href="${taskId ? `#/task/${enc(taskId)}` : "#/tasks"}" data-open="${html(s.open)}">Open full log →</a>` : "";
+        return `<details class="stage-item" data-key="sub:${html(s.run)}" data-status="${html(s.status)}"><summary class="stage-item-row"><span class="stage-step-dot" aria-hidden="true"></span><span class="stage-item-title">${html(s.goal)}</span><span class="stage-item-meta">${html(meta)}</span></summary><div class="stage-item-body"><p>${html(detail)}</p>${link}</div></details>`;
+      }).join("")}</div>`
       : "";
     const previewHtml = (Array.isArray(c.previewRows) && c.previewRows.length) || c.previewBody
       ? `<div class="stage-tile-preview">${c.previewRows?.length ? c.previewRows.map(([k, v]) => `<div class="stage-preview-row"><span class="stage-preview-key">${html(k)}</span><span class="stage-preview-val">${html(v)}</span></div>`).join("") : ""}${c.previewBody ? `<p class="stage-preview-body">${html(c.previewBody)}</p>` : ""}${c.consequence ? `<p class="stage-preview-note">${html(c.consequence)}</p>` : ""}</div>`
       : "";
-    const descHtml = `${c.desc && !previewHtml ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : ""}${stepsList(c.steps)}${c.proof ? `<span class="stage-tile-proof">${html(c.proof)} · see what it did</span>` : ""}`;
+    const stepsHtml = Array.isArray(c.steps) && c.steps.length
+      ? `<details class="stage-item" data-key="steps:${html(c.key)}"><summary class="stage-item-row"><span class="stage-step-dot" aria-hidden="true"></span><span class="stage-item-title">${html(c.steps[c.steps.length - 1].doing)}</span><span class="stage-item-meta">${html(plural(c.steps.length, "step"))}</span></summary><div class="stage-item-body">${stepsList(c.steps)}</div></details>`
+      : "";
+    const descHtml = `${c.desc && !previewHtml ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : ""}${stepsHtml}${c.proof ? `<span class="stage-tile-proof">${html(c.proof)}</span>` : ""}`;
     const actsHtml = c.canStop && c.taskId
-      ? `<div class="stage-tile-acts"><a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Details →</a><button type="button" class="stage-tile-stop" data-stage-stop="${html(c.taskId)}">Stop</button></div>`
+      ? `<div class="stage-tile-acts"><a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Full details →</a><button type="button" class="stage-tile-stop" data-stage-stop="${html(c.taskId)}">Stop</button></div>`
       : c.answers
-        ? `<div class="stage-tile-acts-row">${c.answers}<a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Details →</a></div>`
-        : "";
+        ? `<div class="stage-tile-acts-row">${c.answers}<a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Full details →</a></div>`
+        : (inline && c.open)
+          ? `<div class="stage-tile-acts"><a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Full details →</a></div>`
+          : "";
     const foot = c.said
       ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
       : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${planStepsHtml}${subsHtml}${actsHtml}`;
@@ -409,8 +413,8 @@ const AuroraStage = (() => {
     const desiredNodes = [];
     for (const c of list) {
       let b = bento.querySelector(`:scope > .stage-tile[data-tile="${CSS.escape(c.key)}"]:not(.stage-tile-leaving)`);
-      // A box with answers in it is not a link: its title is.
-      const tag = c.answers || c.said || c.canStop ? "DIV" : "A";
+      // Cards with expandable line items or controls are containers, not whole-card links.
+      const tag = isInlineCard(c) ? "DIV" : "A";
       if (b && b.tagName !== tag) { b.remove(); b = null; }
       if (!b) {
         b = document.createElement(tag);
@@ -430,7 +434,12 @@ const AuroraStage = (() => {
       if (c.note) b.dataset.note = c.note; else delete b.dataset.note;
       b.dataset.sign = AuroraBoxes.sign(c);
       const inner = boxInner(c);
-      if (b._html !== inner) { b.innerHTML = inner; b._html = inner; }
+      if (b._html !== inner) {
+        const openKeys = new Set([...b.querySelectorAll("details[data-key][open]")].map(d => d.dataset.key));
+        b.innerHTML = inner;
+        b._html = inner;
+        if (openKeys.size) b.querySelectorAll("details[data-key]").forEach(d => { if (openKeys.has(d.dataset.key)) d.open = true; });
+      }
       desiredNodes.push(b);
     }
     const currentNodes = boxesIn(bento);

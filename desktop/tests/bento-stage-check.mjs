@@ -5,8 +5,9 @@
 // 2. Side Bento (.stage-bento) sits on the right column of section.conv beside
 //    #thread, and Bottom Bento (.stage-bento-bottom) spans across the bottom
 //    above .composer-slot.
-// 3. Individual active/recent sub-agents get their own live bento tiles routed
-//    to the Bottom Bento while Approvals + Live Workspace stay in the Side Bento.
+// 3. Sub-agents are consolidated inline inside the single Live Workspace tile
+//    (never spawning a separate bento card per sub-agent), and stage caps stay
+//    calm (SHOWN_BOXES <= 3, MAX_APPROVAL_BOXES = 1).
 // 4. Inline task/sub-agent/result cards inside #thread are compacted into
 //    Antigravity-style vertical change history (data-history="1") with
 //    auto-collapsed <details> so cards never fill the chat box inline.
@@ -37,10 +38,15 @@ assert.match(compactCss, /#thread \[data-history="1"\]\s*\{[^}]*border-left:\s*2
 assert.match(compactCss, /#thread \[data-history="1"\] \.sub-agent\s*\{[^}]*background:\s*transparent;/s, "sub-agent rows in #thread strip glass card background");
 assert.match(compactCss, /#thread \[data-history="1"\] \.card-acts\s*\{\s*display:\s*none;\s*\}/, "inline card action bars are hidden in #thread history");
 
-// 4. aurora-stage.js implements per-sub-agent tiles, Side+Bottom splitting, and compactThreadHistory().
-assert.match(stageJs, /key:\s*`sub:\$\{s\.run\}`/, "each active/recent sub-agent gets its own bento tile");
+// 4. aurora-stage.js consolidates sub-agents inside Live Workspace as inline expandable rows (no per-sub-agent card flood) and keeps tight caps.
+assert.doesNotMatch(stageJs, /key:\s*`sub:\$\{/, "sub-agents must not spawn a separate bento card per sub-agent");
+assert.match(stageJs, /const SHOWN_BOXES = 3;/, "stage caps total cards to 3");
+assert.match(stageJs, /const MAX_APPROVAL_BOXES = 1;/, "stage shows at most 1 approval card at a time");
+assert.match(stageJs, /subAgents:\s*(?:threadSubs|activeSubs)/, "sub-agents render compactly inside the single Live Workspace card");
+assert.match(stageJs, /<details class="stage-item" data-key="sub:/, "sub-agents expand inline inside the card without forcing the right sidebar open");
+assert.match(stageJs, /openKeys\.has\(d\.dataset\.key\)/, "place() preserves expanded inline line items across live updates");
 assert.match(stageJs, /function bentoBottomIn\(/, "Bottom Bento container is managed by AuroraStage");
-assert.match(stageJs, /const isPrimary = c => c\.key === "live" \|\| c\.key\.startsWith\("approval:"\);/, "primary focus tiles stay in Side Bento while parallel sub-agents/secondary tiles arrange in Bottom Bento");
+assert.match(stageJs, /const isPrimary = c => c\.key === "live" \|\| c\.key\.startsWith\("approval:"\);/, "primary focus tiles stay in Side Bento while secondary tiles arrange in Bottom Bento");
 assert.match(stageJs, /function compactThreadHistory\(conv\)/, "compactThreadHistory() compacts inline process cards in #thread");
 assert.match(stageJs, /el\.dataset\.history = "1";/, "compactThreadHistory marks inline process cards as change history");
 assert.match(stageJs, /d\.dataset\.historyInit = "1";\s*d\.open = false;/, "compactThreadHistory auto-collapses verbose <details> logs once");
