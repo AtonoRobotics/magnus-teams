@@ -369,25 +369,29 @@ impl Kernel {
             // all it needs (spec rev 140).
             ("suggestion", "accept") if crate::suggestions::timed(&item.details) => {
                 let from = self.read(|s| item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| Label { untrusted: r.untrusted, private: r.private }));
+                let text = item.details["text"].as_str().unwrap_or_default().to_string();
+                let title = item.details["title"].as_str().map(String::from);
+                let system = crate::outcomes::is_heartbeat_text(title.as_deref(), &text);
                 evs.push((&actor, resolve(None)));
                 evs.push((
                     &actor,
                     Ev::ScheduleSet {
                         id: new_id("sched"),
                         person: item.person.clone(),
-                        text: item.details["text"].as_str().unwrap_or_default().into(),
+                        text,
                         every_minutes: item.details["every_minutes"].as_u64().map(|m| m as u32),
                         daily_at: item.details["daily_at"].as_str().map(String::from),
                         budget: None,
                         card: None,
                         label: from,
-                        title: item.details["title"].as_str().map(String::from),
+                        title,
                         until: serde_json::from_value(item.details["until"].clone()).ok().flatten(),
                         max_runs: item.details["max_runs"].as_u64().map(|m| m as u32),
                         scope: item.details["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
-                        // Accepted from the inbox, outside a conversation: its own thread.
+                        // Accepted from the inbox, outside a conversation: no chat thread.
                         thread: None,
                         quarantine_schema: None,
+                        system,
                     },
                 ));
             }
@@ -532,6 +536,31 @@ impl Kernel {
                 removed = item.details["app"].as_str().map(String::from);
             }
             (kind, d) => return Ok(Answer::Invalid(format!("{d:?} is not a decision for a {kind} item"))),
+        }
+        // Once the person sets up or dismisses the last open suggestion from an
+        // Explore ideas run, dismiss that run's "ideas" notice so it disappears.
+        if inbox_kind(&item.kind) == "suggestion" {
+            let stale_notices: Vec<String> = self.read(|s| {
+                s.inbox
+                    .items()
+                    .values()
+                    .filter(|n| n.person == item.person && n.resolution.is_none() && n.kind == "notice" && n.details["reason"] == crate::openers::IDEAS)
+                    .filter(|n| {
+                        let notice_run = n.details["run"].as_str();
+                        !s.inbox.items().values().any(|other| {
+                            other.id != item.id
+                                && other.person == item.person
+                                && other.resolution.is_none()
+                                && inbox_kind(&other.kind) == "suggestion"
+                                && (notice_run.is_none() || other.run.as_deref() == notice_run)
+                        })
+                    })
+                    .map(|n| n.id.clone())
+                    .collect()
+            });
+            for nid in stale_notices {
+                evs.push(("kernel", Ev::ItemResolved { id: nid, decision: "dismiss".into(), scope: None, text: None }));
+            }
         }
         // A run resumed here is driven from now. One whose driver a crash
         // stopped is running in the log, and the kernel's sweep drives it.

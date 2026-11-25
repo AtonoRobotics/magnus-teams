@@ -65,17 +65,21 @@ const TaskFilter = { q: "", state: "all" };
 function tasksView() {
   const LIMIT = { done: 15, failed: 15 };
   const q = TaskFilter.q.trim().toLowerCase();
-  const filtered = App.tasks.filter(t => {
+  const isQuietSys = t => typeof isQuietSystemTask === "function"
+    ? isQuietSystemTask(t)
+    : !!(t?.system && !t.needs_you && t.status !== "failed");
+  const visibleTasks = App.tasks.filter(t => !isQuietSys(t));
+  const filtered = visibleTasks.filter(t => {
     if (TaskFilter.state !== "all" && STATE(t) !== TaskFilter.state) return false;
     if (q && !`${t.title || ""} ${t.text || ""} ${t.summary || ""}`.toLowerCase().includes(q)) return false;
     return true;
   });
   const sections = groupTasks(filtered);
-  const activeCount = App.tasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended).length;
-  const endedTasks = App.tasks.filter(t => typeof ENDED !== "undefined" && ENDED.includes(t.status));
+  const activeCount = visibleTasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended && !s.system).length;
+  const endedTasks = visibleTasks.filter(t => typeof ENDED !== "undefined" && ENDED.includes(t.status));
   const stopBar = activeCount ? `<div class="spread" style="margin-bottom:8px"><span class="small muted">Active work running or scheduled</span><button type="button" class="danger small" data-stop-all-work>Stop my active work</button></div>` : "";
   const chips = [["all", "All"], ["needs", "Needs you"], ["running", "Running"], ["done", "Done"], ["failed", "Failed"]];
-  const filterBar = App.tasks.length ? `<div class="stack" data-tasks-filter style="margin-bottom:10px;gap:6px">
+  const filterBar = visibleTasks.length ? `<div class="stack" data-tasks-filter style="margin-bottom:10px;gap:6px">
     <div class="row"><input type="search" id="tasks-q" value="${esc(TaskFilter.q)}" placeholder="Filter tasks…" aria-label="Filter tasks" style="flex:1">${endedTasks.length ? `<button type="button" class="small" data-clear-ended-tasks>Clear ended (${endedTasks.length})</button>` : ""}</div>
     <div class="row small" style="flex-wrap:wrap;gap:4px">${chips.map(([k, lbl]) => `<button type="button" class="small${TaskFilter.state === k ? " primary" : ""}" data-task-filter="${k}">${lbl}</button>`).join("")}</div>
   </div>` : "";
@@ -86,7 +90,7 @@ function tasksView() {
     return `<section class="tsec" data-section="${sec.state}"><h3>${esc(sec.label)} <span class="count">${n}</span></h3>
       ${sec.groups.slice(0, cap).map(g => groupBlock(g, sec.state)).join("")}
       ${left ? `<button class="link small" data-more="${sec.state}">Show ${left} more</button>` : ""}</section>`;
-  }).join("")}` : (App.tasks.length ? `${stopBar}${filterBar}<p class="empty">No tasks match that filter.</p>` : offered("No tasks yet. Ask for something in a conversation."));
+  }).join("")}` : (visibleTasks.length ? `${stopBar}${filterBar}<p class="empty">No tasks match that filter.</p>` : offered("No tasks yet. Ask for something in a conversation."));
 }
 
 // An empty Tasks or Schedules: what Magnus offered to take over (its ideas
@@ -155,9 +159,11 @@ function scheduleCadenceFields(sc) {
 // Schedules, soonest first, ended last: each opens beside the conversation.
 function schedulesView() {
   const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
-  const list = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
-  const hb = list.find(sc => !sc.ended && /heartbeat/i.test(sc.title || sc.text || ""));
-  const hbCard = `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong><div class="small muted">${hb ? `Every 30 min · ${hb.paused ? "Paused" : `Next run ${esc(until(hb.next))}`}` : "Proactive 30-min check-in for urgent emails, conflicts, or stalled threads."}</div></div>${hb ? `<div class="row"><span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span><button type="button" class="danger small" data-act="delete-schedule" data-id="${esc(hb.id)}">Delete</button></div>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
+  const isSys = sc => typeof isSystemSchedule === "function" ? isSystemSchedule(sc) : !!(sc?.system || /heartbeat/i.test(sc?.title || sc?.text || ""));
+  const sorted = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
+  const hb = sorted.find(sc => !sc.ended && isSys(sc));
+  const list = sorted.filter(sc => !isSys(sc));
+  const hbCard = `<div class="card flat" data-system-heartbeat style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong> <span class="chip">System</span><div class="small muted">${hb ? `Every ${esc(String(hb.every_minutes || 30))} min · ${hb.paused ? "Paused" : `Next check ${esc(until(hb.next))}`} · Quiet unless you're needed` : "Background system check every 30 min. Stays out of chat and notifies only when you're needed."}</div></div>${hb ? `<div class="row"><span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span><button type="button" class="danger small" data-act="delete-schedule" data-id="${esc(hb.id)}">Delete</button></div>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
   const creator = `<details class="card flat" data-key="sched-new" style="margin-bottom:10px">
       <summary class="small"><strong>+ New routine</strong></summary>
       <form data-create-schedule style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
@@ -166,13 +172,13 @@ function schedulesView() {
         <div class="row"><button type="submit" class="primary">Create routine</button></div>
       </form>
     </details>`;
-  const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past schedule${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
+  const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past routine${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
   return header + creator + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
       <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
       ${scheduleFacts(sc)}
       <div class="small muted" data-last>${scheduleState(sc)}</div>
       ${sc.runs.some(r => r.needs_you) ? `<ul class="tlist">${sc.runs.filter(r => r.needs_you).map(taskRow).join("")}</ul>` : ""}</div>`).join("")
-    : offered("No schedules yet. Ask in a conversation for something done every day or every week."));
+    : offered("No routines yet. Ask in a conversation for something done every day or every week."));
 }
 
 // One schedule: what it does, when, inline edit form, how its runs went, and controls.

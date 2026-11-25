@@ -25,6 +25,7 @@ async fn stopping_a_schedule_keeps_it_and_deleting_removes_it() {
         scope: None,
         thread: None,
         quarantine_schema: None,
+        system: false,
     };
     k.emit("person:mo", set).await.unwrap();
     let (task, run) = k.create_run("schedule:sched_b", "mo", "check the books".into(), vec![], crate::kernel::NewRun::default()).await.unwrap();

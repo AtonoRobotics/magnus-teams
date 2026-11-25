@@ -32,6 +32,25 @@ use std::sync::Arc;
 /// does not wake the agent for every task that ever ended.
 pub const MODULE: &str = "returns_outcome";
 
+/// The module a system background task (such as Heartbeat) starts with:
+/// it never posts to chat and stays silent unless the person is needed.
+pub const SYSTEM_MODULE: &str = "system_task";
+
+/// Whether a schedule's title or text identifies a system Heartbeat task
+/// (matches existing Heartbeat schedules created before `system: true`).
+pub fn is_heartbeat_text(title: Option<&str>, text: &str) -> bool {
+    let matches = |s: &str| {
+        let low = s.trim().to_ascii_lowercase();
+        !low.is_empty() && (low.starts_with("heartbeat") || low.contains("heartbeat:") || low.split(|c: char| !c.is_alphanumeric()).any(|w| w == "heartbeat"))
+    };
+    title.is_some_and(matches) || matches(text)
+}
+
+/// Whether a task/run is a system background task (e.g. Heartbeat).
+pub fn is_system_task(s: &State, t: &Task, r: &Run) -> bool {
+    r.config.module(SYSTEM_MODULE) || t.schedule.as_deref().and_then(|id| s.arrangements.schedules().get(id)).is_some_and(|sc| sc.system)
+}
+
 /// The most retries configuration may allow: each one spends up to the
 /// ended task's whole budget again.
 pub const MAX_RETRY_COUNT_CEILING: u32 = 10;
@@ -140,14 +159,25 @@ pub fn observe(s: &mut State, e: &Event) {
         Ev::Completed { run, .. } | Ev::Failed { run, .. } => {
             let ended = if matches!(e.ev, Ev::Completed { .. }) { Status::Completed } else { Status::Failed };
             let task = s.runs.get(run).filter(|r| r.status == ended && r.config.module(MODULE)).map(|r| r.task.clone());
-            // A repeating schedule shows in chats and notifications the first
-            // time, when its person is needed, and when it is finished (it
-            // stops for good, which sends its own notice, `ScheduleEnded`). A
-            // later run that finished wakes no one and tells no one; it is in
-            // Tasks (owner, 2026-11-16: "scheduled tasks only show up in the
-            // notifications and chats the first time and when HIL is needed
-            // or finished").
-            let task = task.filter(|t| ended != Status::Completed || !later_run(s, t));
+            // System tasks (e.g. Heartbeat) never notify or post on normal completion —
+            // only when the person is needed (failure / waiting). Routines set up outside
+            // chat stay silent on completed runs too so they do not leave lingering
+            // notifications after setup; a repeating schedule in chat shows its first run
+            // and stays silent on later completed runs.
+            let task = task.filter(|tid| {
+                if ended != Status::Completed {
+                    return true;
+                }
+                let Some(t) = s.tasks.get(tid) else { return false };
+                let Some(r) = s.runs.get(&t.run_id) else { return false };
+                if is_system_task(s, t, r) {
+                    return false;
+                }
+                if t.schedule.is_some() && notice_only(s, t) {
+                    return false;
+                }
+                !later_run(s, tid)
+            });
             if let Some(task) = task.filter(|t| !s.outcomes.returned.contains(t)) {
                 s.outcomes.due.insert(task);
             }
@@ -220,24 +250,27 @@ fn later_run(s: &State, task: &str) -> bool {
     schedule.is_some_and(|sc| s.outcomes.first_runs.get(sc).is_some_and(|first| first != task))
 }
 
-/// Whether a task is a schedule's routine run, which tells no one: a run
-/// after its first that does not need its person (it has not failed and
-/// waits on no one). The workspace shows no box for it; it is in Tasks.
+/// Whether a task is a quiet routine/system run, which tells no one: any
+/// system task (Heartbeat) or any schedule run after its first that does not
+/// need its person (it has not failed and waits on no one).
 pub fn routine(s: &State, t: &Task, r: &Run) -> bool {
     let waits_on_timer = r.reason.as_deref() == Some("timer");
     let needs_person = r.status == Status::Failed || (r.status == Status::Suspended && !waits_on_timer);
-    !needs_person && later_run(s, &t.task_id)
+    !needs_person && (is_system_task(s, t, r) || later_run(s, &t.task_id))
 }
 
 /// Whether a task's result shows: not one that failed and was retried,
-/// whose retry's result is the update, nor a schedule's later run that
-/// finished.
+/// whose retry's result is the update, nor a system task or a schedule's
+/// later run that finished.
 pub fn result_shows(s: &State, started: &BTreeSet<String>, t: &Task) -> bool {
-    let failed = s.runs.get(&t.run_id).is_some_and(|r| r.status != Status::Completed);
+    let run = s.runs.get(&t.run_id);
+    let failed = run.is_some_and(|r| r.status != Status::Completed);
     let turn = derived("task", &format!("outcome:{}", t.task_id));
     let retried = s.tasks.get(&turn).is_some_and(|o| started.contains(&o.run_id));
     if failed {
         !retried
+    } else if run.is_some_and(|r| is_system_task(s, t, r)) {
+        false
     } else {
         !later_run(s, &t.task_id)
     }
@@ -476,15 +509,15 @@ mod tests {
         assert!(s.outcomes.is_due("t9"), "a finished task from a deleted conversation is never told");
     }
 
-    /// A schedule's first run is known from the log, not from the tasks
-    /// still listed: deleting the earlier runs does not make the next one
-    /// the first again, so a heartbeat's finished run stays quiet.
+    /// A threadless routine's completed runs stay silent after setup (even
+    /// the first, and even after deleting earlier runs); only a failed run
+    /// or one waiting on the person wakes a notification.
     #[test]
     fn a_deleted_first_run_does_not_make_the_next_one_news() {
         let mut s = State::default();
         task(&mut s, "schedule:sc1", "task_hb1", Value::Null, json!({ MODULE: true }));
         ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_task_hb1", "summary": "Nothing new." }));
-        assert!(s.outcomes.is_due("task_hb1"), "a schedule's first finished run tells no one");
+        assert!(!s.outcomes.is_due("task_hb1"), "a threadless routine's completed run should not send a lingering notice");
         ev(&mut s, "person:carol", json!({ "kind": "trashed", "item": "task_hb1", "person": "carol" }));
         assert!(!s.tasks.contains_key("task_hb1"), "the deleted run is still listed, so this test proves nothing");
         task(&mut s, "schedule:sc1", "task_hb2", Value::Null, json!({ MODULE: true }));
@@ -497,6 +530,33 @@ mod tests {
         ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_task_hb3", "reason": "no data", "by": "model" }));
         assert!(!routine(&s, &s.tasks["task_hb3"].clone(), &s.runs["r_task_hb3"].clone()), "a failed run is hidden as routine");
         assert!(s.outcomes.is_due("task_hb3"), "a failed later run tells no one");
+    }
+
+    /// Heartbeat (a system task) stays completely silent on normal runs —
+    /// even its first run, even if a chat thread were attached — and only
+    /// surfaces when the person is needed (failed or waiting on a decision).
+    #[test]
+    fn system_heartbeat_stays_silent_unless_person_is_needed() {
+        assert!(is_heartbeat_text(Some("Heartbeat"), "Check inbox"));
+        assert!(is_heartbeat_text(None, "Heartbeat: Check connected email"));
+        assert!(!is_heartbeat_text(Some("Daily digest"), "Summarize unread mail"));
+
+        let mut s = State::default();
+        let sys_mods = json!({ MODULE: true, SYSTEM_MODULE: true });
+        task(&mut s, "schedule:hb", "hb1", json!({ "thread": "th", "turn": false }), sys_mods.clone());
+        let (t1, r1) = (s.tasks["hb1"].clone(), s.runs["r_hb1"].clone());
+        assert!(is_system_task(&s, &t1, &r1));
+        assert!(routine(&s, &t1, &r1), "first running heartbeat must stay quiet (routine=true)");
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_hb1", "summary": "All quiet." }));
+        assert!(!s.outcomes.is_due("hb1"), "completed heartbeat must never notify or wake chat");
+        assert!(!result_shows(&s, &starters(&s), &s.tasks["hb1"]), "completed heartbeat must never post result to chat");
+        assert!(routine(&s, &s.tasks["hb1"], &s.runs["r_hb1"]), "completed heartbeat must stay routine=true");
+
+        // When a heartbeat run fails or needs the person, it DOES surface.
+        task(&mut s, "schedule:hb", "hb2", Value::Null, sys_mods);
+        ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_hb2", "reason": "needs sign-in", "by": "model" }));
+        assert!(s.outcomes.is_due("hb2"), "failed heartbeat must notify the person");
+        assert!(!routine(&s, &s.tasks["hb2"], &s.runs["r_hb2"]), "failed heartbeat must not be hidden as quiet routine");
     }
 
     /// A task whose conversation the person deleted is told by notice only.

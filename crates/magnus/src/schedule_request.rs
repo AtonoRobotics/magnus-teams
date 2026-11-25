@@ -67,6 +67,7 @@ impl Kernel {
             return self.schedule_to_accept(&run, task.is_chat_turn(), a, &card, data).await;
         }
         if !self.read(|s| s.arrangements.schedules().contains_key(&id)) {
+            let system = crate::outcomes::is_heartbeat_text(Some(&title), &goal);
             let set = Ev::ScheduleSet {
                 id: id.clone(),
                 person: task.person.clone(),
@@ -82,8 +83,9 @@ impl Kernel {
                 max_runs,
                 // Each run keeps to what she set it up to do: its goal.
                 scope: Some(goal.clone()),
-                thread: thread.clone(),
+                thread: if system { None } else { thread.clone() },
                 quarantine_schema: None,
+                system,
             };
             let actor = format!("chat:{}", a.run);
             let mut evs = vec![(actor.as_str(), set)];

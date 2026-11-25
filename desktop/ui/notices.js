@@ -48,6 +48,54 @@ const Notices = {
 
   clearHistory() { this.history = []; },
 
+  /** Remove one notification key from history, live pop-ups, and Aurora stage notes. @param {string} key */
+  dismissKey(key) {
+    const before = this.history.length;
+    this.history = this.history.filter(n => n.key !== key);
+    if (typeof document !== "undefined") {
+      for (const el of document.querySelectorAll("#notices .notice")) {
+        if (el instanceof HTMLElement && el.dataset.notice === key) el.remove();
+      }
+    }
+    if (typeof AuroraStage !== "undefined" && AuroraStage.notes?.has?.(key)) {
+      AuroraStage.notes.delete(key);
+      AuroraStage.refresh?.();
+    }
+    return this.history.length !== before;
+  },
+
+  /**
+   * Drop any `inbox:*` notification whose item is no longer open (or is an
+   * Explore ideas notice with no open suggestions left) so routine setup and
+   * handled decisions make their notifications disappear immediately.
+   * @param {any[]} items
+   * @returns {boolean} whether any notification was pruned
+   */
+  syncInbox(items) {
+    const list = Array.isArray(items) ? items : [];
+    const openIds = new Set(list.filter(i => i.status === "open").map(i => i.id));
+    const hasOpenIdeas = typeof ExploreIdeas !== "undefined"
+      ? ExploreIdeas.open(list).length > 0
+      : list.some(i => i.kind === "suggestion" && i.status === "open");
+    const staleIdeas = new Set(list.filter(i => i.kind === "notice" && i.details?.reason === "ideas" && !hasOpenIdeas).map(i => i.id));
+    let changed = false;
+    for (const n of [...this.history]) {
+      if (!n.key.startsWith("inbox:")) continue;
+      const id = n.key.slice(6);
+      if (!openIds.has(id) || staleIdeas.has(id)) {
+        if (this.dismissKey(n.key)) changed = true;
+      }
+    }
+    if (typeof document !== "undefined") {
+      for (const el of document.querySelectorAll("#notices .notice")) {
+        if (!(el instanceof HTMLElement) || !el.dataset.notice?.startsWith("inbox:")) continue;
+        const id = el.dataset.notice.slice(6);
+        if (!openIds.has(id) || staleIdeas.has(id)) { el.remove(); changed = true; }
+      }
+    }
+    return changed;
+  },
+
   /** Render the Notification Center popover contents. */
   centerHtml() {
     const dnd = this.isDnd();

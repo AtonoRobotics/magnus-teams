@@ -401,6 +401,9 @@ const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","paymen
 // Explore's For you (explore-ideas.js).
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
+const isSystemSchedule = sc => !!(sc?.system || /heartbeat/i.test(sc?.title || sc?.text || ""));
+const isSystemTask = t => !!(t?.system || (t?.group?.kind === "schedule" && /heartbeat/i.test(t.group.title || "")) || /^heartbeat\b/i.test(t?.title || t?.text || ""));
+const isQuietSystemTask = t => isSystemTask(t) && !t.needs_you && t.status !== "failed";
 
 // The workspace's icons, drawn as in the Magnus Workspace design: 24px
 // outlines in the current color.
@@ -453,7 +456,7 @@ function navigationTree() {
   const current=href=>(location.hash || "#/home")===href ? 'class="on" aria-current="page"' : "";
   const route=location.hash || "#/home";
   const waitingThreads=new Set(needsMe().map(i=>i.thread).filter(Boolean));
-  const activeThreads=new Set(App.tasks.filter(t=>!ENDED.includes(t.status) && t.thread).map(t=>t.thread));
+  const activeThreads=new Set(App.tasks.filter(t=>!ENDED.includes(t.status) && t.thread && !(typeof isQuietSystemTask==="function" ? isQuietSystemTask(t) : (t?.system && !t.needs_you && t.status!=="failed"))).map(t=>t.thread));
   const dot=t=>waitingThreads.has(t.thread) ? '<span class="nav-dot warn" aria-hidden="true"></span>' : activeThreads.has(t.thread) ? '<span class="nav-dot run" aria-hidden="true"></span>' : "";
   const conv=t=>{const ttl=displayTitle(t.title);return `<div class="nav-conv-row"><a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(ttl)}">${dot(t)}<span class="ttl">${esc(ttl)}</span></a><button type="button" class="nav-conv-del" data-trash="${esc(t.thread)}" data-trash-label="Delete conversation"${t.thread===App.thread ? ' data-then="#/home"' : ""} title="Delete conversation" aria-label="Delete ${esc(ttl)}">${icon("trash")}</button></div>`;};
   const loose=App.threads.filter(t=>!t.project);
@@ -1126,6 +1129,7 @@ async function pollInbox() {
     const items = await Resources.read("Needs you", "/v1/inbox", "items");
     if (!items) return;
     App.inbox = items;
+    const pruned = typeof Notices !== "undefined" && typeof Notices.syncInbox === "function" ? Notices.syncInbox(items) : false;
     // Interrupt only for decisions a task is waiting on; the rest wait in
     // the inbox until the person looks (U3).
     const told = new Set(load("told", []));
@@ -1134,11 +1138,17 @@ async function pollInbox() {
     // bring back everything already waiting.
     const fresh = needsMe().filter(i => !told.has(i.id));
     for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox" });
-    // Ideas waiting in Explore: the one notice for them, once.
-    const ideas = items.filter(i => ExploreIdeas.isNotice(i) && i.status === "open" && !told.has(i.id));
+    // Ideas waiting in Explore: only notify while open suggestions still wait.
+    const hasOpenIdeas = ExploreIdeas.open(items).length > 0;
+    const ideas = hasOpenIdeas ? items.filter(i => ExploreIdeas.isNotice(i) && i.status === "open" && !told.has(i.id)) : [];
     for (const i of ideas) Notices.show({ key: `inbox:${i.id}`, title: "Ideas in Explore", body: i.summary, system: i.summary, href: "#/explore" });
     fresh.push(...ideas);
     if (fresh.length) save("told", [...told, ...fresh.map(i => i.id)].slice(-500));
+    if (pruned || fresh.length) {
+      convHead(App.thread);
+      const pop = $("#notice-center");
+      if (pop && !pop.hidden && typeof Notices !== "undefined" && Notices.centerHtml) paint(pop, Notices.centerHtml());
+    }
     sidebar();
   } catch (e) {
     // A dead session must land on sign-in once. Calling start() again
@@ -1988,12 +1998,18 @@ const guardrailsRow = () => `<div class="gbox companion-guard"><a class="gbox-ro
 // The overview's parts, which the panel stacks and an Aurora stage
 // (aurora-stage.js) lays out as cards.
 function activityParts(composed) {
-  const active = App.tasks.filter(t => !ENDED.includes(t.status));
-  const done = App.tasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
+  const quietSys = t => typeof isQuietSystemTask === "function" ? isQuietSystemTask(t) : !!(t?.system && !t.needs_you && t.status !== "failed");
+  const sysSched = sc => typeof isSystemSchedule === "function" ? isSystemSchedule(sc) : !!(sc?.system || /heartbeat/i.test(sc?.title || sc?.text || ""));
+  const visibleTasks = App.tasks.filter(t => !quietSys(t));
+  const active = visibleTasks.filter(t => !ENDED.includes(t.status));
+  const done = visibleTasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
   const pending = needsMe();
-  const scheds = App.schedules.filter(sc => !sc.ended);
-  const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
+  const allScheds = App.schedules.filter(sc => !sc.ended);
+  const hb = allScheds.find(sysSched);
+  const scheds = allScheds.filter(sc => !sysSched(sc));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i) && !ExploreIdeas.isIdea(i));
+  const hasOpenIdeas = typeof ExploreIdeas !== "undefined" ? ExploreIdeas.open(App.inbox).length > 0 : false;
+  const shownOther = other.filter(i => !(typeof ExploreIdeas !== "undefined" && ExploreIdeas.isNotice(i) && !hasOpenIdeas));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
   const needsBanner = SidePanel.waitingBanner({
     several: false,
@@ -2034,7 +2050,7 @@ function activityParts(composed) {
       ${schedRows(scheds, hb)}
     </div>
   </section>`;
-  const updates = (feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : "";
+  const updates = (feed || shownOther.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${shownOther.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${shownOther.map(i => card(i, composed)).join("")}</details>` : "";
   return { active, done, pending, scheds, hb, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
 }
 function briefingCard() {
@@ -3525,7 +3541,7 @@ async function boot() {
         const b = /** @type {HTMLButtonElement} */ (t.closest("[data-enable-heartbeat]"));
         b.disabled = true;
         try {
-          await Server.schedules.create({ text: "Heartbeat: Check connected email, calendar, and active threads for anything urgent or stalled. Stay silent unless something needs my attention.", every_minutes: 30 });
+          await Server.schedules.create({ title: "Heartbeat", text: "Heartbeat: Check connected email, calendar, and active threads for anything urgent or stalled. Stay silent unless something needs my attention.", every_minutes: 30, system: true });
           toast("Heartbeat enabled (every 30 min).");
           await refresh();
         } catch (err) { toast(err.message); b.disabled = false; }

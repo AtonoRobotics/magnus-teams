@@ -61,6 +61,8 @@ pub struct Schedule {
     /// (`run_words::schedule_source`). Read from the event's actor, so an
     /// older `ScheduleSet` reads the same.
     pub by_person: bool,
+    /// System background schedule (e.g. Heartbeat): never posts to chat and stays silent unless the person is needed.
+    pub system: bool,
 }
 
 /// Why a schedule is paused (decisions/2026-11-23-a-schedule-knows-why-it-is-paused.md),
@@ -250,12 +252,13 @@ impl Arrangements {
     /// `State::apply` routes no other kind here.
     pub(crate) fn fold(&mut self, e: &Event, prefs: &HashMap<String, Value>) {
         match &e.ev {
-            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, thread, quarantine_schema, .. } => {
+            Ev::ScheduleSet { id, person, text, every_minutes, daily_at, budget, card, label, title, until, max_runs, thread, quarantine_schema, system, .. } => {
                 if let Some(schema) = quarantine_schema {
                     self.quarantine_schemas.insert(id.clone(), schema.clone());
                 } else {
                     self.quarantine_schemas.remove(id);
                 }
+                let is_system = *system || crate::outcomes::is_heartbeat_text(title.as_deref(), text);
                 self.schedules.insert(
                     id.clone(),
                     Schedule {
@@ -281,8 +284,9 @@ impl Arrangements {
                         paused_by_admin: false,
                         resumed: None,
                         ended: None,
-                        thread: thread.clone(),
+                        thread: if is_system { None } else { thread.clone() },
                         by_person: e.actor == format!("person:{person}"),
+                        system: is_system,
                     },
                 );
                 if let Some(c) = card {

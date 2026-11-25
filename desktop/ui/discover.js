@@ -568,9 +568,13 @@ const Discover = (() => {
           try {
             await Server.schedules.create({ text: `${p.title}: ${prompt}`, ...sched });
             state.openConfig = "";
-            state.scanMsg = `Scheduled "${p.title}". Manage it anytime under Routines.`;
+            const msg = `Scheduled "${p.title}". Manage it anytime under Routines.`;
+            state.scanMsg = msg;
+            if (typeof toast === "function") toast(msg);
             if (typeof pollSchedules === "function") await pollSchedules();
             draw();
+            const EXPLORE_STATUS_MS = 4000;
+            setTimeout(() => { if (state.scanMsg === msg) { state.scanMsg = ""; if (main.isConnected) draw(); } }, EXPLORE_STATUS_MS);
             return;
           } catch { /* fall through to chat */ }
         }

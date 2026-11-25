@@ -366,25 +366,29 @@ impl Kernel {
                 // No budget of its own: each run takes the server's per-task
                 // limit when it fires, never the figure on the card.
                 let budget = None;
+                let text = d["text"].as_str().unwrap_or_default().to_string();
+                let title = d["title"].as_str().map(String::from);
+                let system = crate::outcomes::is_heartbeat_text(title.as_deref(), &text);
                 self.emit(
                     &actor,
                     Ev::ScheduleSet {
                         id: id.clone(),
                         person: task.person.clone(),
-                        text: d["text"].as_str().unwrap_or_default().into(),
+                        text,
                         every_minutes: d["every_minutes"].as_u64().map(|m| m as u32),
                         daily_at: d["daily_at"].as_str().map(String::from),
                         budget,
                         card: Some(card.into()),
                         label: Some(Label { untrusted: run.untrusted, private: run.private }),
-                        title: d["title"].as_str().map(String::from),
+                        title,
                         until: serde_json::from_value(d["until"].clone()).ok().flatten(),
                         max_runs: d["max_runs"].as_u64().map(|m| m as u32),
                         // The person agreed to the card's scope, so each run is told it.
                         scope: d["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
-                        // Its runs post in this conversation (owner, 2026-11-10).
-                        thread: task.chat.as_ref().filter(|c| c.turn).map(|c| c.thread.clone()),
+                        // Its runs post in this conversation (owner, 2026-11-10), except system schedules.
+                        thread: if system { None } else { task.chat.as_ref().filter(|c| c.turn).map(|c| c.thread.clone()) },
                         quarantine_schema: None,
+                        system,
                     },
                 )
                 .await?;

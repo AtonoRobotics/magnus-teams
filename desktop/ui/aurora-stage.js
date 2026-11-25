@@ -147,9 +147,9 @@ const AuroraStage = (() => {
    * @returns {Promise<Array<any>>}
    */
   async function boxes() {
-    // A schedule's routine run (a heartbeat that found nothing, a later
-    // run that finished) is no news: it is in Tasks, not a box here.
-    const tasks = (App.tasks || []).filter(t => !t.routine);
+    // A schedule's routine run or quiet system task (e.g. Heartbeat that
+    // found nothing) is no news: never show it on the stage unless it needs you.
+    const tasks = (App.tasks || []).filter(t => !t.routine && !(t.system && !waits(t) && t.status !== "failed"));
     const here = tasks.filter(t => App.thread && t.thread === App.thread);
     const activeAll = tasks.filter(t => !ended(t)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));

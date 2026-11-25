@@ -298,7 +298,10 @@ impl Kernel {
             return Err(Refused::Conflict("its run is waiting on you: answer it, or resume or cancel that task, and the schedule goes on".into()));
         }
         let (source, turn_ev) = sources(turn);
-        self.emit(&format!("person:{}", who.id), Ev::ScheduleResumed { id: id.into(), source, turn: turn_ev }).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![(actor.as_str(), Ev::ScheduleResumed { id: id.into(), source, turn: turn_ev })];
+        evs.extend(self.clear_schedule_notices(&sc.person, id));
+        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         Ok(())
     }
 
@@ -309,7 +312,10 @@ impl Kernel {
         let sc = self.schedule_owned(who, id, "cancel_schedule").await?;
         let going = if sc.ended.is_some() { vec![] } else { self.schedule_runs_going(id) };
         let (source, turn_ev) = sources(turn);
-        self.emit(&format!("person:{}", who.id), Ev::ScheduleRemoved { id: id.into(), source, turn: turn_ev }).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![(actor.as_str(), Ev::ScheduleRemoved { id: id.into(), source, turn: turn_ev })];
+        evs.extend(self.clear_schedule_notices(&sc.person, id));
+        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         let (stopped, runs) = self.stop_schedule_runs(who, &going, turn).await;
         Ok(json!({ "cancelled": id, "runs_stopped": stopped, "runs": runs }))
     }
@@ -325,9 +331,31 @@ impl Kernel {
         }
         let going = self.schedule_runs_going(id);
         let ended = Ev::ScheduleEnded { id: id.into(), reason: STOPPED_BY_PERSON.into(), run: None };
-        self.emit(&format!("person:{}", who.id), ended).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![(actor.as_str(), ended)];
+        evs.extend(self.clear_schedule_notices(&sc.person, id));
+        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         let (stopped, runs) = self.stop_schedule_runs(who, &going, None).await;
         Ok(json!({ "stopped": id, "runs_stopped": stopped, "runs": runs }))
+    }
+
+    /// Dismiss any open `schedule_*` notices tied to `schedule_id` once the
+    /// person acts on the schedule so stale routine notifications disappear.
+    fn clear_schedule_notices(&self, person: &str, schedule_id: &str) -> Vec<(&'static str, Ev)> {
+        self.read(|s| {
+            s.inbox
+                .items()
+                .values()
+                .filter(|i| {
+                    i.person == person
+                        && i.resolution.is_none()
+                        && i.kind == "notice"
+                        && i.details["reason"].as_str().is_some_and(|r| r.starts_with("schedule_") || r == "paused_by_admin")
+                        && (i.details["schedule"].as_str() == Some(schedule_id) || i.details["evidence"]["schedule"].as_str() == Some(schedule_id))
+                })
+                .map(|i| ("kernel", Ev::ItemResolved { id: i.id.clone(), decision: "dismiss".into(), scope: None, text: None }))
+                .collect()
+        })
     }
 
     /// The (task, run) of each run of a schedule still going.
@@ -377,9 +405,10 @@ impl Kernel {
             return Err(Refused::Invalid(format!("it has already run {} times", sc.started)));
         }
         let (source, turn_ev) = sources(turn);
-        self.emit(&format!("person:{}", who.id), Ev::ScheduleChanged { id: id.into(), every_minutes, daily_at: daily_at.clone(), until, max_runs, source, turn: turn_ev })
-            .await
-            .map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![(actor.as_str(), Ev::ScheduleChanged { id: id.into(), every_minutes, daily_at: daily_at.clone(), until, max_runs, source, turn: turn_ev })];
+        evs.extend(self.clear_schedule_notices(&sc.person, id));
+        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         // The zone its daily time is read in, named (`cadence::zone_of`).
         let zone = self.read(|s| s.identity.zone(&sc.person)).name(&self.cfg.server_zone);
         Ok(json!({ "id": id, "every_minutes": every_minutes, "daily_at": daily_at, "time_zone": zone, "until": until, "max_runs": max_runs }))

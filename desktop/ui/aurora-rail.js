@@ -116,7 +116,7 @@ const AuroraRail = (() => {
     if (!btn) return;
     const waiting = typeof needsMe === "function" ? needsMe().length : 0;
     const active = typeof App !== "undefined" && Array.isArray(App.tasks) && typeof ENDED !== "undefined"
-      ? App.tasks.filter(t => !ENDED.includes(t.status)).length : 0;
+      ? App.tasks.filter(t => !ENDED.includes(t.status) && !t.routine && !t.system).length : 0;
     const count = waiting || active;
     let badge = btn.querySelector(".aurora-rail-badge");
     if (!count) { badge?.remove(); return; }

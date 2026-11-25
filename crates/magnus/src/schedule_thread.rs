@@ -14,8 +14,12 @@
 use crate::state::{Schedule, State};
 
 /// The conversation a schedule's runs post to, and where a run's outcome
-/// wakes the agent: none when it has no conversation that is still there.
+/// wakes the agent: none for system schedules (e.g. Heartbeat) or when it
+/// has no conversation that is still there.
 pub fn of(s: &State, sc: &Schedule) -> Option<String> {
+    if sc.system {
+        return None;
+    }
     sc.thread.as_ref().filter(|t| !s.trash.gone(t)).cloned()
 }
 
@@ -70,5 +74,17 @@ mod tests {
         });
         assert!(s.arrangements.schedules()["sc1"].ended.is_some());
         assert!(s.arrangements.schedules()["sc1"].next_due().is_none(), "an ended schedule is still due");
+    }
+
+    /// A system schedule (e.g. Heartbeat) never posts into a chat conversation,
+    /// even if a thread was supplied when it was set up.
+    #[test]
+    fn a_system_schedule_never_posts_in_chat() {
+        let mut s = State::default();
+        let ev = json!({ "kind": "schedule_set", "id": "hb1", "person": "alice", "text": "Heartbeat: Check inbox", "every_minutes": 30, "thread": "th_origin", "system": true });
+        s.apply(&Event { seq: 1, at: chrono::Utc::now(), actor: "person:alice".into(), ev: serde_json::from_value(ev).unwrap() });
+        let sc = &s.arrangements.schedules()["hb1"];
+        assert!(sc.system, "heartbeat schedule must be marked system");
+        assert_eq!(of(&s, sc), None, "system schedule must not post in chat");
     }
 }

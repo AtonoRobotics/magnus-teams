@@ -53,7 +53,11 @@ pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crat
     v["verified"] = json!(receipts_count > 0);
     v["actions"] = json!(r.actions);
     v["recent_steps"] = json!(crate::evidence::recent_steps(r, crate::evidence::RECENT_STEPS_COUNT));
-    v["routine"] = json!(crate::outcomes::routine(s, t, r));
+    let is_system = crate::outcomes::is_system_task(s, t, r) || (t.schedule.is_some() && crate::outcomes::is_heartbeat_text(words.title(t.seq).as_deref(), words.text(t.seq)));
+    let waits_on_timer = r.reason.as_deref() == Some("timer");
+    let needs_person = r.status == Status::Failed || (r.status == Status::Suspended && !waits_on_timer);
+    v["system"] = json!(is_system);
+    v["routine"] = json!(crate::outcomes::routine(s, t, r) || (is_system && !needs_person));
     // Another person's projects and conversations are theirs alone: the
     // owner sees that a task came from a chat, not what was said in it.
     v["project"] = if mine { crate::library::project_ref(s, &t.task_id) } else { Value::Null };
@@ -648,8 +652,10 @@ pub(super) async fn schedules(State(k): K, Caller(p): Caller) -> ApiResult {
                     .last()
                     .filter(|(at, _)| rows.first().and_then(|r| r["created_at"].as_str()).and_then(|c| chrono::DateTime::parse_from_rfc3339(c).ok()).is_none_or(|c| c < *at))
                     .map(|(at, why)| json!({ "at": at, "error": why }));
+                let title = words.title(x.seq).unwrap_or_else(|| words.text(x.seq).to_string());
+                let is_system = x.system || crate::outcomes::is_heartbeat_text(Some(&title), words.text(x.seq));
                 json!({
-                    "id": x.id, "person": x.person, "text": words.text(x.seq), "title": words.title(x.seq).unwrap_or_else(|| words.text(x.seq).to_string()),
+                    "id": x.id, "person": x.person, "text": words.text(x.seq), "title": title, "system": is_system,
                     "every_minutes": x.every_minutes, "daily_at": x.daily_at, "next": x.next_due(), "last_fired": x.last_fired,
                     "until": x.until, "max_runs": x.max_runs, "started": x.started, "paused": x.paused, "paused_on": x.paused_on, "ended": x.ended,
                     // Each run's limit: the server's per-task budget.
@@ -678,6 +684,8 @@ pub(super) async fn add_schedule(State(k): K, Caller(p): Caller, Body(b): Body<V
         Err(m) => return refuse(StatusCode::BAD_REQUEST, m),
     };
     let project = crate::library::chosen_project(&k, &p, &b)?;
+    let title = b["title"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    let system = b["system"].as_bool().unwrap_or(false) || crate::outcomes::is_heartbeat_text(title.as_deref(), &text);
     let id = new_id("sched");
     let actor = format!("person:{}", p.id);
     if let Err(e) = k
@@ -692,13 +700,14 @@ pub(super) async fn add_schedule(State(k): K, Caller(p): Caller, Body(b): Body<V
                 budget: None,
                 card: None,
                 label: None,
-                title: None,
+                title,
                 until,
                 max_runs,
                 scope: None,
-                // Set up in settings, outside a conversation: its own thread.
+                // Set up in settings, outside a conversation: no chat thread.
                 thread: None,
                 quarantine_schema: None,
+                system,
             },
         )
         .await
@@ -708,7 +717,7 @@ pub(super) async fn add_schedule(State(k): K, Caller(p): Caller, Body(b): Body<V
     if project.is_some() {
         k.emit(&actor, Ev::Moved { item: id.clone(), project }).await?;
     }
-    Ok((StatusCode::CREATED, Json(json!({ "id": id }))).into_response())
+    Ok((StatusCode::CREATED, Json(json!({ "id": id, "system": system }))).into_response())
 }
 
 /// Start a paused schedule again: failures count afresh, and the next run
