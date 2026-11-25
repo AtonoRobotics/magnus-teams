@@ -12,7 +12,7 @@ const CHARACTER: &str = "# Your character: chief of staff";
 const BIBLE: &str = "You never mock the person.";
 
 fn system(c: &Conversation) -> String {
-    c.body["system"].as_str().map(String::from).unwrap_or_else(|| c.body["system"].to_string())
+    magnus_scratch::system_of(c)
 }
 
 /// The hash the log gives a prompt (`name@hash`).

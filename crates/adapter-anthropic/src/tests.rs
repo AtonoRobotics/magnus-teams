@@ -70,3 +70,18 @@ async fn a_stream_that_broke_before_any_count_sends_none() {
     let (usage, error) = charged_then(&turn("data: {\"type\":\"ping\"}\n\n".to_string(), true).await);
     assert_eq!((usage.map(|u| u.input_tokens), error), (None, Some(ErrorClass::Unavailable)));
 }
+
+/// Each turn marks the instructions and the conversation so far for the
+/// cache, so the next turn reads them back rather than paying for them
+/// again. Before, nothing was marked and every turn paid for all of it.
+#[test]
+fn each_turn_caches_the_instructions_and_the_conversation_so_far() {
+    let text = |role, t: &str| proto::Message { role, content: vec![Block::Text { text: t.into() }], state: None };
+    let messages = [text(Role::User, "Compare the prices."), text(Role::Assistant, "Looking."), text(Role::User, "And Coda?")];
+    let body = request_body("claude-sonnet-test", &json!({}), "SYS", &messages, &[], 10);
+    assert_eq!(body["system"], json!([{ "type": "text", "text": "SYS", "cache_control": { "type": "ephemeral" } }]));
+    let marked: Vec<bool> = body["messages"].as_array().unwrap().iter().map(|m| m["content"][0].get("cache_control").is_some()).collect();
+    assert_eq!(marked, [false, false, true], "only the latest message is the cache's end");
+    let empty = request_body("claude-sonnet-test", &json!({}), "", &[], &[], 10);
+    assert_eq!(empty["system"], json!(""), "an empty system prompt was sent as a block");
+}

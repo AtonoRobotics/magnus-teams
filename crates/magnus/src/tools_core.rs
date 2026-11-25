@@ -124,6 +124,11 @@ impl Kernel {
             Op::Control => {
                 let t = a.tool.as_str();
                 let (person, turn) = self.read(|s| s.runs.get(&a.run).map(|r| (r.person.clone(), r.task.clone())).unwrap_or_default());
+                // Asking after its own working sub-agent, a run waits for
+                // it here rather than asking the model again and again.
+                if t == "get_task" {
+                    self.await_own_child(&a.run, a.input["id"].as_str().unwrap_or_default(), crate::sub_agents::OWN_CHILD_WAIT).await;
+                }
                 Ok(self.chat_control(&person, t, &a.input, &turn).await)
             }
             Op::SandboxExec => {

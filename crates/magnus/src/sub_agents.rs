@@ -19,7 +19,9 @@ use std::time::{Duration, Instant};
 
 mod batch;
 mod findings;
+mod waiting;
 pub(crate) use findings::render_deliverable;
+pub(crate) use waiting::OWN_CHILD_WAIT;
 
 pub(crate) const MAX_DEPTH: usize = 3;
 /// The most sub-agents one run may start, so a tree is bounded in breadth

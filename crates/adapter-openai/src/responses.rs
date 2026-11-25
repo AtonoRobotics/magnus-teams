@@ -57,21 +57,37 @@ fn input(p: &CompleteParams) -> Vec<Value> {
     out
 }
 
+/// One key for every turn of one conversation: the same model,
+/// instructions and opening item. The provider routes turns with the same
+/// key to the same cache, so each turn's prefix is read from it instead of
+/// charged again; without it turns scatter and most miss.
+fn cache_key(model: &str, system: &str, first: Option<&Value>) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (model, system, first.map(Value::to_string)).hash(&mut h);
+    format!("magnus-{:016x}", h.finish())
+}
+
 /// The request body a turn sends: one builder for the asking and the
 /// measuring, so the estimate can never drift from what goes out.
 pub fn request_body(p: &CompleteParams) -> Value {
     let s = &p.settings;
+    let input = input(p);
     // No prefix: what the provider is sent is what the kernel logged, with
     // no appliance-config text outside the version (#269).
     let mut body = json!({
         "model": p.model,
         "instructions": p.system,
-        "input": input(p),
         "stream": true,
         "store": s["store"].as_bool().unwrap_or(false),
         "tool_choice": "auto",
-        "parallel_tool_calls": false,
+        // Several reads in one reply: each extra reply resends the context.
+        "parallel_tool_calls": s["parallel_tool_calls"].as_bool().unwrap_or(true),
     });
+    if s["prompt_cache_key"].as_bool() != Some(false) {
+        body["prompt_cache_key"] = json!(cache_key(&p.model, &p.system, input.first()));
+    }
+    body["input"] = json!(input);
     if let Some(inc) = s.get("include").filter(|v| v.is_array()) {
         body["include"] = inc.clone();
     } else {
@@ -225,5 +241,33 @@ mod tests {
             max_tokens: 1,
         };
         assert_eq!(request_body(&p)["instructions"], json!("SYS"));
+    }
+
+    fn turn(settings: Value, opening: &str, later: &[&str]) -> CompleteParams {
+        let text = |t: &str| magnus_adapter_proto::Message { role: Role::User, content: vec![Block::Text { text: t.into() }], state: None };
+        let mut messages = vec![text(opening)];
+        messages.extend(later.iter().map(|t| text(t)));
+        CompleteParams { model: "m".into(), settings, credential: None, system: "SYS".into(), messages, tools: vec![], max_tokens: 1 }
+    }
+
+    /// Every turn of one conversation carries one cache key, so the
+    /// provider reads its prefix from cache; another conversation's differs.
+    /// Before, no key was sent and 17% of a week's input came from cache.
+    #[test]
+    fn a_conversations_turns_share_one_cache_key() {
+        let key = |p: &CompleteParams| request_body(p)["prompt_cache_key"].as_str().map(String::from);
+        let first = key(&turn(json!({}), "Compare the prices.", &[]));
+        assert!(first.is_some(), "no cache key was sent");
+        assert_eq!(key(&turn(json!({}), "Compare the prices.", &["more", "and more"])), first, "a later turn of the same conversation got another key");
+        assert_ne!(key(&turn(json!({}), "Check the inbox.", &[])), first, "two conversations shared a key");
+        assert_eq!(key(&turn(json!({ "prompt_cache_key": false }), "Compare the prices.", &[])), None, "a provider set not to take the key was sent one");
+    }
+
+    /// A reply may ask for several tool calls, so independent reads take one
+    /// turn rather than one turn each, each resending the whole context.
+    #[test]
+    fn a_reply_may_call_several_tools() {
+        assert_eq!(request_body(&turn(json!({}), "x", &[]))["parallel_tool_calls"], json!(true));
+        assert_eq!(request_body(&turn(json!({ "parallel_tool_calls": false }), "x", &[]))["parallel_tool_calls"], json!(false));
     }
 }

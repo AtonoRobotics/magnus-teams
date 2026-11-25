@@ -193,11 +193,21 @@ fn classify_status(status: u16, body: &str) -> (ErrorClass, String) {
 /// The request body a turn sends: one builder for the asking and the
 /// measuring, so the estimate can never drift from what goes out.
 fn request_body(model: &str, settings: &Value, system: &str, messages: &[proto::Message], tools: &[proto::ToolSpec], max_tokens: u32) -> Value {
+    // Cache what every turn repeats: the tools and instructions, and the
+    // conversation up to this turn, which the next turn reads back at a
+    // tenth of the price instead of paying for it again.
+    let cached = json!({ "type": "ephemeral" });
+    let mut messages: Vec<Value> = messages.iter().map(to_anthropic).collect();
+    let last = messages.last_mut().and_then(|m| m["content"].as_array_mut()).and_then(|c| c.last_mut());
+    if let Some(b) = last.filter(|b| !matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking")) && b["text"].as_str() != Some("")) {
+        b["cache_control"] = cached.clone();
+    }
+    let system = if system.is_empty() { json!(system) } else { json!([{ "type": "text", "text": system, "cache_control": cached }]) };
     let mut body = json!({
         "model": model,
         "max_tokens": max_tokens,
         "system": system,
-        "messages": messages.iter().map(to_anthropic).collect::<Vec<_>>(),
+        "messages": messages,
         "stream": true,
     });
     if !tools.is_empty() {

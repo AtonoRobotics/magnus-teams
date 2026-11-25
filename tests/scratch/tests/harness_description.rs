@@ -9,12 +9,9 @@ use serde_json::json;
 /// turn when `chat`.
 async fn system_of(m: &FakeModel, chat: bool) -> String {
     for _ in 0..300 {
-        let found = m.requests().into_iter().find(|c| {
-            let s = c.body["system"].as_str().unwrap_or_default();
-            s.contains("talking with the person you work for in a chat") == chat
-        });
+        let found = m.requests().into_iter().find(|c| magnus_scratch::system_of(c).contains("talking with the person you work for in a chat") == chat);
         if let Some(c) = found {
-            return c.body["system"].as_str().unwrap_or_default().to_string();
+            return magnus_scratch::system_of(&c);
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
