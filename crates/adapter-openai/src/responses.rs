@@ -3,8 +3,8 @@
 //! `{ "items": [...] }`, the turn's reasoning items (with encrypted content),
 //! sent back in front of that turn's output.
 
-use crate::{finish, post_signed_in, tool_specs, zero_usage, Sse};
-use magnus_adapter_proto::{Block, CompleteParams, ErrorClass, Event, Role, Sink};
+use crate::{fail, finish, post_signed_in, tool_specs, zero_usage, Sse};
+use magnus_adapter_proto::{Block, CompleteParams, ErrorClass, Event, Role, Sink, Usage};
 use serde_json::{json, Value};
 
 fn input(p: &CompleteParams) -> Vec<Value> {
@@ -96,6 +96,16 @@ pub fn request_body(p: &CompleteParams) -> Value {
     body
 }
 
+/// The counts a response reports, when it reports them.
+fn read_usage(usage: &mut Usage, u: &Value) {
+    if !u.is_object() {
+        return;
+    }
+    usage.input_tokens = u["input_tokens"].as_u64().unwrap_or(0);
+    usage.output_tokens = u["output_tokens"].as_u64().unwrap_or(0);
+    usage.cache_read_tokens = u["input_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0);
+}
+
 pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink) -> anyhow::Result<()> {
     let s = &p.settings;
     let body = request_body(&p);
@@ -141,10 +151,7 @@ pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink
                 completed = true;
                 let r = &v["response"];
                 served = r["model"].as_str().map(String::from).or(served.take());
-                let u = &r["usage"];
-                usage.input_tokens = u["input_tokens"].as_u64().unwrap_or(0);
-                usage.output_tokens = u["output_tokens"].as_u64().unwrap_or(0);
-                usage.cache_read_tokens = u["input_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0);
+                read_usage(&mut usage, &r["usage"]);
                 if r["status"] == "incomplete" {
                     stop = "max_tokens".into();
                 }
@@ -155,6 +162,8 @@ pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink
                 }
             }
             "response.failed" => {
+                // What it used before it failed is charged too.
+                read_usage(&mut usage, &v["response"]["usage"]);
                 let e = &v["response"]["error"];
                 let code = e["code"].as_str().unwrap_or_default();
                 let class = match code {
@@ -174,10 +183,10 @@ pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink
         }
     };
     if let Err((c, m)) = r {
-        return sink.error(c, m).await;
+        return fail(sink, s, &p.model, &usage, served.as_deref(), c, m).await;
     }
     if !completed {
-        return sink.error(ErrorClass::Unavailable, "the stream ended before the response completed").await;
+        return fail(sink, s, &p.model, &usage, served.as_deref(), ErrorClass::Unavailable, "the stream ended before the response completed").await;
     }
     for (id, name, args) in calls {
         let input: Value = if args.trim().is_empty() {
@@ -185,7 +194,7 @@ pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink
         } else {
             match serde_json::from_str(&args) {
                 Ok(v) => v,
-                Err(_) => return sink.error(ErrorClass::Malformed, format!("tool call {name} has arguments that are not JSON")).await,
+                Err(_) => return fail(sink, s, &p.model, &usage, served.as_deref(), ErrorClass::Malformed, format!("tool call {name} has arguments that are not JSON")).await,
             }
         };
         stop = "tool_use".into();

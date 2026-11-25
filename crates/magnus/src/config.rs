@@ -281,6 +281,18 @@ pub struct Model {
     /// primary provider is unavailable or over its usage limit after retries.
     #[serde(default)]
     pub fallbacks: Vec<String>,
+    /// Optional fast worker model (`"adapter/model"`) used for lightweight
+    /// sub-agents like `research_web` so they run faster and cheaper.
+    #[serde(default)]
+    pub worker: Option<String>,
+}
+
+impl Model {
+    pub fn worker_model(&self) -> Option<(String, String)> {
+        let raw = self.worker.as_deref()?.trim();
+        let (a, m) = raw.split_once('/')?;
+        (!a.is_empty() && !m.is_empty()).then(|| (a.to_string(), m.to_string()))
+    }
 }
 
 fn default_retries() -> u32 {
@@ -770,6 +782,11 @@ pub struct Embeddings {
     /// search falls back to its words.
     #[serde(default = "embed_timeout")]
     pub timeout_s: u64,
+    /// What it charges, in US dollars per million tokens; 0 for a local
+    /// server. Unpriced, it embeds only where no spend limit applies
+    /// (`spend::paid`), and search falls back to words elsewhere.
+    #[serde(default)]
+    pub usd_per_mtok: Option<f64>,
 }
 
 /// As long as the identity provider's requests may take.

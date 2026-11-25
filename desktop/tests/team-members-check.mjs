@@ -39,7 +39,7 @@ const sandbox = {
   location: { hash: "#/team/w/people", origin: "https://server", pathname: "/" }, setTimeout: () => 0, clearTimeout: () => {}, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["server.js", "teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["server.js", "teams.js", "team-chat.js", "coedit.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team };`, sandbox);
 const { Team } = sandbox.__x;
 Team.home = home; Team.ws = "w"; Team.homes = { w: home };
@@ -123,6 +123,9 @@ const form = { q: sel => (sel === "[data-people-input]" ? field : null) };
 await fire("submit", { target: { closest: s => (s === "[data-people-invite]" ? form : null) }, preventDefault() {} });
 assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST")), JSON.stringify([["POST", "/v1/workspaces/w/invites", { email: "ann@example.com" }]]), "an invite was not sent exactly once");
 assert.match(result.textContent, /Invitation emailed to ann@example\.com/);
+// The outcome is drawn with the panel, so the redraw after an invite (and
+// every refresh) keeps it instead of wiping the link to send.
+assert.match(sandbox.teamPeopleHtml({ ...owner, id: "w" }, [], caps), /data-invite-result[^>]*>Invitation emailed to ann@example\.com/, "a redraw wiped the invite's outcome");
 
 // Switching workspaces rebinds context without adding duplicate listeners.
 sandbox.wirePeopleSettings(center, "v", { ...owner, id: "v" }, [], async () => {});

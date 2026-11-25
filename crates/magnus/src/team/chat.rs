@@ -462,7 +462,7 @@ mod tests {
         let def = super::super::knowledge::Project { id: "p".into(), name: "P".into(), owner: "alice".into(), ..Default::default() };
         l.apply(&Change::Project { workspace: "w".into(), id: "p".into(), def });
         l.apply(&Change::ChannelProject { workspace: "w".into(), channel: "c".into(), project: Some("p".into()) });
-        l.apply(&Change::File { workspace: "w".into(), file: super::super::File { name: "plan.pdf".into(), size: 1, by: "alice".into() } });
+        l.apply(&Change::File { workspace: "w".into(), file: super::super::File { name: "plan.pdf".into(), size: 1, by: "alice".into(), coedit: false } });
         chat(&mut l, Chat::FileIn { name: "plan.pdf".into(), project: Some("p".into()) });
         let w = l.workspace("w").unwrap();
         assert!(w.sees("c", "alice") && w.sees_file("plan.pdf", "alice"));

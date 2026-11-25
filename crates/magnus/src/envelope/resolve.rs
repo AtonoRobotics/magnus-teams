@@ -170,7 +170,7 @@ impl Kernel {
         // validated deterministically by the kernel against literal prompt tokens.
         if !prompt.trim().is_empty() {
             let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: prompt.clone() }], state: None }];
-            if let Ok(Ok(Some(blocks))) = tokio::time::timeout(EXTRACT_TIMEOUT, self.reviewer_call(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()])).await {
+            if let Ok(Some(blocks)) = self.reviewer_call_within(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()], Some(EXTRACT_TIMEOUT)).await {
                 if let Some((candidates, apps)) = parsed_from_model(&blocks) {
                     for c in candidates {
                         if let Some(d) = validate_model_candidate(&prompt, &c) {
@@ -189,10 +189,13 @@ impl Kernel {
         }
 
         // Include explicit standing grants and accepted allow rules held by this person.
+        // Never a once rule: the envelope is kept for the whole task, and a once
+        // rule covers exactly one action, so it is checked per action as the
+        // person's answer (`person_cover`) and is spent by that action.
         let mut grant_ids = Vec::new();
         for r in self.rules_for(&run.person) {
             if r.live() && r.effect() == crate::rules::Effect::Allow {
-                if let Some(compiled) = &r.compiled {
+                if let Some(compiled) = r.compiled.as_ref().filter(|c| !c.once) {
                     grant_ids.push(r.id.clone());
                     if !compiled.connector.is_empty() {
                         allowed_write_apps.insert(compiled.connector.clone());

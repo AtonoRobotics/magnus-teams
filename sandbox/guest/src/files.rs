@@ -27,6 +27,22 @@ pub struct Files {
     root: PathBuf,
 }
 
+/// A directory's entries, with the directory held open while they are read.
+/// On musl (the guest's target) an entry's metadata is a stat of
+/// `/proc/self/fd/N/name`, which fails once N is closed: every entry was
+/// dropped and a full folder listed as empty.
+pub struct Listing {
+    _dir: File,
+    entries: std::fs::ReadDir,
+}
+
+impl Iterator for Listing {
+    type Item = io::Result<std::fs::DirEntry>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.entries.next()
+    }
+}
+
 /// A path's place: beneath the area, as a path relative to its top, or elsewhere.
 enum Place {
     Beneath(PathBuf),
@@ -127,9 +143,10 @@ impl Files {
     }
 
     /// A directory's entries; each entry's metadata is its own, links not followed.
-    pub fn read_dir(&self, path: &Path) -> io::Result<std::fs::ReadDir> {
+    pub fn read_dir(&self, path: &Path) -> io::Result<Listing> {
         let dir = self.open(path, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
-        std::fs::read_dir(format!("/proc/self/fd/{}", dir.as_raw_fd()))
+        let entries = std::fs::read_dir(format!("/proc/self/fd/{}", dir.as_raw_fd()))?;
+        Ok(Listing { _dir: dir, entries })
     }
 
     /// Zeroes a file before unlinking it, since a freed block would otherwise
@@ -261,7 +278,8 @@ mod tests {
         let names: Vec<String> = f.files().read_dir(&f.area).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert!(names.contains(&"link".to_string()) && names.contains(&"docs".to_string()), "{names:?}");
         // The link is listed as itself, not as the directory it points at.
-        let link = f.files().read_dir(&f.area).unwrap().flatten().find(|e| e.file_name() == "link").unwrap();
+        let mut listing = f.files().read_dir(&f.area).unwrap();
+        let link = listing.by_ref().flatten().find(|e| e.file_name() == "link").unwrap();
         assert!(link.metadata().unwrap().file_type().is_symlink());
     }
 

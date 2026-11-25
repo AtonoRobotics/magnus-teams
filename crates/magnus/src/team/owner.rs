@@ -10,6 +10,8 @@
 //!   clear is the person's who made it.
 //! - A request's working notes, the channel as a request was given it, and
 //!   a whisper are the requester's.
+//! - A co-edited file's proposal is its author's, a check-out its holder's;
+//!   a version is no one's, the project's (`coedit`).
 //! - Anything else says whose it is in its own `person`, or is the
 //!   workspace's.
 use super::chat::Chat;
@@ -40,6 +42,7 @@ impl Ledger {
             Change::Note { note, .. } => person_of(&note.by).to_string(),
             Change::Run { requester, .. } => requester.clone(),
             Change::Whisper { owner, .. } => owner.clone(),
+            Change::Coedit { coedit, .. } => coedit.owner()?.to_string(),
             _ => serde_json::to_value(c).ok()?["person"].as_str()?.to_string(),
         };
         Some(who).filter(|w| !w.is_empty())

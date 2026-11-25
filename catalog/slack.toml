@@ -24,7 +24,7 @@ tint = "#4A154B"
 # Slack is given the appliance's public callback. The browser is sent on
 # to the desktop, which is listening at `handoff`.
 kind = "brokered"
-endpoint = "sha256:25c5ddfbaea5910f14a9fb7e56554b8c0b4b36e1c4c52d0ca9a8e92156001f47"
+endpoint = "sha256:359cf9d9da4baadc1f45abf1f94fa6c582e2a1d0e0ed6686672b8f082b032091"
 hosts = ["slack.com"]
 issuer = "https://mcp.slack.com"
 pkce = false
@@ -49,9 +49,17 @@ search_messages = "read"
 list_conversations = "read"
 read_conversation = "read"
 read_thread = "read"
+get_message = "read"
 # Sent where other people see it, and not taken back.
 post_message = "irreversible"
 lookup_user = "read"
+
+# A post is read back (spec rev 147): the message Slack keeps at the
+# conversation and timestamp the post returned, with the text it was sent.
+[read_back.post_message]
+read = "get_message"
+input = { channel = "/result/channel", ts = "/result/ts" }
+expect = { "/result/ts" = "/ts", "/input/text" = "/text" }
 
 # What tells Magnus of something new here without anyone reading it
 # (decisions/2026-11-10-catalog-watched-reads.md): the newest messages sent to

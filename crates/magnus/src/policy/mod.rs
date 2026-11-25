@@ -19,6 +19,7 @@ use std::str::FromStr;
 
 pub mod admin;
 pub mod layers;
+pub mod outside;
 mod sides;
 
 pub(crate) use sides::policy_sides;

@@ -208,6 +208,22 @@ impl Kernel {
     /// What Auto Review says about one boundary action. Anything but a
     /// clear answer is an ask.
     pub(crate) async fn auto_review(&self, a: &Action, f: &Facts, run: &Run, shown: Option<&Shown>, content_hash: &str, standing: &str) -> Result<Verdict> {
+        self.auto_review_found(a, f, run, shown, content_hash, standing, None).await
+    }
+
+    /// `auto_review`, told what the outgoing classifier found when the
+    /// caller already asked it (`Some`), so it is not asked twice.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn auto_review_found(
+        &self,
+        a: &Action,
+        f: &Facts,
+        run: &Run,
+        shown: Option<&Shown>,
+        content_hash: &str,
+        standing: &str,
+        found: Option<Option<String>>,
+    ) -> Result<Verdict> {
         // A rewrite of a blocked message is judged again, told why the first
         // was blocked; the same message stays blocked.
         let standing = match self.resubmission_for(&a.run, &a.tool, content_hash) {
@@ -227,7 +243,11 @@ impl Kernel {
         if let Some(hit) = cached(&key) {
             return Ok(hit);
         }
-        let Some(finding) = self.outgoing_finding(a, run).await else {
+        let found = match found {
+            Some(known) => Some(known),
+            None => self.outgoing_finding(a, run).await,
+        };
+        let Some(finding) = found else {
             return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
         };
         let doc = document(a, f.risk.as_str(), &destination, &asked, &rules, standing, finding.as_deref());
@@ -236,8 +256,8 @@ impl Kernel {
         }
         let tool = review_tool();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(REVIEW_TIMEOUT, self.reviewer_call(run, "auto_review", SYSTEM, messages, vec![tool])).await;
-        let Some(verdict) = reply.ok().and_then(|r| r.ok()).flatten().and_then(|blocks| verdict_of(&blocks)) else {
+        let reply = self.reviewer_call_within(run, "auto_review", SYSTEM, messages, vec![tool], Some(REVIEW_TIMEOUT)).await;
+        let Some(verdict) = reply.ok().flatten().and_then(|blocks| verdict_of(&blocks)) else {
             return Ok(Verdict::Ask("Auto Review could not be reached".to_string()));
         };
         remember(key, &verdict);

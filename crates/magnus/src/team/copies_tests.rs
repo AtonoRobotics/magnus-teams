@@ -64,6 +64,7 @@ fn lane(ws: &str, lane: &str, owner: &str, objective: &str) -> TeamMissionEvent 
         child_task: None,
         child_run: None,
         thread: None,
+        routine: None,
     }
 }
 
@@ -209,5 +210,61 @@ async fn an_old_lanes_objective_moves_to_the_content_store() {
     assert!(s.k.log.person_content_seqs("mo").await.unwrap().contains(&old), "the moved objective is not the requester's");
     let after = replayed(&s).await;
     assert_eq!(after.missions.mission("m1").unwrap().lanes["l_old"].objective, "find the launch date", "the moved lane no longer reads back");
+    s.done().await;
+}
+
+/// The `task_created` rows that hold `text`.
+async fn tasks_holding(s: &Server, text: &str) -> usize {
+    let seqs: Vec<i64> = s.k.log.of_kinds(&["task_created"], 500).await.unwrap().into_iter().map(|(seq, ..)| seq).collect();
+    s.k.log.contents(&seqs).await.unwrap().values().filter(|b| b.to_string().contains(text)).count()
+}
+
+/// `who` steers the one lane of `mission`, which is theirs.
+async fn steer(s: &Server, who: &str, ws: &str, mission: &str) {
+    let lane = s.k.read(|st| st.missions.mission(mission).unwrap().lanes.keys().next().unwrap().clone());
+    let t = s.token(who).await;
+    let (st, v) = s.post(&t, &format!("/v1/workspaces/{ws}/missions/{mission}/lanes/{lane}/steer"), json!({ "instruction": "shorter" })).await;
+    assert_eq!(st, 200, "{v}");
+}
+
+/// A lane mo asked of sam's agent is a task of sam's whose text quotes mo's
+/// request, and so is sam's steer of it: erasing mo left both there.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erased_requesters_words_leave_the_lane_tasks_of_others() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, c) = workspace(&s).await;
+    let mo = s.token("mo").await;
+    let lanes = json!([{ "kind": "member_agent", "target_member": "sam", "objective": "list the plum orchard invoices" }]);
+    let (st, v) = s.post(&mo, &format!("/v1/workspaces/{ws}/rooms/{c}/missions"), json!({ "goal": "Invoices", "lanes": lanes })).await;
+    assert_eq!(st, 201, "{v}");
+    let mission = v["id"].as_str().unwrap().to_string();
+    steer(&s, "sam", &ws, &mission).await;
+    // A task of sam's own, written after, that only mentions the same words.
+    s.k.create_run("person:sam", "sam", "book the plum orchard picnic".into(), vec![], crate::kernel::NewRun::default()).await.unwrap();
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 3, "sam's lane task and steer do not hold mo's request");
+
+    s.k.erase_person("person:sam", "mo").await.unwrap();
+
+    assert_eq!(tasks_holding(&s, "plum orchard invoices").await, 0, "sam's lane task or steer still holds the erased requester's words");
+    assert_eq!(tasks_holding(&s, "plum orchard picnic").await, 1, "sam's own task lost its words");
+    s.done().await;
+}
+
+/// An `@Magnus` ask deleted for everyone left its words in the lane's task
+/// and in each steer of the lane.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unsent_ask_leaves_its_lanes_tasks() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, c) = workspace(&s).await;
+    let v = post(&s, "sam", &ws, &c, json!({ "text": "@Magnus summarise the plum orchard plan", "agent": true })).await;
+    let mission = v["mission_id"].as_str().expect("the ask started no mission").to_string();
+    steer(&s, "sam", &ws, &mission).await;
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 2, "the lane's task and its steer do not hold the ask");
+
+    let sam = s.token("sam").await;
+    let (st, r) = s.call(&sam, Method::DELETE, &format!("/v1/workspaces/{ws}/channels/{c}/messages/{}", v["id"].as_str().unwrap()), None).await;
+    assert_eq!(st, 200, "{r}");
+
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 0, "a lane's task or steer still holds the deleted ask");
     s.done().await;
 }

@@ -95,7 +95,11 @@ impl Kernel {
                     Label::PRINCIPAL,
                 ));
             }
-            evs.extend(self.resume(&run));
+            // The run goes on on purpose, with no one's answer: it waits on
+            // this card still (`due`). Once it has gone on, a later answer
+            // to the card tells it (`respond`) but resumes nothing, since
+            // the run no longer waits on it (`inbox::waits_on`).
+            evs.extend(self.resume_on(&run, &item));
             self.emit_all(evs).await?;
         }
         Ok(())

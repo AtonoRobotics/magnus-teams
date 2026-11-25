@@ -2,8 +2,11 @@
    Colours come from theme.js's tokens, so every theme follows. */
 .teams-page { max-width: 640px; margin: 24px auto; padding: 0 16px; }
 .teams-page .team-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 24px; }
-.teams-page .team-list a { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--fg); text-decoration: none; background: var(--surface); }
+.teams-page .team-list li { display: flex; align-items: center; gap: 8px; }
+.teams-page .team-list a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--fg); text-decoration: none; background: var(--surface); }
 .teams-page .team-list a:hover { background: var(--row-sel); }
+.teams-page .team-list-del { flex: none; color: var(--muted); }
+.teams-page .team-list-del:hover { color: var(--bad, #d14343); }
 .teams-page .team-list .team-avatar { width: 36px; height: 36px; font-size: 14px; border-radius: var(--r-avatar); }
 .teams-page form { display: flex; gap: 8px; }
 .teams-page form input { flex: 1; }
@@ -43,6 +46,18 @@
 .team-task { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px; cursor: grab; }
 .team-col input { width: 100%; }
 .team-drop { display: block; margin-top: 12px; padding: 16px; border: 2px dashed var(--line); border-radius: var(--r-md); text-align: center; }
+/* Co-editing a project's file (coedit.js): its badge in a files list, the
+   conflict dialog with both versions of each part, its history, and an
+   agent's edits on its owner's Airlock card. */
+.coedit-badge { padding: 1px 8px; border-radius: var(--r-pill); background: var(--seg); color: var(--fg2); font-size: 12px; white-space: nowrap; }
+.coedit-dialog { width: min(640px, 92vw); }
+.coedit-conflict { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.coedit-side { display: block; margin: 6px 0; }
+.coedit-text { margin: 4px 0 0 24px; padding: 6px 8px; border-left: 3px solid var(--line-strong); white-space: pre-wrap; font-size: 13px; }
+.coedit-history { list-style: none; padding: 0; margin: 0 0 12px; }
+.coedit-history li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.coedit-lane { margin: 8px 0; }
+.coedit-diff { margin: 2px 0 0 12px; white-space: pre-wrap; }
 .team-kb { list-style: none; padding: 0; margin: 8px 0; }
 .team-kb li { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .team-kb-head { display: flex; gap: 8px; align-items: center; }

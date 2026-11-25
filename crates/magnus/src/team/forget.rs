@@ -46,6 +46,7 @@ impl Forget for Ledger {
                 by.retain(|_, people| !people.is_empty());
             }
             c.reactions.retain(|_, by| !by.is_empty());
+            super::coedit::forget(w, who);
         }
         self.whispers.retain(|task, w| !who.is(&w.owner) && !who.tasks.contains(task));
         self.runs.retain(|task, r| !who.is(&r.requester) && !who.tasks.contains(task));
@@ -74,14 +75,18 @@ impl Kernel {
     /// Erasing `person`: each of their messages is deleted for everyone, in
     /// one write, as its sender would delete it. The events that held their
     /// text, and every copy of their words (`copies`), are returned, for the
-    /// erasure to take out of the log with the rest of their content.
+    /// erasure to take out of the log with the rest of their content. Each
+    /// version of a co-edited file they wrote stays, written again with "a
+    /// former member" as its author (owner, 2026-11-23), and the events that
+    /// named them go with the rest.
     pub(crate) async fn unsend_all_of(&self, actor: &str, person: &str) -> anyhow::Result<Vec<i64>> {
         let (theirs, mut seqs) = self.read(|s| {
             let theirs = s.team.messages_of(person);
-            let mut seqs: Vec<i64> = theirs.iter().flat_map(|(_, _, m)| s.team.message_seqs(&m.id).to_vec()).collect();
-            seqs.extend(s.copies_of_person(person));
+            let seqs: Vec<i64> = theirs.iter().flat_map(|(_, _, m)| s.team.message_seqs(&m.id).to_vec()).collect();
             (theirs, seqs)
         });
+        seqs.extend(self.copies_of_person(person).await?);
+        seqs.extend(self.coedit_reattribute(actor, person).await?);
         for (workspace, channel, m) in &theirs {
             seqs.extend(self.copies_of_message(workspace, channel, m).await?);
         }

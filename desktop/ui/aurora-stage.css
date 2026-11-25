@@ -24,7 +24,7 @@
 }
 
 /* ---------- The conversation and its bento ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> section.conv) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-workspace="single"][data-region="work"]) .shell > main:has(> section.conv) {
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -390,6 +390,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-desc 
   font-size: 12.5px;
   line-height: 1.4;
   color: var(--fg2);
+}
+
+/* A task box's last actions, newest last, each marked with how it went, and once done its proof. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile-steps, .stage-tile-proof) {
+  display: block;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg2);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-steps li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-steps li[data-state="failed"] {
+  color: var(--bad);
 }
 
 /* An answer's new block streams in word by word. */

@@ -582,7 +582,10 @@ async fn an_event_from_a_connected_app_leads_to_a_suggestion() {
     let read = m.requests().into_iter().find(|c| run_of(c) == Run::Review && c.turn() == 1 && opening(c).contains("new in mail")).expect("no read");
     assert!(read.last_results().iter().any(|r| r.text.contains("Thursday 15:00")), "the review did not read the new message");
     // The push and its read are the server's own work, never the person's.
-    only(&bob, &b, &[], &["suggestion"], &[]).await;
+    // With its one notice that it has ideas (2026-11-21-ideas-go-to-explore),
+    // sent once the review's memory pass is done, so after the suggestion.
+    wait("the ideas notice", PATIENCE, &m, &bob, || async { bob.inbox().await.into_iter().find(|i| i["kind"] == "notice" && i["details"]["reason"] == "ideas").map(|_| ()) }).await;
+    only(&bob, &b, &[], &["notice", "suggestion"], &[]).await;
 }
 
 /// 5. A review proposes work grounded in what it read. Magnus's own review
@@ -637,7 +640,10 @@ async fn a_review_proposes_work_from_what_it_read() {
     let review = item["task_id"].as_str().or(item["task"].as_str()).unwrap_or_else(|| panic!("the proposal names no review: {item}"));
     assert_eq!(bob.task(review).await["review"], true, "the proposal did not come from a review");
     // Nothing started, and the person sees only the proposal.
-    only(&bob, &b, &[], &["suggestion"], &[]).await;
+    // With its one notice that it has ideas (2026-11-21-ideas-go-to-explore),
+    // sent once the review's memory pass is done, so after the suggestion.
+    wait("the ideas notice", PATIENCE, &m, &bob, || async { bob.inbox().await.into_iter().find(|i| i["kind"] == "notice" && i["details"]["reason"] == "ideas").map(|_| ()) }).await;
+    only(&bob, &b, &[], &["notice", "suggestion"], &[]).await;
 }
 
 /// Connect `app` as the desktop app does (spec rev 140): its one connect

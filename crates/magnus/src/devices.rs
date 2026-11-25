@@ -153,11 +153,31 @@ pub fn admit(on: bool, peer: SocketAddr, headers: &axum::http::HeaderMap, method
     if method == axum::http::Method::GET && (path == "/v1/health" || path == "/oauth/slack/callback") {
         return Ok(());
     }
+    // An outside agent has no device: its card, key set and one endpoint,
+    // which authenticates each request itself (`a2a::PUBLIC_PATHS`).
+    if crate::a2a::PUBLIC_PATHS.iter().any(|(m, p)| method.as_str() == *m && path == *p) {
+        return Ok(());
+    }
     if live {
         Ok(())
     } else {
         Err("this device is not paired with the server")
     }
+}
+
+/// Whether a session may be used from the live device a tunnel request
+/// presented: the device is the session person's own, and a session bound
+/// to a device (by pairing, or by signing in through the tunnel) is used
+/// from that device alone. A token copied off one computer works from no
+/// other, someone else's or the same person's.
+pub fn session_holds(device: &Device, person: &str, bound: Option<&str>) -> Result<(), &'static str> {
+    if device.person.to_lowercase() != person.to_lowercase() {
+        return Err("this computer is paired for someone else: sign in on your own computer");
+    }
+    if bound.is_some_and(|b| b != device.id) {
+        return Err("this sign-in belongs to another of your computers: sign in again on this one");
+    }
+    Ok(())
 }
 
 /// Where the paired devices are kept in a state directory; a backup takes
@@ -200,8 +220,13 @@ impl Devices {
     }
 
     pub fn live_id(&self, fingerprint: &str) -> Option<String> {
+        self.live_device(fingerprint).map(|d| d.id)
+    }
+
+    /// The live paired device a presented fingerprint belongs to.
+    pub fn live_device(&self, fingerprint: &str) -> Option<Device> {
         let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        g.devices.values().find(|d| d.live() && d.matches(fingerprint)).map(|d| d.id.clone())
+        g.devices.values().find(|d| d.live() && d.matches(fingerprint)).cloned()
     }
 
     /// Have Cloudflare sign `csr` and remember the device. The private key
@@ -394,6 +419,10 @@ async fn cloudflare_revoke(cf: &Cloudflare, id: &str) -> std::result::Result<(),
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "devices_session_tests.rs"]
+mod session_tests;
 
 #[cfg(test)]
 mod tests {

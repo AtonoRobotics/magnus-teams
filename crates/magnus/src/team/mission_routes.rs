@@ -63,7 +63,13 @@ async fn list_missions(State(k): K, Member { person: p, .. }: Member<at::Guest>,
     if !has_channel(&k, &ws, &room, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    let view = k.read(|s| s.missions.view_for_room(&ws, &room, &p.id));
+    let view = k.read(|s| {
+        let mut view = s.missions.view_for_room(&ws, &room, &p.id);
+        if let Some(w) = s.team.workspace(&ws) {
+            super::coedit::with_edits(&mut view, w, &p.id);
+        }
+        view
+    });
     Ok(Json(view).into_response())
 }
 
@@ -115,6 +121,17 @@ async fn release_lane(
     }
 
     let actor = format!("person:{}", p.id);
+    // Its edits to co-edited files land with it; one that conflicts now is
+    // the owner's to decide first, from both versions.
+    match k.coedit_land_lane(&actor, &ws, &mission, &lane).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(stuck)) => {
+            let changes: Vec<Value> = stuck.into_iter().map(|(id, name, conflicts)| json!({ "change": id, "name": name, "conflicts": conflicts })).collect();
+            let error = "a shared file changed since your agent's edit, and parts conflict: decide each, or throw the edit away, then share again";
+            return Ok((StatusCode::CONFLICT, Json(json!({ "error": error, "changes": changes }))).into_response());
+        }
+        Err(e) => return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+    }
     let released = TeamMissionEvent::LaneReleased { workspace: ws.clone(), mission: mission.clone(), lane: lane.clone(), contribution: text.clone(), released_by: p.id.clone() };
     let moved = k.move_lane(&actor, LaneStep::OwnerRelease, released).await.map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
     if !moved {
@@ -152,7 +169,8 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
         return refuse(StatusCode::FORBIDDEN, NOT_IN_ROOM);
     }
 
-    let prompt = format!("Revise your private draft for \"{objective}\" using the owner's instruction.\n\nCurrent draft:\n{prev_draft}\n\nOwner's edit:\n{instruction}");
+    // Told by how it begins, so it goes with the requester's words (`copies`).
+    let prompt = super::copies::steer_prompt(&objective, &prev_draft, instruction);
     // The objective is the requester's words and the draft came of them: as
     // untrusted as the lane's own run when someone else asked, and started
     // as that lane was, by the requester, so its words read as another's
@@ -173,7 +191,7 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
                 if r.status.terminal() {
                     if let Some(text) = r.summary.or_else(|| r.replies.last().map(|m| m.text().to_string())).filter(|s| !s.trim().is_empty()) {
                         let flagged = scrub_check(&text).is_some();
-                        let draft = TeamMissionEvent::LaneDraftReady { workspace: ws, mission, lane, owner, draft: text, scrub_flagged: flagged };
+                        let draft = TeamMissionEvent::LaneDraftReady { workspace: ws, mission, lane, owner, draft: text, scrub_flagged: flagged, held_because: None };
                         let _ = k2.move_lane("kernel", LaneStep::Draft, draft).await;
                     }
                     return;

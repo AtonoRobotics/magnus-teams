@@ -24,6 +24,9 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// What a read-back's call id starts with, before the call it reads back.
+pub(crate) const CALL_PREFIX: &str = "readback:";
+
 /// How the world is read back after one tool's action.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -59,6 +62,23 @@ impl ReadBack {
         }
         None
     }
+}
+
+/// Whether a tool sends a message: an irreversible one named for sending
+/// or posting it (`send_draft`, `send_message`, `post_message`).
+#[cfg(test)]
+fn sends_a_message(tool: &str, risk: &str) -> bool {
+    risk == "irreversible" && (tool.starts_with("send") || tool.starts_with("post"))
+}
+
+/// What a connector's manifest leaves unread: every message send is read
+/// back (spec rev 147), so a send with no `[read_back.<tool>]` would end
+/// "Not read back" and still count as done. The catalog's check
+/// (`catalog::tests::well_formed`) refuses such a manifest.
+#[cfg(test)]
+pub fn unread_send<'a>(tools: impl IntoIterator<Item = (&'a String, &'a String)>, read_back: &BTreeMap<String, ReadBack>) -> Option<String> {
+    let t = tools.into_iter().find(|(t, risk)| sends_a_message(t, risk) && !read_back.contains_key(*t))?.0;
+    Some(format!("{t} sends a message and is not read back: it needs a [read_back.{t}]"))
 }
 
 /// Whether what the action had (`want`) is in what was read back (`got`):
@@ -129,7 +149,7 @@ impl Kernel {
         let read = format!("{}__{}", f.app, rb.read);
         let check = Action {
             run: a.run.clone(),
-            call_id: format!("readback:{}", a.call_id),
+            call_id: format!("{CALL_PREFIX}{}", a.call_id),
             step_id: format!("{}.readback", a.step_id),
             tool: read.clone(),
             input: read_input(&rb, &had),
@@ -225,6 +245,43 @@ mod tests {
             changed[key] = wrong;
             assert_eq!(differs(&rb, &had, &changed), vec![key.to_string()], "{key} was not checked");
         }
+    }
+
+    /// Slack's post and Chat's send are read back by the id the send
+    /// returned, with the text it was sent; a send with no read-back is
+    /// refused by the catalog check.
+    #[test]
+    fn every_message_send_is_read_back_by_the_id_it_returned() {
+        for (src, tool, had, got) in [
+            (
+                include_str!("../../../catalog/slack.toml"),
+                "post_message",
+                json!({ "input": { "channel": "C1", "text": "Q3 & Q4 are in" }, "result": { "channel": "C1", "ts": "1.2" } }),
+                json!({ "channel": "C1", "ts": "1.2", "text": "Q3 & Q4 are in" }),
+            ),
+            (
+                include_str!("../../../catalog/google-chat.toml"),
+                "send_message",
+                json!({ "input": { "space_id": "spaces/A", "text": "Q3 is in" }, "result": { "message_id": "spaces/A/messages/m1", "text": "Q3 is in" } }),
+                json!({ "message_id": "spaces/A/messages/m1", "text": "Q3 is in" }),
+            ),
+        ] {
+            let manifest: toml::Value = toml::from_str(src).unwrap();
+            let tools: BTreeMap<String, String> = manifest["tools"].as_table().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
+            let rb: ReadBack = manifest["read_back"][tool].clone().try_into().unwrap();
+            assert_eq!(rb.fault(tool, |t| tools.get(t).cloned()), None, "{tool}");
+            let read: BTreeMap<String, ReadBack> = BTreeMap::from([(tool.to_string(), rb.clone())]);
+            assert_eq!(unread_send(&tools, &read), None, "{tool}");
+            assert!(unread_send(&tools, &BTreeMap::new()).is_some_and(|w| w.contains(tool)), "{tool} with no read-back passed");
+            let input = read_input(&rb, &had);
+            assert!(input.as_object().unwrap().values().all(|v| !v.is_null()), "{tool}: {input}");
+            assert!(differs(&rb, &had, &got).is_empty(), "{tool}");
+            let mut changed = got.clone();
+            changed["text"] = json!("something else");
+            assert_eq!(differs(&rb, &had, &changed), vec!["text".to_string()], "{tool}");
+        }
+        let reads = BTreeMap::from([("list".to_string(), "read".to_string()), ("send_invoice".to_string(), "financial".to_string())]);
+        assert_eq!(unread_send(&reads, &BTreeMap::new()), None, "a read or a payment is held to the message rule");
     }
 
     #[test]

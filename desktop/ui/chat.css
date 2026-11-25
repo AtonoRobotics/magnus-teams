@@ -596,6 +596,7 @@ button.hello-chip:hover {
 .sub-agent .sub-agent-link { display: flex; flex-direction: column; min-width: 0; color: inherit; text-decoration: none; }
 .sub-agent .sub-agent-link:hover .ttl { color: var(--accent-text); text-decoration: underline; }
 .sub-agent-files { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.sub-agent-result { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hair); max-height: 360px; overflow-y: auto; }
 .result .pre {
   white-space: pre-wrap;
   margin: 8px 0;

@@ -207,14 +207,39 @@ function wireComposer(form, record, conv) {
   if (menu) menu.onclick = e => { const b = e.target.closest("[data-mention]"); if (b) { choose(b.dataset.mention); box.focus(); } };
   box.oninput = () => { read(); fit(); syncSend(); offer(); conv.typed?.(); };
   box.onselect = selected;
+  const wrapSelection = (before, after = before, placeholder = "") => {
+    const start = box.selectionStart ?? 0, end = box.selectionEnd ?? start;
+    const sel = box.value.slice(start, end) || placeholder;
+    const next = `${before}${sel}${after}`;
+    box.setRangeText(next, start, end, "select");
+    box.setSelectionRange(start + before.length, start + before.length + sel.length);
+    read(); fit(); syncSend();
+  };
   box.onpaste = e => {
     const dt = e.clipboardData;
     if (!dt) return;
     const files = dt.files?.length ? [...dt.files] : [...(dt.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
-    if (files.length) { e.preventDefault(); attach(files); }
+    if (files.length) { e.preventDefault(); attach(files); return; }
+    const html = dt.getData("text/html");
+    if (html && typeof RichText !== "undefined") {
+      const md = RichText.htmlToMarkdown(html);
+      if (md) {
+        e.preventDefault();
+        const start = box.selectionStart ?? box.value.length, end = box.selectionEnd ?? start;
+        box.setRangeText(md, start, end, "end");
+        read(); fit(); syncSend();
+      }
+    }
   };
   model?.addEventListener("change", read);
   box.onkeydown = e => {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === "b") { e.preventDefault(); wrapSelection("**"); return; }
+      if (k === "i") { e.preventDefault(); wrapSelection("*"); return; }
+      if (k === "e") { e.preventDefault(); wrapSelection("`"); return; }
+      if (k === "k" && box.selectionStart !== box.selectionEnd) { e.preventDefault(); wrapSelection("[", "](https://)"); return; }
+    }
     if (menu && !menu.hidden && mentionChoices.length) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();

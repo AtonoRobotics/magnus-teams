@@ -18,6 +18,7 @@ mod agent;
 mod caller;
 pub mod chat;
 mod chat_routes;
+pub(crate) mod coedit;
 pub mod conversation;
 pub(crate) mod copies;
 #[cfg(test)]
@@ -35,6 +36,11 @@ mod keep;
 #[cfg(test)]
 mod keep_tests;
 pub(crate) mod knowledge;
+#[cfg(test)]
+mod lane_knowledge_tests;
+pub(crate) mod lane_release;
+#[cfg(test)]
+pub(crate) mod lane_release_tests;
 pub mod lanes;
 #[cfg(test)]
 mod lanes_tests;
@@ -313,6 +319,13 @@ pub enum Change {
     TeamAdminsSeeded {
         people: Vec<String>,
     },
+    /// A co-edited file's history: see `coedit`. Everything but the
+    /// workspace is content, its people included.
+    Coedit {
+        workspace: String,
+        #[serde(default)]
+        coedit: coedit::Step,
+    },
 }
 
 /// Scratch for one request: never a fact, and gone when the task is over.
@@ -338,8 +351,12 @@ pub struct Message {
 pub struct File {
     pub name: String,
     pub size: u64,
-    /// The member it was made for or by.
+    /// The member it was made for or by; no one for a co-edited file,
+    /// which is the project's.
     pub by: String,
+    /// Shared to co-edit (`coedit`), not as a copy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub coedit: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -376,6 +393,8 @@ pub struct Workspace {
     pub local_ceiling: Option<crate::local::Mode>,
     pub routines: BTreeMap<String, Routine>,
     pub chat: chat::ChatState,
+    #[serde(skip_serializing_if = "coedit::Coedits::is_empty")]
+    pub coedit: coedit::Coedits,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -413,6 +432,9 @@ impl Ledger {
             self.seqs.entry(id.clone()).or_default().push(seq);
         }
         self.copies.note(c, seq);
+        if let Change::Coedit { workspace, coedit, .. } = c {
+            self.workspaces.get_mut(workspace).into_iter().for_each(|w| coedit::apply(w, coedit, seq));
+        }
         self.apply(c);
     }
 
@@ -510,11 +532,13 @@ impl Ledger {
             Change::File { workspace, file } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.files.insert(file.name.clone(), file.clone());
+                    coedit::on_file(w, file);
                 }
             }
             Change::FileRemoved { workspace, name } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.files.remove(name);
+                    coedit::on_removed(w, name);
                 }
             }
             Change::Held { workspace, person, file } => {
@@ -602,7 +626,8 @@ impl Ledger {
             | Change::Whisper { .. }
             | Change::WhisperShared { .. }
             | Change::TeamAdmin { .. }
-            | Change::TeamAdminsSeeded { .. } => {}
+            | Change::TeamAdminsSeeded { .. }
+            | Change::Coedit { .. } => {}
         }
     }
 
@@ -705,7 +730,7 @@ mod tests {
     fn removing_a_member_forgets_what_was_held_for_them() {
         let mut l = made();
         l.apply(&Change::Member { workspace: "w".into(), person: "bob".into(), role: Role::Member });
-        l.apply(&Change::Held { workspace: "w".into(), person: "bob".into(), file: File { name: "f".into(), size: 1, by: "bob".into() } });
+        l.apply(&Change::Held { workspace: "w".into(), person: "bob".into(), file: File { name: "f".into(), size: 1, by: "bob".into(), coedit: false } });
         l.apply(&Change::Removed { workspace: "w".into(), person: "bob".into() });
         assert_eq!(l.role("w", "bob"), None);
         assert!(l.workspace("w").unwrap().held.is_empty());

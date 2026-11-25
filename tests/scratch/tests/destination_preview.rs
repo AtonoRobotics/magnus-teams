@@ -162,3 +162,24 @@ async fn trace_shows_preview_and_send_as_two_actions() {
     let send = actions.iter().find(|a| a["tool"] == "drafts__send_draft").expect("no send action in the trace");
     assert!(send["result"].is_object(), "the send has no result of its own: {send}");
 }
+
+/// A sent draft's receipt names the draft's recipients, as the gate read
+/// them, and not an address its body mentions: the call names only the
+/// draft (2026-11-23).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sent_drafts_receipt_names_the_drafts_recipients() {
+    let model = start_checked(steps(vec![plan("send the Q3 draft"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
+    let draft = json!({ "d1": { "to": "bob@corp.example", "subject": "Q3", "body": "cc'ing carol@corp.example next time" } });
+    let (drafts, app) = drafts_app(draft, json!([{ "to": "bob@corp.example", "subject": "Q2" }]), &model).await;
+    let alice = app.api("alice");
+    let id = alice.submit("Send the Q3 draft.").await;
+    alice.wait_settled(&id).await;
+    assert_eq!(drafts.effects("send_draft"), 1, "the send did not go out");
+
+    let t = alice.task(&id).await;
+    let receipts = t["evidence"]["receipts"].as_array().cloned().unwrap_or_default();
+    let sent = receipts.iter().find(|r| r["tool"] == "drafts__send_draft").unwrap_or_else(|| panic!("no receipt for the send: {t}"));
+    assert_eq!(sent["to"], json!(["bob@corp.example"]), "{sent}");
+    assert!(sent["what"].as_str().unwrap_or_default().contains("bob@corp.example"), "{sent}");
+    assert!(!sent.to_string().contains("carol"), "a body address is named as a recipient: {sent}");
+}

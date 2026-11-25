@@ -63,7 +63,9 @@ for s in $suites; do
   case $s in
     # One test at a time: a machine runs only so many computers, and the
     # invariants that start one fail when tests in parallel take every slot.
-    invariants) cmd="cargo test -p magnus-invariants -- --test-threads=1" ;;
+    # Every file runs: without --no-fail-fast the first failing file stopped
+    # the other seven from running at all.
+    invariants) cmd="cargo test -p magnus-invariants --no-fail-fast -- --test-threads=1" ;;
     evidence) cmd="cargo test -p magnus-invariants --test inv7_verify" ;;
     contracts)
       export MAGNUS_REQUIRE_CONTRACTS=1

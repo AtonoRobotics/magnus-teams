@@ -38,14 +38,6 @@ function askContent(d) {
   return `<div class="what">${to.concat(content, fields).join("")}</div>`;
 }
 
-function askSpendGuardrail(i, d) {
-  const inp = d.input && typeof d.input === "object" ? d.input : {};
-  const raw = inp.max_usd ?? inp.amount ?? inp.total ?? inp.price;
-  if (i.tier !== "financial" && raw === undefined) return "";
-  const cap = raw !== undefined ? `Capped at ${typeof raw === "number" ? `$${raw}` : esc(String(raw))}` : "Explicit approval required";
-  return `<p class="consequence small" data-spend-guardrail><strong>Spend guardrail:</strong> ${cap} · Vault-only credentials</p>`;
-}
-
 const ASK_TIERS = { read: "Read-only", sandbox: "Sandbox", reversible_write: "Reversible write", irreversible: "Irreversible", financial: "Financial" };
 
 function askTierBadge(i) {
@@ -53,15 +45,16 @@ function askTierBadge(i) {
   return label ? `<span class="ask-tier" data-tier="${esc(i.tier)}">${esc(label)}</span>` : "";
 }
 
-const ASK_PREVIEW_HEADER_RE = /^(to|recipient|recipients|cc|bcc|channel|room|destination|url|host|site|file|path|calendar|event|subject|title|summary|amount|total|price|max_usd|supplier|vendor)$/i;
 const ASK_PREVIEW_BODY_RE = /^(body|message|text|content|note|description|html|draft|query|command)$/i;
 const ASK_PREVIEW_MAX_FIELDS = 5;
 const ASK_PREVIEW_BODY_MAX = 320;
 
 /**
- * Extracts concise, human-facing fields (recipients, destination, subject,
- * amount, and a body excerpt) from an approval item's server-read details.
- * Never reads policy, rule, taint, or reviewer reasoning.
+ * Extracts concise, human-facing fields (recipients, subject and a body
+ * excerpt) from what the gate read (`details.destinations`), or where it
+ * read none, where the server says the action goes (`ask.destinations`).
+ * Never the model's own input: the person allows what goes, not what the
+ * model wrote. Never reads policy, rule, taint, or reviewer reasoning.
  * @param {any} i
  * @returns {{ rows: Array<[string, string]>, body: string }}
  */
@@ -84,24 +77,15 @@ function askSummaryFields(i) {
     rows.push([nice[0].toUpperCase() + nice.slice(1), val]);
   };
   for (const [k, a] of Object.entries(ds.recipients || {})) if (Array.isArray(a) && a.length) pushRow(k, a);
+  if (!rows.length && Array.isArray(i?.ask?.destinations) && i.ask.destinations.length) {
+    pushRow("Destination", i.ask.destinations);
+  }
   for (const [k, v] of Object.entries(ds.content || {})) {
     if (v === null || v === undefined || v === "") continue;
     const str = typeof v === "string" ? v.trim() : typeof v === "object" ? "" : String(v);
     if (!str) continue;
     if (ASK_PREVIEW_BODY_RE.test(k)) { if (!body) body = str; }
     else pushRow(k, str);
-  }
-  const inp = d.input && typeof d.input === "object" && !Array.isArray(d.input) ? d.input : {};
-  for (const [k, v] of Object.entries(inp)) {
-    if (v === null || v === undefined || v === "") continue;
-    if (ASK_PREVIEW_BODY_RE.test(k)) {
-      if (!body && typeof v === "string" && v.trim()) body = v.trim();
-    } else if (ASK_PREVIEW_HEADER_RE.test(k)) {
-      pushRow(k, v);
-    }
-  }
-  if (!rows.length && Array.isArray(i?.ask?.destinations) && i.ask.destinations.length) {
-    pushRow("Destination", i.ask.destinations);
   }
   if (body.length > ASK_PREVIEW_BODY_MAX) body = `${body.slice(0, ASK_PREVIEW_BODY_MAX).trimEnd()}…`;
   return { rows, body };
@@ -146,7 +130,6 @@ function askCard(i, canRespond) {
   return `<div class="ask" data-ask="${esc(i.id)}"${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
     ${askTierBadge(i)}
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
-    ${askSpendGuardrail(i, d)}
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}
     ${askPreview(i)}
     <details class="ask-content" data-ask-content><summary>See exactly what it would do</summary>${askContent(d)}</details>

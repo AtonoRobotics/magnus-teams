@@ -56,6 +56,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::message_actions::router())
         .merge(super::mission_routes::router())
         .merge(super::sign_in::router())
+        .merge(super::coedit::routes::router())
 }
 
 pub(super) fn new_id() -> String {
@@ -210,6 +211,10 @@ struct NewMessage {
     /// names files already in the shared Files.
     #[serde(default)]
     whisper: bool,
+    /// Post the message without starting an agent task (e.g. clean-room share
+    /// or seeding notes into a new project).
+    #[serde(default)]
+    no_agent: bool,
 }
 
 async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> ApiResult {
@@ -219,7 +224,7 @@ async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Gu
     if b.say.text.trim().is_empty() || b.say.text.chars().count() > MAX_MESSAGE_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
-    allow(role, &p.id, Act::Post { with_agent: b.agent || b.whisper })?;
+    allow(role, &p.id, Act::Post { with_agent: (b.agent || b.whisper) && !b.no_agent })?;
     if !b.whisper && !b.say.files.is_empty() {
         return refuse(StatusCode::BAD_REQUEST, "a message here names files in the shared Files; only a whisper takes files of your own");
     }
@@ -230,7 +235,7 @@ async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Gu
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         });
     }
-    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, said.text, b.agent, said.pick).await)
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, said.text, b.agent && !b.no_agent, b.no_agent, said.pick).await)
 }
 
 /// Post a message as `p`, and when asked or `@Magnus` is mentioned, dispatch
@@ -246,12 +251,16 @@ pub(super) async fn post_and_ask(
     thread: Option<String>,
     text: String,
     asked: bool,
+    no_agent: bool,
     pick: crate::say::Pick,
 ) -> Reply {
     super::presence::sent(ws, channel, &p.id);
     let message = Message { id: new_id(), sender: p.id.clone(), text: text.clone(), thread: thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
     ok_or_return!(send(k, p, Change::Message { workspace: ws.to_string(), channel: channel.to_string(), message }).await);
+    if no_agent {
+        return Json(json!({ "id": id })).into_response();
+    }
     let why = if asked { Some(Why::Asked) } else { k.read(|s| s.team.workspace(ws).and_then(|w| w.agent_answers(channel, role, &text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
     let objective: String = text.trim().chars().take(super::orchestrator::MAX_OBJECTIVE_CHARS).collect();
@@ -297,7 +306,8 @@ async fn read_file(State(k): K, Member { person: p, .. }: Member<at::Guest>, Pat
     })
 }
 
-/// An explicit share: the only way a member's file enters the volume.
+/// An explicit share: the only way a member's file enters the volume. A
+/// share to co-edit, and a version of a co-edited file, are `coedit`'s.
 async fn write_file(
     State(k): K,
     Member { person: p, .. }: Member<at::Member>,
@@ -307,6 +317,9 @@ async fn write_file(
 ) -> ApiResult {
     if !fit_name(&name) {
         return refuse(StatusCode::BAD_REQUEST, "that is not a file name");
+    }
+    if let Some(r) = super::coedit::routes::write(&k, &p, &ws, &name, &q, &body).await? {
+        return Ok(r);
     }
     if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
         return refuse(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
@@ -321,7 +334,7 @@ async fn write_file(
         return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
     let project = q.get("project").filter(|id| k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.projects.get(*id).is_some_and(|d| d.may_read(&p.id))))).cloned();
-    let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
+    let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone(), coedit: false };
     send(&k, &p, Change::File { workspace: ws.clone(), file }).await?;
     if project.is_some() {
         send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project } }).await?;
@@ -345,8 +358,9 @@ async fn delete_file(State(k): K, Member { person: p, role, .. }: Member<at::Mem
 
 /// The requester's own choice to put a held file on the team volume. The
 /// team gets a copy; theirs goes to their own library, so an admin deleting
-/// the team's copy, or the workspace, leaves it with them.
-async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>) -> ApiResult {
+/// the team's copy, or the workspace, leaves it with them. `share=coedit`
+/// makes the team's copy the project's, to co-edit (`coedit`).
+async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>, q: Query<HashMap<String, String>>) -> ApiResult {
     let held = k.read(|s| s.team.workspace(&ws).and_then(|w| w.held.get(&p.id).and_then(|f| f.get(&name).cloned())));
     let Some(file) = held else { return refuse(StatusCode::NOT_FOUND, "you hold no such file") };
     if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
@@ -356,6 +370,19 @@ async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     let bytes = match tokio::fs::read(&from).await {
         Ok(b) => b,
         Err(e) => return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    };
+    let to_coedit = q.get("share").map(String::as_str) == Some(super::coedit::routes::CO_EDIT);
+    // A share to co-edit finds the name free and records the share in one step.
+    let held = if to_coedit { Some(super::coedit::share_lock().await) } else { None };
+    if held.is_some() && k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.coedit.files.contains_key(&name) || super::keep::someone_elses(w, &name, &p.id))) {
+        return refuse(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
+    }
+    let shared = match q.get("share").map(String::as_str) {
+        Some(super::coedit::routes::CO_EDIT) => match k.coedit_share(&ws, &p.id, &name, &bytes) {
+            Ok(evs) => evs,
+            Err(why) => return refuse(StatusCode::BAD_REQUEST, format!("{why}; share a copy instead, or fix the file")),
+        },
+        _ => vec![Ev::Team(Change::File { workspace: ws.clone(), file })],
     };
     if let Err(e) = k.keep_in_library(&format!("person:{}", p.id), &p.id, &name, &bytes).await {
         return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
@@ -369,7 +396,9 @@ async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     {
         return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
-    send(&k, &p, Change::File { workspace: ws.clone(), file }).await?;
+    let actor = format!("person:{}", p.id);
+    k.emit_all(shared.into_iter().map(|e| (actor.as_str(), e)).collect()).await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    drop(held);
     send(&k, &p, Change::Released { workspace: ws, person: p.id.clone(), name }).await?;
     Ok(Json(json!({ "ok": true })).into_response())
 }

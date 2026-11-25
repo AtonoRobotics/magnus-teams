@@ -95,9 +95,18 @@ impl Egress {
     /// pinned (unless private networks are allowed), following no redirect.
     /// Only http and https are reached.
     pub(crate) async fn client_for(&self, url: &url::Url) -> Result<reqwest::Client> {
+        self.client_as(url, None).await
+    }
+
+    /// `client_for`, presenting a client certificate (mutual TLS) when `identity` is one.
+    pub(crate) async fn client_as(&self, url: &url::Url, identity: Option<reqwest::Identity>) -> Result<reqwest::Client> {
         anyhow::ensure!(matches!(url.scheme(), "http" | "https"), "only http and https addresses can be reached");
         let host = url.host_str().ok_or_else(|| anyhow!("the address has no host"))?;
         let builder = reqwest::Client::builder().connect_timeout(self.connect_wait).timeout(self.total_wait).redirect(reqwest::redirect::Policy::none());
+        let builder = match identity {
+            Some(id) => builder.identity(id),
+            None => builder,
+        };
         let builder = if self.allow_private {
             builder
         } else {

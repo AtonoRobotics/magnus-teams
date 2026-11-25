@@ -238,8 +238,8 @@ impl Kernel {
     pub(crate) async fn outgoing_finding(&self, a: &Action, run: &Run) -> Option<Option<String>> {
         let doc = json!({ "tool": a.tool, "content": a.input }).to_string();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(CHECK_TIMEOUT, self.reviewer_call(run, "outgoing_classifier", CLASSIFIER_SYSTEM, messages, vec![classify_tool()])).await;
-        finding_of(&reply.ok()?.ok()??)
+        let reply = self.reviewer_call_within(run, "outgoing_classifier", CLASSIFIER_SYSTEM, messages, vec![classify_tool()], Some(CHECK_TIMEOUT)).await;
+        finding_of(&reply.ok()??)
     }
 
     /// The monitor's word on a run's reply, through the one paid call

@@ -20,6 +20,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct Fake {
     worst_usd: f64,
+    /// What the prompt is quoted at.
+    input_usd: f64,
     cost_usd: f64,
     delay: Duration,
     fail: bool,
@@ -28,7 +30,7 @@ struct Fake {
 
 impl Fake {
     fn new(worst_usd: f64, cost_usd: f64) -> Fake {
-        Fake { worst_usd, cost_usd, delay: Duration::ZERO, fail: false, calls: Arc::default() }
+        Fake { worst_usd, input_usd: 0.0, cost_usd, delay: Duration::ZERO, fail: false, calls: Arc::default() }
     }
 
     fn calls(&self) -> usize {
@@ -47,7 +49,7 @@ fn clean(tool: &str) -> Value {
 
 async fn answer(f: Fake, req: Request, mut sink: proto::Sink) -> anyhow::Result<()> {
     match req {
-        Request::Quote { .. } => sink.send(&Event::Quote { input_usd: 0.0, output_usd: f.worst_usd }).await,
+        Request::Quote { .. } => sink.send(&Event::Quote { input_usd: f.input_usd, output_usd: f.worst_usd }).await,
         Request::EstimatePrompt(_) => sink.send(&Event::PromptSize { input_tokens: 10 }).await,
         Request::Complete(p) => {
             f.calls.fetch_add(1, Ordering::SeqCst);
@@ -62,6 +64,10 @@ async fn answer(f: Fake, req: Request, mut sink: proto::Sink) -> anyhow::Result<
             }
             sink.send(&Event::ServedModel { id: p.model }).await?;
             sink.send(&Event::Done { stop: "end".into() }).await
+        }
+        Request::Image(_) => {
+            f.calls.fetch_add(1, Ordering::SeqCst);
+            sink.send(&Event::Image(proto::Picture { media_type: "image/png".into(), data_b64: "iVBORw0KGgo=".into() })).await
         }
         _ => sink.error(ErrorClass::InvalidRequest, "not served here").await,
     }
@@ -190,6 +196,115 @@ async fn a_failed_call_the_provider_charged_for_is_counted() {
     assert!(near(s.k.read(|st| st.runs["r1"].usd), 0.25), "the run was not charged for the failed call");
     let (all, mo) = spent(&s);
     assert!(near(all, 0.5) && near(mo, 0.25), "the month did not count both failed calls: {all} {mo}");
+    s.done().await;
+}
+
+/// A call its own timeout cuts off is booked at the quoted price of its
+/// prompt, which the provider was sent and bills: on the run and on the
+/// month. Before, it was booked at nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_cut_off_by_its_timeout_is_booked() {
+    let s = server_with(SAFETY, |_| Router::new()).await;
+    let f = Fake { delay: Duration::from_millis(800), input_usd: 0.02, ..Fake::new(0.1, 0.05) };
+    serve(&s, "fake", &f).await;
+    let r = run(&s, "r1", "mo").await;
+    let out = s.k.reviewer_call_within(&r, "send", "Review.", user("a send"), vec![], Some(Duration::from_millis(50))).await.unwrap();
+    assert!(out.is_none(), "a call past its timeout gave an answer");
+    assert_eq!(f.calls(), 1);
+    let charged = s.k.read(|st| st.runs["r1"].usd);
+    assert!(near(charged, 0.02), "the run was charged {charged}, not its prompt's quoted price");
+    assert!(near(spent(&s).1, 0.02), "the month did not count the call cut off: {:?}", spent(&s));
+    s.done().await;
+}
+
+/// Pictures made by the fake adapter, at a price.
+const IMAGES: &str =
+    "[[adapters]]\nid = \"fake\"\ncommand = [\"unused\"]\n[images]\nadapter = \"fake\"\nfast_model = \"img\"\npremium_model = \"img-hq\"\nfast_usd = 0.04\npremium_usd = 0.2\n";
+
+/// How long a test waits for a picture made in the background.
+const PICTURE_WAIT: Duration = Duration::from_secs(10);
+
+/// A picture goes through the one paid call: priced at the configured
+/// price and recorded on its run and the month, and refused at the
+/// person's limit before the provider is asked. Before, a picture had no
+/// price, no record and no model check.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_picture_is_priced_and_recorded() {
+    let s = server_with(IMAGES, |_| Router::new()).await;
+    let f = Fake::new(0.1, 0.05);
+    serve(&s, "fake", &f).await;
+    run(&s, "r1", "mo").await;
+    let a = |call: &str| crate::boundary::Action {
+        run: "r1".into(),
+        call_id: call.into(),
+        step_id: format!("s1.{call}"),
+        tool: crate::ui::images::GENERATE_TOOL.into(),
+        input: json!({ "prompt": "a red barn" }),
+        issuer: crate::boundary::Issuer::Model,
+    };
+    let (text, is_error, _) = s.k.image_tool(&a("c1")).await.unwrap();
+    assert!(!is_error, "{text}");
+    let deadline = tokio::time::Instant::now() + PICTURE_WAIT;
+    while s.k.read(|st| st.runs["r1"].usd) == 0.0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(f.calls(), 1);
+    let charged = s.k.read(|st| st.runs["r1"].usd);
+    assert!(near(charged, 0.04), "the run was charged {charged} for a picture priced at $0.04");
+    assert!(near(spent(&s).1, 0.04), "the month did not count the picture: {:?}", spent(&s));
+
+    limit(&s, Scope::Person("mo".into()), 0.05).await;
+    let (text, is_error, _) = s.k.image_tool(&a("c2")).await.unwrap();
+    assert!(is_error && text.contains("not made"), "a picture past mo's month limit was started: {text}");
+    assert_eq!(f.calls(), 1, "the provider was asked for a picture past the limit");
+    s.done().await;
+}
+
+/// A picture through a model adapter with no price set is $0 and made,
+/// though a spend limit applies: production names no price for its
+/// ChatGPT sign-in, and every picture there was refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_adapters_unpriced_picture_is_made_under_a_limit() {
+    let s = server_with("[[adapters]]\nid = \"fake\"\ncommand = [\"unused\"]\n[images]\nadapter = \"fake\"\nfast_model = \"img\"\npremium_model = \"img-hq\"\n", |_| Router::new())
+        .await;
+    let f = Fake::new(0.1, 0.05);
+    serve(&s, "fake", &f).await;
+    run(&s, "r1", "mo").await;
+    let a = crate::boundary::Action {
+        run: "r1".into(),
+        call_id: "c1".into(),
+        step_id: "s1.c1".into(),
+        tool: crate::ui::images::GENERATE_TOOL.into(),
+        input: json!({ "prompt": "a red barn" }),
+        issuer: crate::boundary::Issuer::Model,
+    };
+    let (text, is_error, _) = s.k.image_tool(&a).await.unwrap();
+    assert!(!is_error, "an unpriced adapter picture was refused: {text}");
+    let deadline = tokio::time::Instant::now() + PICTURE_WAIT;
+    while f.calls() == 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(f.calls(), 1, "the picture was not made");
+    s.done().await;
+}
+
+/// An embedding goes through the one paid call: charged at the server's
+/// price per million tokens it counted, to the person who searched or, for
+/// indexing, to the server. Before, it was posted with no record.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_embedding_is_priced_and_recorded() {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", l.local_addr().unwrap());
+    let reply = || async { axum::Json(json!({ "data": [{ "embedding": [0.5, 0.25] }], "usage": { "prompt_tokens": 5 } })) };
+    let embeddings = Router::new().route("/v1/embeddings", axum::routing::post(reply));
+    tokio::spawn(async move { axum::serve(l, embeddings).await });
+    let s = server_with(&format!("[knowledge.embeddings]\nurl = {url:?}\nmodel = \"e\"\nusd_per_mtok = 1000.0\n"), |_| Router::new()).await;
+    let got = s.k.embed(Owner::Person("mo".into()), "the books").await.unwrap();
+    assert_eq!(got, Some(("e".to_string(), "[0.5,0.25]".to_string())));
+    assert!(near(spent(&s).1, 0.005), "mo's month did not count the embedding: {:?}", spent(&s));
+    s.k.embed(Owner::Server, "an entry").await.unwrap();
+    let sp = s.k.read(|st| month::spent(st, &month::key(Utc::now())));
+    assert_eq!(sp.by_agent.get("server").copied(), Some(0.005), "{sp:?}");
     s.done().await;
 }
 

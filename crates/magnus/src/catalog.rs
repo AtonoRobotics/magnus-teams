@@ -353,6 +353,7 @@ mod tests {
         for (t, rb) in &m.read_back {
             assert_eq!(rb.fault(t, |t| m.tools.get(t).cloned()), None, "{}", m.id);
         }
+        assert_eq!(crate::read_back::unread_send(&m.tools, &m.read_back), None, "{}", m.id);
         assert_eq!(crate::watch_reads::fault(&m.id, &m.watch, |t| m.tools.get(t).cloned()), None);
         assert!(m.watch.iter().all(|w| !w.items.is_empty()), "{}: an app's answer is an object: its items are in it", m.id);
         // What the Library shows: a category chip, abilities, a plain line

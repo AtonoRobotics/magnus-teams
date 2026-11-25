@@ -61,7 +61,10 @@ async function mayStartWorkspace() {
  * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
 function teamsPageHtml(list, mayStart) {
   const none = mayStart ? "You are in no shared project yet. Type a name to start one and invite teammates." : "You are in no shared project yet.";
-  return `<div class="teams-page"><h1>Shared projects</h1><p class="small faint">Collaborate with teammates while each person's Magnus works in private and shares scrubbed outputs.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
+  return `<div class="teams-page"><h1>Shared projects</h1><p class="small faint">Collaborate with teammates while each person's Magnus works in private and shares scrubbed outputs.</p>${list.length ? `<ul class="team-list">${list.map(w => {
+    const canDel = w.role === "owner" || w.role === "admin";
+    return `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a>${canDel ? `<button type="button" class="icon-btn team-list-del" data-del-shared-ws="${esc(w.id)}" data-del-shared-name="${esc(w.name)}" title="Delete ${esc(w.name)}" aria-label="Delete ${esc(w.name)}">${icon("trash")}</button>` : ""}</li>`;
+  }).join("")}</ul>` : `<p class="empty">${none}</p>`}
     ${mayStart ? `<form id="new-team"><input id="team-name" placeholder="Type a name to start a shared project" aria-label="Shared project name" autocomplete="off"><button class="primary">Create</button></form>` : ""}</div>`;
 }
 
@@ -74,6 +77,15 @@ async function showTeams(main) {
     const name = $("#team-name", main).value.trim();
     if (!name) return;
     try { const w = await Server.workspaces.create(name); location.hash = `#/team/${enc(w.id)}`; } catch (err) { toast(err.message); }
+  };
+  main.onclick = async e => {
+    const del = e.target.closest?.("[data-del-shared-ws]");
+    if (!del) return;
+    e.preventDefault();
+    if (typeof Projects !== "undefined" && await Projects.deleteShared(del.dataset.delSharedWs, del.dataset.delSharedName)) {
+      const next = await Server.workspaces.list().catch(() => []);
+      paint(main, teamsPageHtml(next, mayStart));
+    }
   };
 }
 
@@ -143,7 +155,7 @@ function sharedDeepLinkPanel(place) {
     if (tab === "knowledge") return "shared:knowledge";
     if (tab === "members") return "shared:settings";
     if (tab === "board") return "shared:tasks";
-    return "shared:missions";
+    return null;
   }
   return null;
 }

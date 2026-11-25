@@ -79,7 +79,7 @@ async fn quarantined_run(k: &Arc<Kernel>) -> String {
     // As `fire_schedule` starts it; the harness's database cannot recall the
     // schedule's words, so its text is given here.
     let sc = k.read(|s| s.arrangements.schedules().get("sq").cloned()).unwrap();
-    let quarantine = k.schedule_quarantine(&sc, set["text"].as_str().unwrap());
+    let quarantine = k.unattended_quarantine(&Unattended::schedule(&sc, set["text"].as_str().unwrap()));
     assert!(quarantine.is_some(), "an unattended schedule that emails someone else was not quarantined");
     let o = crate::kernel::NewRun { quarantine, ..Default::default() };
     k.create_run("schedule:sq", "mo", set["text"].as_str().unwrap().into(), vec![], o).await.unwrap().1
@@ -190,4 +190,77 @@ async fn an_apps_error_reaches_a_quarantined_planner_only_behind_a_handle() {
         assert!(!recorded.contains("IGNORE PREVIOUS"), "call {n}: the recorded result holds the app's words: {recorded}");
     }
     s.done().await;
+}
+
+/// A quarantined run that opens a picture (an attachment, a screenshot of
+/// a hostile page) is told it came, and its planner is sent no image: the
+/// picture is the app's words as much as its text is. Before, the text went
+/// behind a handle and the picture went to the planner as an image block.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_quarantined_run_opening_a_picture_sends_the_planner_no_image() {
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    let s = server_with("", |_| Router::new()).await;
+    let run_id = quarantined_run(&s.k).await;
+    let opened = json!({ "image_b64": PNG });
+    let text = "statement.png is a picture (1x1 pixels); a smaller copy is shown here.".to_string();
+    let (told, data) = s.k.planner_text(&run_id, "open_attachment", text, Some(opened), crate::tools::Label::UNTRUSTED, false).await;
+    assert!(data.as_ref().is_some_and(|d| d.get("image_b64").is_none()), "the picture crossed the quarantine: {data:?}");
+    assert!(told.contains("picture_withheld"), "the planner was not told a picture was held back: {told}");
+    let result = crate::events::Ev::ToolResult {
+        run: run_id.clone(),
+        call_id: "c1".into(),
+        key: None,
+        status: "done".into(),
+        text: told,
+        is_error: false,
+        label: crate::tools::Label::UNTRUSTED,
+        data,
+        sources: vec![],
+        check: false,
+    };
+    s.k.emit("kernel", result).await.unwrap();
+    // The planner's context sends a result's `image_b64` as an image
+    // (`run::context_with`); the recorded result holds none.
+    let recorded = s.k.read(|st| st.runs[&run_id].results["c1"].data.clone());
+    assert!(!serde_json::to_string(&recorded).unwrap().contains(PNG), "the recorded result keeps the picture for the planner: {recorded:?}");
+    s.done().await;
+}
+
+/// Two sibling sub-agents of one quarantined tree, whose results are made
+/// at once (neither recorded yet), get handles of their own: each handle
+/// names one text, so a send carries only its own sibling's. Before, each
+/// numbered from the handles recorded so far, and both made `$q1`.
+#[tokio::test(flavor = "multi_thread")]
+async fn siblings_of_a_quarantined_tree_never_share_a_handle() {
+    let s = server_with("", |_| Router::new()).await;
+    let run = quarantined_run(&s.k).await;
+    let mut told = vec![];
+    for n in [1, 2] {
+        let child = format!("rq_sib{n}");
+        s.k.emit("kernel", serde_json::from_value(json!({ "kind": "sub_agent", "child": child, "parent": run, "tools": [] })).unwrap()).await.unwrap();
+        let ids = crate::kernel::NewRun { ids: Some((format!("tq_sib{n}"), child.clone())), ..Default::default() };
+        s.k.create_run(&format!("run:{run}"), "mo", "Read the page.".into(), vec![], ids).await.unwrap();
+        assert!(s.k.run_is_quarantined(&child));
+        let (t, data) = s.k.planner_text(&child, "web_fetch", format!("page {n}"), None, crate::tools::Label::UNTRUSTED, false).await;
+        let handle = serde_json::from_str::<Value>(&t).unwrap()["opaque_body_handle"].as_str().unwrap().to_string();
+        assert_eq!(data.unwrap()[HANDLES_KEY][&handle], json!(format!("page {n}")));
+        told.push(handle);
+    }
+    assert_ne!(told[0], told[1], "two siblings were given the same handle");
+    s.done().await;
+}
+
+/// One kernel's reservations are its own. Before, every kernel in the
+/// process shared one table, and a kernel's sweep of the trees it did not
+/// know dropped another's: the next sibling there started again at `$q1`
+/// (the sibling test above failed so when other tests ran beside it).
+#[tokio::test(flavor = "multi_thread")]
+async fn another_kernels_sweep_keeps_this_kernels_handles() {
+    let (a, b) = (server_with("", |_| Router::new()).await, server_with("", |_| Router::new()).await);
+    let (here, there) = (quarantined_run(&a.k).await, quarantined_run(&b.k).await);
+    let first = a.k.reserve_handles(&here, 1);
+    b.k.reserve_handles(&there, 1);
+    assert_eq!(a.k.reserve_handles(&here, 1), first + 1, "another kernel's sweep gave a handle number out again");
+    a.done().await;
+    b.done().await;
 }

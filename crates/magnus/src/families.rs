@@ -27,10 +27,12 @@ pub enum Family {
     Connector,
     /// Purchases (`payments`).
     Payments,
+    /// Outside agents over A2A (`a2a`).
+    OutsideAgent,
 }
 
 /// Every family, in the order their specs are offered.
-pub const FAMILIES: [Family; 7] = [Family::Core, Family::Local, Family::Desktop, Family::Team, Family::Images, Family::Connector, Family::Payments];
+pub const FAMILIES: [Family; 8] = [Family::Core, Family::Local, Family::Desktop, Family::Team, Family::Images, Family::Connector, Family::Payments, Family::OutsideAgent];
 
 impl Family {
     /// The family's built-in tools, with their risk, label and audience.
@@ -43,6 +45,7 @@ impl Family {
             Family::Images => crate::tools_ui::BUILTINS,
             Family::Connector => crate::generated::BUILTINS,
             Family::Payments => crate::payments::BUILTINS,
+            Family::OutsideAgent => crate::a2a::BUILTINS,
         }
     }
 
@@ -62,6 +65,7 @@ impl Family {
             Family::Images => crate::tools_ui::specs(),
             Family::Connector => crate::generated::specs(),
             Family::Payments => crate::payments::specs(),
+            Family::OutsideAgent => crate::a2a::specs(),
         }
     }
 
@@ -95,6 +99,7 @@ impl Kernel {
             Family::Images => crate::tools_ui::specs(),
             Family::Connector => crate::generated::specs(),
             Family::Payments => self.cfg.payments.iter().flat_map(|_| crate::payments::specs()).collect(),
+            Family::OutsideAgent => self.outside_agent_specs(person),
         }
     }
 
@@ -109,6 +114,8 @@ impl Kernel {
             Family::Images => self.image_tool(a).await,
             Family::Connector => self.connector_tool(a).await,
             Family::Payments => self.purchase_tool(a).await,
+            // Sent from the boundary's call stage, which records its task first (`a2a::outbound`).
+            Family::OutsideAgent => Err(anyhow!("{} is carried out at the boundary", a.tool)),
         }
     }
 }

@@ -26,6 +26,10 @@ use std::sync::Arc;
 
 /// Fraction of parent budget granted to an `OpenWeb` research worker.
 const RESEARCH_BUDGET_SHARE: f64 = 0.25;
+/// Hard per-worker call ceiling so `research_web` finishes quickly instead of
+/// crawling dozens of turns.
+const RESEARCH_MAX_MODEL_CALLS: u32 = 8;
+const RESEARCH_MAX_ACTIONS: u32 = 12;
 
 /// Tools always admitted in an `OpenWeb` compartment (autonomous public browsing & search).
 const OPEN_WEB_READ_TOOLS: [&str; 7] = ["web_search", "web_fetch", "browser_navigate", "browser_click", "browser_snapshot", "browser_screenshot", "browser_back"];
@@ -170,14 +174,16 @@ impl Kernel {
         let (task, child) = (new_id("task"), new_id("run"));
 
         let prompt = format!(
-            "Research the following public web question using web search, public HTTPS sites, and link-following. Put your full concrete findings (key facts, figures, dates, quotes, and structured comparisons where relevant) with exact source URLs in your deliverable — not just a brief summary.\n\nQuery: {combined}"
+            "Research the following public web question quickly and concisely. Batch web searches, inspect at most 2–3 authoritative pages, avoid redundant fetches, and finish as soon as you have concrete facts, figures, dates, and exact source URLs.\n\nQuery: {combined}"
         );
-        let budget = self.read(|s| crate::sub_agents::child_budget_for(s, &parent, Some(RESEARCH_BUDGET_SHARE)));
+        let research_cap = crate::config::Budget { max_model_calls: RESEARCH_MAX_MODEL_CALLS, max_actions: RESEARCH_MAX_ACTIONS, max_usd: f64::INFINITY };
+        let budget = self.read(|s| crate::sub_agents::child_budget_for(s, &parent, Some(RESEARCH_BUDGET_SHARE))).within(&research_cap);
+        let worker_model = self.cfg.model.worker_model().unwrap_or_else(|| (parent.config.adapter.clone(), parent.config.model.clone()));
         let o = NewRun {
             // Clean OpenWeb compartment: never inherits parent.private or parent history.
             label: None,
             budget: Some(budget),
-            model: Some((parent.config.adapter.clone(), parent.config.model.clone())),
+            model: Some(worker_model),
             ids: Some((task.clone(), child.clone())),
             team: self.team_of(&parent.task).map(|t| crate::team::TeamRun { sub: true, ..t }),
             ..Default::default()

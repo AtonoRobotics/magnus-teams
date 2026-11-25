@@ -31,7 +31,7 @@ assert.ok(app.includes('data-act="pause-task"') && app.includes('case "pause-tas
 
 // 3. Deck PPTX/PDF export, Table Copy/CSV, HTML Fullscreen, Deliverable toolbar, data-ui-id.
 assert.ok(compose.includes('class="deck-export" data-format="pptx"') && compose.includes('data-format="pdf"'), "compose.js renders deck PPTX and PDF export buttons");
-assert.ok(compose.includes('class="table-btn table-copy"') && compose.includes('class="table-btn table-csv"'), "compose.js renders table Copy and CSV buttons");
+assert.ok(compose.includes('class="table-btn table-copy"') && compose.includes('table-btn table-csv'), "compose.js renders table Copy and CSV buttons");
 assert.ok(chatView.includes('data-ui-id="${esc(p.id || "")}"'), "chat-view.js emits data-ui-id on .ui-block");
 assert.ok(frames.includes("wireFrameExports") && frames.includes("/v1/ui/docs/") && frames.includes("data-html-fullscreen"), "composed-frames.js wires deck/table exports and HTML fullscreen");
 assert.ok(app.includes("data-deliverable-bar") && app.includes('data-act="copy-deliverable"') && app.includes('data-act="export-deliverable"'), "taskView includes deliverable action toolbar");

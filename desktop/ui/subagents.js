@@ -17,7 +17,7 @@ const SUB_AGENT_STATUS = {
   running: ["run", "Working"], suspended: ["warn", "Waiting"], completed: ["ok", "Done"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"],
 };
 
-/** Extract readable findings text from a sub-agent's outcome_view blocks. @param {any} view */
+/** Plain-text fallback for outcome_view when Compose is not loaded. @param {any} view */
 function subAgentOutcomeText(view) {
   if (!Array.isArray(view) || !view.length) return "";
   const lines = [];
@@ -26,13 +26,25 @@ function subAgentOutcomeText(view) {
     if (b.type === "text" && typeof b.text === "string" && b.text.trim()) lines.push(b.text.trim());
     else if (b.type === "stat" && (b.label || b.value !== undefined)) lines.push(`${b.label ? `${b.label}: ` : ""}${b.value ?? ""}`);
     else if (b.type === "table" && Array.isArray(b.rows)) {
-      const hdr = Array.isArray(b.headers) ? b.headers.join(" | ") : "";
-      if (hdr) lines.push(hdr);
+      const cols = Array.isArray(b.columns) ? b.columns : Array.isArray(b.headers) ? b.headers : [];
+      if (cols.length) lines.push(cols.join(" | "));
       for (const row of b.rows.slice(0, 6)) if (Array.isArray(row)) lines.push(row.join(" | "));
-      if (b.rows.length > 6) lines.push(`… (${b.rows.length} rows — click to inspect full table)`);
     }
   }
   return lines.join("\n").trim();
+}
+
+/** Render a sub-agent's structured outcome_view or Markdown summary richly. @param {SubAgentView} a */
+function subAgentResultHtml(a) {
+  if (Array.isArray(a.outcome_view) && a.outcome_view.length && typeof Compose !== "undefined" && typeof Compose.renderNative === "function") {
+    const normalized = a.outcome_view.map(b => b && b.type === "table" && !Array.isArray(b.columns) && Array.isArray(b.headers) ? { ...b, columns: b.headers } : b);
+    const rendered = Compose.renderNative(normalized);
+    if (rendered && rendered !== '<div class="ui-native"></div>') return rendered;
+  }
+  const text = (subAgentOutcomeText(a.outcome_view) || a.summary || "").trim();
+  if (!text) return "";
+  if (typeof Compose !== "undefined" && typeof Compose.markdown === "function") return Compose.markdown(text);
+  return `<div class="pre">${esc(text)}</div>`;
 }
 
 /**
@@ -54,9 +66,9 @@ function subAgentRow(a) {
   const main = a.task_id
     ? `<a class="rg-main sub-agent-link" href="#/task/${typeof enc === "function" ? enc(a.task_id) : encodeURIComponent(a.task_id)}" data-open="task:${esc(a.task_id)}">${titleHtml}</a>`
     : `<div class="rg-main">${titleHtml}</div>`;
-  const findings = ended ? (subAgentOutcomeText(a.outcome_view) || a.summary || "") : "";
-  const result = ended && findings
-    ? `<details open data-key="sub-agent:${esc(a.run)}"><summary class="small">${a.status === "completed" ? "Its result" : "Why it stopped"}</summary><div class="pre">${esc(findings)}</div></details>`
+  const findingsHtml = ended ? subAgentResultHtml(a) : "";
+  const result = ended && findingsHtml
+    ? `<details open data-key="sub-agent:${esc(a.run)}"><summary class="small">${a.status === "completed" ? "Its result" : "Why it stopped"}</summary><div class="sub-agent-result">${findingsHtml}</div></details>`
     : "";
   const outputs = ended && Array.isArray(a.outputs) && a.outputs.length
     ? `<div class="sub-agent-files">${a.outputs.map(f => `<a class="fchip" href="#/file/${typeof enc === "function" ? enc(f.id) : encodeURIComponent(f.id)}" data-open="file:${esc(f.id)}">${esc(f.name)}</a>`).join("")}</div>`

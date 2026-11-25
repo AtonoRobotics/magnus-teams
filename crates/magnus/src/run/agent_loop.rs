@@ -214,13 +214,55 @@ impl Kernel {
         let pending = run.pending_calls();
         if !pending.is_empty() {
             let step = run.replies.last().map(|r| r.step).unwrap_or(0);
-            let is_parallelizable = |name: &str| {
-                matches!(name, "start_sub_agent" | "research_web")
-                    || (!crate::tools::RECORDS.contains(&name) && crate::boundary::facts(self, name).is_some_and(|f| f.risk == crate::tools::Risk::Read))
-            };
-            let parallel: Vec<_> = pending.iter().take_while(|(_, _, name, _)| is_parallelizable(name)).cloned().collect();
-            if parallel.len() > 1 {
-                let futs = parallel.into_iter().map(|(index, call_id, name, input)| {
+            let parallel: Vec<_> = pending.iter().take_while(|(_, _, name, _)| matches!(name.as_str(), "start_sub_agent" | "research_web")).cloned().collect();
+            // The batch is counted before any of it starts: as many go
+            // ahead as the run may start sub-agents and take actions, and
+            // the rest are refused up front (`sub_agents::batch`). With no
+            // action left at all, the first goes alone and the boundary
+            // stops the run as for any action.
+            let batch = (parallel.len() > 1).then(|| self.admit_delegations(run_id, parallel.len())).filter(|b| b.go > 0 || b.refused.is_some());
+            if let Some(batch) = batch {
+                let (mut futs, mut refused) = (vec![], vec![]);
+                for (i, (index, call_id, name, input)) in parallel.into_iter().enumerate() {
+                    let step_id = format!("s{step}.{index}");
+                    let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
+                    if i >= batch.go {
+                        refused.push(action);
+                        continue;
+                    }
+                    let k = self.clone();
+                    let r = run.clone();
+                    futs.push(async move {
+                        match k.watched(&r, &action).await? {
+                            Some(v) => Ok(v),
+                            None => k.execute(action).await,
+                        }
+                    });
+                }
+                if let Some((stage, why)) = &batch.refused {
+                    for a in &refused {
+                        self.deny(a, stage, why, false, None).await?;
+                    }
+                }
+                let results = futures::future::join_all(futs).await;
+                drop(batch);
+                let mut suspended = false;
+                for res in results {
+                    if matches!(res?, Verdict::Suspended) {
+                        suspended = true;
+                    }
+                }
+                return Ok(if suspended { Flow::Stop } else { Flow::Continue });
+            }
+            let parallel_reads: Vec<_> = pending
+                .iter()
+                .take_while(|(_, _, name, _)| {
+                    !crate::tools::RECORDS.contains(&name.as_str()) && crate::boundary::facts(self, name).is_some_and(|f| f.risk == crate::tools::Risk::Read)
+                })
+                .cloned()
+                .collect();
+            if parallel_reads.len() > 1 {
+                let futs = parallel_reads.into_iter().map(|(index, call_id, name, input)| {
                     let step_id = format!("s{step}.{index}");
                     let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
                     let k = self.clone();

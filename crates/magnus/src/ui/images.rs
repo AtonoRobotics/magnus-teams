@@ -5,6 +5,8 @@ use crate::api::err;
 use crate::boundary::Action;
 use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
+use crate::spend::allowance::Spender;
+use crate::spend::paid::{no_usage, Bill, Failure, Payer, Quote};
 use anyhow::{anyhow, Context, Result};
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{header, StatusCode};
@@ -12,7 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use base64::Engine;
-use magnus_adapter_proto::Picture;
+use magnus_adapter_proto::{Picture, Usage};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -20,6 +22,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const DIRECTORY: &str = "ui-images";
+/// What a picture's charge is for, as its record names it.
+const PURPOSE: &str = "image";
+/// What a picture's record names an images endpoint, which is no adapter.
+const ENDPOINT: &str = "images";
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_PROMPT_CHARS: usize = 4_000;
 /// Between a run's id and the image's, in a placeholder.
@@ -44,6 +50,16 @@ pub struct Settings {
     pub adapter: Option<String>,
     pub fast_model: String,
     pub premium_model: String,
+    /// What one fast picture costs, in US dollars. With no price, a picture
+    /// a model adapter makes is $0, as its sign-in bills no picture (the
+    /// ChatGPT sign-in, 2026-11-11), and is still recorded; one from an
+    /// images endpoint is made only where no spend limit applies
+    /// (`spend::paid`).
+    #[serde(default)]
+    pub fast_usd: Option<f64>,
+    /// What one premium picture costs, in US dollars.
+    #[serde(default)]
+    pub premium_usd: Option<f64>,
 }
 
 /// Where one picture is made.
@@ -56,6 +72,9 @@ impl Settings {
     /// Checked at startup: exactly one provider, named in full, and an
     /// adapter that is configured.
     pub fn check(&self, adapters: &[crate::config::Adapter]) -> Result<()> {
+        if let Some(usd) = [self.fast_usd, self.premium_usd].into_iter().flatten().find(|u| !u.is_finite() || *u < 0.0) {
+            return Err(anyhow!("[images] a picture's price is a number of US dollars, zero or more, not {usd}"));
+        }
         match (&self.url, &self.key, &self.adapter) {
             (Some(_), Some(_), None) => Ok(()),
             (None, None, Some(id)) if adapters.iter().any(|a| &a.id == id) => Ok(()),
@@ -125,16 +144,21 @@ async fn make(maker: Maker, model: String, prompt: String, source: Option<String
                 Some(b64) => (format!("{url}/edits"), json!({ "model": model, "prompt": prompt, "images": [{ "image_url": format!("data:image/png;base64,{b64}") }] })),
                 None => (format!("{url}/generations"), json!({ "model": model, "prompt": prompt })),
             };
-            let reply: Value = reqwest::Client::new().post(url).bearer_auth(key).json(&body).timeout(IMAGE_TIMEOUT).send().await?.error_for_status()?.json().await?;
+            let reply: Value = reqwest::Client::new().post(url).bearer_auth(key).json(&body).send().await?.error_for_status()?.json().await?;
             reply["data"][0]["b64_json"].as_str().ok_or_else(|| anyhow!("the provider returned no image"))?.to_string()
         }
         Maker::Adapter(k, id) => {
             let source = source.map(|data_b64| Picture { media_type: "image/png".into(), data_b64 });
-            let made = tokio::time::timeout(IMAGE_TIMEOUT, k.adapters.image(&id, &model, prompt, source, premium)).await;
-            made.map_err(|_| anyhow!("adapter {id} made no image in {}s", IMAGE_TIMEOUT.as_secs()))??.data_b64
+            k.adapters.image(&id, &model, prompt, source, premium).await?.data_b64
         }
     };
     base64::engine::general_purpose::STANDARD.decode(b64).context("the provider's image is not base64")
+}
+
+/// A picture's paid call: charged to the run that asked for it, by dollars
+/// alone, cut off after [`IMAGE_TIMEOUT`].
+fn bill<'a>(run: &'a crate::state::Run, provider: &'a str, model: &'a str, servers_model: bool) -> Bill<'a> {
+    Bill { payer: Payer::Run(run, Spender::Made), purpose: PURPOSE, adapter: provider, model, servers_model, timeout: Some(IMAGE_TIMEOUT) }
 }
 
 impl Kernel {
@@ -159,19 +183,41 @@ impl Kernel {
             }
             None => return Ok(("Name the image to edit.".to_string(), true, None)),
         };
-        let maker = match (cfg.url, cfg.key, cfg.adapter) {
-            (_, _, Some(id)) => Maker::Adapter(self.clone(), id),
-            (Some(url), Some(key), None) => Maker::Endpoint { url, key: self.vault.get(&key)?.context("the image provider's key is not in the vault")?.expose().to_string() },
+        // Which provider makes it: an adapter, whose model the person must
+        // be allowed, or the server's own images endpoint.
+        let (maker, provider) = match (cfg.url, cfg.key, cfg.adapter) {
+            (_, _, Some(id)) => (Maker::Adapter(self.clone(), id.clone()), id),
+            (Some(url), Some(key), None) => {
+                (Maker::Endpoint { url, key: self.vault.get(&key)?.context("the image provider's key is not in the vault")?.expose().to_string() }, ENDPOINT.to_string())
+            }
             _ => return Ok(("This server has no image provider set up.".to_string(), true, None)),
         };
         let premium = a.input["quality"] == "premium";
-        let model = if premium { cfg.premium_model } else { cfg.fast_model };
+        let (model, usd) = if premium { (cfg.premium_model, cfg.premium_usd) } else { (cfg.fast_model, cfg.fast_usd) };
+        let usd = usd.or(matches!(maker, Maker::Adapter(..)).then_some(0.0));
+        // A picture is priced whole: what it costs is its "input".
+        let quote = usd.map(|input_usd| Quote { input_tokens: 0, input_usd, output_usd: 0.0 });
+        let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else { return Ok(("The run is gone.".to_string(), true, None)) };
+        let servers_model = provider == ENDPOINT;
+        // Refused at once, when it could not be made with nothing else in flight.
+        if let Err(why) = self.may_pay(&bill(&run, &provider, &model, servers_model), quote).await {
+            return Ok((format!("The image was not made: {why}."), true, None));
+        }
         let id = format!("{}{JOIN}{}", a.run, new_id("img"));
-        let run = a.run.clone();
         let task_id = id.clone();
+        let k = self.clone();
         tokio::spawn(async move {
-            if let Err(e) = finish(state, &task_id, make(maker, model, prompt, source, premium).await).await {
-                tracing::warn!("image for {run}: {e:#}");
+            // Through the one paid call: allowed, fitted, made and recorded.
+            let asked = model.clone();
+            let made = async move {
+                match make(maker, asked, prompt, source, premium).await {
+                    Ok(png) => Ok((png, Usage { cost_usd: usd.unwrap_or_default(), ..no_usage() })),
+                    Err(e) => Err(Failure { message: format!("{e:#}"), usage: None }),
+                }
+            };
+            let paid = k.pay(bill(&run, &provider, &model, servers_model), quote, made, |_, _| None).await;
+            if let Err(e) = finish(state, &task_id, paid.map(|(png, _)| png).map_err(|e| anyhow!("{e}"))).await {
+                tracing::warn!("image for {}: {e:#}", run.id);
             }
         });
         Ok((

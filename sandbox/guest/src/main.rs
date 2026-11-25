@@ -677,6 +677,21 @@ mod tests {
         }
     }
 
+    /// The file explorer showed an empty /workspace on a running computer
+    /// holding files (acceptance, desktop_screens, 0.2.6-test.313).
+    #[test]
+    fn a_listing_shows_what_the_folder_holds() {
+        let dir = std::env::temp_dir().join(format!("magnus-guest-listing-shown-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("note.txt"), b"first").unwrap();
+        let listed = list_dir(&Files::at(&dir), &dir);
+        let names: Vec<&str> = listed["entries"].as_array().unwrap().iter().filter_map(|e| e["name"].as_str()).collect();
+        assert_eq!(names, ["docs", "note.txt"], "{listed}");
+        assert_eq!(listed["entries"][1]["size"], 5);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_screen_server_uses_the_x_servers_damage_reports_and_stays_local() {
         assert!(!DISPLAY_SCRIPT.contains("-noxdamage"), "x11vnc scans for changes instead of being told");

@@ -132,6 +132,22 @@ pub fn commitment_reason(id: &str) -> String {
     format!("commitment {id} due")
 }
 
+/// The person's open commitment a review wakes for now: due within the
+/// next day (or already overdue) and not yet woken for at that due time.
+/// Marked by when it is due, not by day, so a day before it that crosses
+/// the person's midnight wakes one review, not two.
+pub(crate) fn commitment_to_wake(s: &crate::state::State, person: &str, tz: Zone, now: DateTime<Utc>) -> Option<String> {
+    s.arrangements
+        .commitments()
+        .values()
+        .filter(|c| c.person == person && c.status == "open")
+        .find(|c| {
+            c.by.as_deref().and_then(|b| crate::commitments::due(b, tz)).is_some_and(|d| commitment_due_for_wake(d, now))
+                && s.inbox.wake_marks().get(&crate::state::inbox::commitment_mark(person, &c.id)).map(String::as_str) != c.by.as_deref()
+        })
+        .map(|c| c.id.clone())
+}
+
 /// A stale approval's wake reason, carrying its item likewise.
 pub fn approval_reason(id: &str) -> String {
     format!("approval {id} waiting")
@@ -172,12 +188,8 @@ impl crate::kernel::Kernel {
                         return Some((schedule_reason(&sc.id), None));
                     }
                 }
-                for c in s.arrangements.commitments().values().filter(|c| c.person == person && c.status == "open") {
-                    if c.by.as_deref().and_then(|b| crate::commitments::due(b, st.tz)).is_some_and(|d| commitment_due_for_wake(d, now))
-                        && !s.inbox.wake_marks().get(&format!("{person}:commitment {}", c.id)).is_some_and(|d| d == &today)
-                    {
-                        return Some((commitment_reason(&c.id), None));
-                    }
+                if let Some(id) = commitment_to_wake(s, &person, st.tz, now) {
+                    return Some((commitment_reason(&id), None));
                 }
                 for i in s.inbox.items().values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()) {
                     if now.signed_duration_since(i.created_at).num_minutes() >= 30 && !s.inbox.wake_marks().get(&format!("{person}:approval {}", i.id)).is_some_and(|d| d == &today)
@@ -723,5 +735,28 @@ mod tests {
         assert!(commitment_due_for_wake(overdue, now), "overdue commitment must wake");
         assert!(commitment_due_for_wake(due_soon, now), "commitment within 24h must wake");
         assert!(!commitment_due_for_wake(due_later, now), "commitment > 24h away should not wake yet");
+    }
+
+    /// One review for each time a commitment is due: a day before it that
+    /// crosses the person's midnight wakes one review, not one on each side.
+    #[test]
+    fn a_commitment_wakes_one_review_for_each_time_it_is_due() {
+        use crate::log::Event;
+        use serde_json::json;
+        let at = |t: &str| DateTime::parse_from_rfc3339(t).unwrap().to_utc();
+        let ev = |seq, t: &str, v: Value| Event { seq, at: at(t), actor: "kernel".into(), ev: serde_json::from_value(v).unwrap() };
+        let utc = Zone::Named(chrono_tz::Tz::UTC);
+        let mut s = crate::state::State::default();
+        s.apply(&ev(
+            1,
+            "2026-11-24T08:00:00Z",
+            json!({ "kind": "commitment_recorded", "id": "cm1", "person": "alice", "who": "Dana", "what": "the deck", "by": "2026-11-25T09:00:00Z" }),
+        ));
+        assert_eq!(commitment_to_wake(&s, "alice", utc, at("2026-11-24T22:00:00Z")).as_deref(), Some("cm1"), "a commitment due within the day woke nothing");
+        s.apply(&ev(2, "2026-11-24T22:00:00Z", json!({ "kind": "review_woken", "run": "r1", "task": "t1", "person": "alice", "reason": commitment_reason("cm1") })));
+        assert_eq!(commitment_to_wake(&s, "alice", utc, at("2026-11-25T01:00:00Z")), None, "the commitment woke a second review after the person's midnight");
+        // Due later now: that time wakes a review of its own.
+        s.apply(&ev(3, "2026-11-25T02:00:00Z", json!({ "kind": "commitment_changed", "id": "cm1", "person": "alice", "by": "2026-11-25T20:00:00Z" })));
+        assert_eq!(commitment_to_wake(&s, "alice", utc, at("2026-11-25T03:00:00Z")).as_deref(), Some("cm1"), "a new due time woke nothing");
     }
 }

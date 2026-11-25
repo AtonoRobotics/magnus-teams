@@ -47,11 +47,14 @@ const TeamRooms = (() => {
     const isOwner = Boolean(lane.owner && lane.owner === ctx.me);
     let body = "";
     if (lane.status === "waiting_release" && isOwner && lane.private_draft) {
-      const warn = lane.scrub_flagged ? `<div class="small bad">Sensitive data was flagged — review before sharing.</div>` : "";
+      const warn = lane.held_because
+        ? `<div class="small bad">Held for you to check: ${esc(lane.held_because)}</div>`
+        : lane.scrub_flagged ? `<div class="small bad">Sensitive data was flagged — review before sharing.</div>` : "";
       body = `<div class="room-private-card" data-airlock-lane="${esc(lane.id)}">
         <div class="small room-private-head">Only you see this until you share</div>
         ${warn}
         <p class="small room-private-draft">${esc(lane.private_draft)}</p>
+        ${typeof Coedit !== "undefined" ? Coedit.laneEdits(lane) : ""}
         <div class="room-steer-row">
           <input type="text" data-lane-steer-input="${esc(lane.id)}" placeholder="Ask your agent to edit before sharing…" aria-label="Edit draft">
           <button type="button" data-lane-steer="${esc(lane.id)}" data-mission="${esc(ctx.missionId)}">Edit</button>
@@ -129,7 +132,14 @@ const TeamRooms = (() => {
         const missionId = /** @type {HTMLElement} */ (rel).dataset.mission || "";
         const chk = /** @type {HTMLInputElement | null} */ (container.querySelector(`[data-lane-standing="${laneId}"]`));
         if (typeof Server !== "undefined" && Server.workspaces?.releaseLane) {
-          await Server.workspaces.releaseLane(ws, missionId, laneId, { save_standing_rule: Boolean(chk?.checked) });
+          try {
+            await Server.workspaces.releaseLane(ws, missionId, laneId, { save_standing_rule: Boolean(chk?.checked) });
+          } catch (err) {
+            // An edit of its agent's conflicts with a later version: its owner
+            // decides each part, then shares the result.
+            const e = /** @type {any} */ (err);
+            if (!(e?.status === 409 && e.body?.changes && typeof Coedit !== "undefined" && (await Coedit.resolve(ws)))) throw err;
+          }
           onChange();
         }
         return;

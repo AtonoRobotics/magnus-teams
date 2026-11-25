@@ -88,6 +88,7 @@ async fn drafted_lane(s: &Server, ws: &str, room: &str) {
         child_task: None,
         child_run: None,
         thread: None,
+        routine: None,
     };
     s.k.emit("person:sam", Ev::TeamMission(dispatched)).await.unwrap();
     let draft = TeamMissionEvent::LaneDraftReady {
@@ -97,6 +98,7 @@ async fn drafted_lane(s: &Server, ws: &str, room: &str) {
         owner: "mo".into(),
         draft: "Revenue is up.".into(),
         scrub_flagged: false,
+        held_because: None,
     };
     s.k.emit("kernel", Ev::TeamMission(draft)).await.unwrap();
 }
@@ -149,5 +151,40 @@ async fn a_mission_with_one_bad_lane_records_nothing() {
     }
     assert!(s.k.read(|st| st.missions.view_for_room(&ws, &room, "sam")).is_empty(), "a refused mission was recorded");
     assert_eq!(s.k.read(|st| st.runs.len()), runs, "a lane of a refused mission ran");
+    s.done().await;
+}
+
+/// A workspace project can be deleted by its owner (or workspace creator/admin),
+/// and never by another plain member.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_project_can_be_deleted_by_its_owner_and_not_by_another_member() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, mo) = workspace(&s).await;
+    let (project, _) = project_room(&s, &ws, &sam, &["mo"]).await;
+    let path = format!("/v1/workspaces/{ws}/projects/{project}");
+    let (st, v) = s.call(&mo, reqwest::Method::DELETE, &path, None).await;
+    assert_eq!(st, 403, "a plain member deleted someone else's project: {v}");
+    let (st, v) = s.call(&sam, reqwest::Method::DELETE, &path, None).await;
+    assert_eq!(st, 200, "the project's owner could not delete it: {v}");
+    let (st, _) = s.call(&sam, reqwest::Method::GET, &path, None).await;
+    assert_eq!(st, 404, "a deleted project still answers GET");
+    s.done().await;
+}
+
+/// Seeding a shared channel with `no_agent: true` or mentioning the bare word
+/// "Magnus" without `@Magnus` posts the message and never starts a task.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_agent_and_bare_magnus_never_start_a_task() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, _) = workspace(&s).await;
+    let room = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    let runs = s.k.read(|st| st.runs.len());
+    let (st, v) = s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{room}/messages"), json!({ "text": "Notes from Magnus about Q4" })).await;
+    assert_eq!(st, 200, "posting failed: {v}");
+    assert!(v.get("task_id").is_none(), "bare word Magnus started a task: {v}");
+    let (st, v) = s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{room}/messages"), json!({ "text": "@Magnus copied summary", "no_agent": true })).await;
+    assert_eq!(st, 200, "no_agent posting failed: {v}");
+    assert!(v.get("task_id").is_none(), "no_agent message started a task: {v}");
+    assert_eq!(s.k.read(|st| st.runs.len()), runs, "unasked messages started a run");
     s.done().await;
 }

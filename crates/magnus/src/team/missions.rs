@@ -85,6 +85,9 @@ pub struct Lane {
     /// Strictly private to `owner` until released across the Airlock.
     pub private_draft: Option<String>,
     pub scrub_flagged: bool,
+    /// Why a check held it for the owner instead of posting it (owner only).
+    #[serde(default)]
+    pub held_because: Option<String>,
     /// Scrubbed contribution visible to the Room & Leader once released.
     pub contribution: Option<String>,
     pub released_by: Option<String>,
@@ -92,6 +95,9 @@ pub struct Lane {
     /// The thread its result is posted to.
     #[serde(default)]
     pub thread: Option<String>,
+    /// The routine it fires for, if any.
+    #[serde(default)]
+    pub routine: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -211,7 +217,7 @@ impl MissionLedger {
                     },
                 );
             }
-            TeamMissionEvent::LaneDispatched { mission, lane, kind, target_member, objective, scope, auto_release, child_task, child_run, thread, .. } => {
+            TeamMissionEvent::LaneDispatched { mission, lane, kind, target_member, objective, scope, auto_release, child_task, child_run, thread, routine, .. } => {
                 if let Some(m) = self.missions.get_mut(mission) {
                     m.lanes.insert(
                         lane.clone(),
@@ -227,19 +233,22 @@ impl MissionLedger {
                             status: LaneStatus::Working,
                             private_draft: None,
                             scrub_flagged: false,
+                            held_because: None,
                             contribution: None,
                             released_by: None,
                             failure_reason: None,
                             thread: thread.clone(),
+                            routine: routine.clone(),
                         },
                     );
                 }
             }
-            TeamMissionEvent::LaneDraftReady { mission, lane, owner, draft, scrub_flagged, .. } => {
+            TeamMissionEvent::LaneDraftReady { mission, lane, owner, draft, scrub_flagged, held_because, .. } => {
                 if let Some(l) = self.missions.get_mut(mission).and_then(|m| m.lanes.get_mut(lane)) {
                     if let Some(next) = l.status.next(LaneStep::Draft).filter(|_| l.owner.as_deref() == Some(owner.as_str())) {
                         l.private_draft = Some(draft.clone());
                         l.scrub_flagged = *scrub_flagged;
+                        l.held_because = held_because.clone();
                         l.status = next;
                     }
                 }
@@ -251,6 +260,7 @@ impl MissionLedger {
                     l.released_by = Some(released_by.clone());
                     l.private_draft = None;
                     l.scrub_flagged = false;
+                    l.held_because = None;
                     l.status = LaneStatus::Released;
                 }
             }
@@ -295,6 +305,17 @@ impl MissionLedger {
 
     pub fn mission(&self, id: &str) -> Option<&Mission> {
         self.missions.get(id)
+    }
+
+    /// The mission whose member's-agent lane `task` is the work of: a
+    /// person's own agent asked in that mission's room.
+    pub fn of_member_lane(&self, task: &str) -> Option<&Mission> {
+        self.missions.values().find(|m| m.lanes.values().any(|l| l.kind == LaneKind::MemberAgent && l.child_task.as_deref() == Some(task)))
+    }
+
+    /// Whether `task` is the work of a lane a routine fired.
+    pub fn is_routine_lane(&self, task: &str) -> bool {
+        self.missions.values().flat_map(|m| m.lanes.values()).any(|l| l.routine.is_some() && l.child_task.as_deref() == Some(task))
     }
 
     /// Whether this lane can take `step` now (`LaneStatus::next`).
@@ -419,6 +440,7 @@ impl MissionLedger {
                             "failure_reason": l.failure_reason,
                             "private_draft": if is_owner { l.private_draft.as_deref() } else { None },
                             "scrub_flagged": if is_owner { l.scrub_flagged } else { false },
+                            "held_because": if is_owner { l.held_because.as_deref() } else { None },
                             "can_release": is_owner && l.private_draft.is_some() && l.status.next(LaneStep::OwnerRelease).is_some(),
                         })
                     })
@@ -465,11 +487,19 @@ mod tests {
             child_task: Some("t_bob".into()),
             child_run: None,
             thread: None,
+            routine: None,
         };
         assert_eq!(ledger.content_owner(&lane).as_deref(), Some("alice"), "the objective is the requester's words");
         ledger.apply(&lane);
-        let draft =
-            TeamMissionEvent::LaneDraftReady { workspace: "ws1".into(), mission: "m1".into(), lane: "l".into(), owner: "bob".into(), draft: "d".into(), scrub_flagged: false };
+        let draft = TeamMissionEvent::LaneDraftReady {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l".into(),
+            owner: "bob".into(),
+            draft: "d".into(),
+            scrub_flagged: false,
+            held_because: None,
+        };
         assert_eq!(ledger.content_owner(&draft).as_deref(), Some("bob"));
         assert_eq!(ledger.working_tasks("ws1"), vec!["t_bob".to_string()]);
         for c in ["first", "second"] {
@@ -501,6 +531,7 @@ mod tests {
             child_task: None,
             child_run: Some("r".into()),
             thread: None,
+            routine: None,
         });
     }
 
@@ -571,6 +602,7 @@ mod tests {
             child_task: Some("t_bob".into()),
             child_run: Some("r_bob".into()),
             thread: None,
+            routine: None,
         });
         ledger.apply(&TeamMissionEvent::LaneDraftReady {
             workspace: "ws1".into(),
@@ -579,6 +611,7 @@ mod tests {
             owner: "bob".into(),
             draft: "Private draft: #422 crash".into(),
             scrub_flagged: false,
+            held_because: None,
         });
 
         // Alice (peer) MUST NOT see Bob's unreleased private_draft.

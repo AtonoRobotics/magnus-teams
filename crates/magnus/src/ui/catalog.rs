@@ -70,7 +70,14 @@ pub const ELEMENTS: &[Element] = &[
         Shape { lists: &["columns"], ..PLAIN },
         Some(Child { line: "row", into: "rows", takes: Takes::Row, shape: PLAIN }),
     ),
-    element("stat", "stat label=Revenue value=41.7 unit=M", Shape { loose: &["value"], ..PLAIN }, None),
+    element("stat", "stat label=Revenue value=41.7 unit=M delta=\"+18%\"", Shape { loose: &["value"], ..PLAIN }, None),
+    element("callout", "callout tone=note|tip|important|warning title=\"Key finding\" text=\"...\"", PLAIN, None),
+    element(
+        "sources",
+        "sources [title=\"Sources\"], then one indented `source title=\"...\" url=\"https://...\"` per line.",
+        PLAIN,
+        Some(Child { line: "source", into: "items", takes: Takes::Object, shape: PLAIN }),
+    ),
     element("bar_chart", "bar_chart title=\"...\" labels=North,South values=10,20 unit=M", Shape { lists: &["labels"], number_lists: &["values"], ..PLAIN }, None),
     element(
         "line_chart",

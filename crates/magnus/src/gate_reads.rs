@@ -5,8 +5,10 @@
 
 use crate::apps::CallError;
 use crate::authorised_read::{Refused, SideRead, Within};
-use crate::boundary::{Action, Facts, Shown};
+use crate::boundary::{Action, Facts, Issuer, Shown};
 use crate::config::Person;
+use crate::events::Ev;
+use crate::evidence::Change;
 use crate::kernel::Kernel;
 use crate::state::Run;
 use crate::tools;
@@ -107,11 +109,25 @@ impl Destination {
 }
 
 impl Kernel {
+    /// Where an action goes, read at the gate (`read_destinations`), and for
+    /// an action of the model's that changes something, recorded with it as
+    /// the gate reads it (`destinations_of`), so its receipt names where it
+    /// went and never the addresses the model wrote.
+    pub(crate) async fn destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
+        let shown = self.read_destinations(a, f, run, person).await?;
+        if a.issuer == Issuer::Model && f.risk.changes_state() {
+            let to = self.destinations_of(a, f, shown.as_ref());
+            let went = Ev::Evidence(Change::Destinations { run: a.run.clone(), call_id: a.call_id.clone(), to });
+            self.emit("kernel", went).await.map_err(|e| format!("{e:#}"))?;
+        }
+        Ok(shown)
+    }
+
     /// Read where an action goes from what it acts on, when its tool says
     /// how (a draft's To, Cc and Bcc through `get_draft`, never the model's
     /// words), with the person's own sign-in. Whatever stops the read stops
     /// the action: nothing is sent to an address no one has seen.
-    pub(crate) async fn destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
+    pub(crate) async fn read_destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
         let Some(d) = f.connector.as_ref().and_then(|c| c.destinations.get(&f.remote)) else { return Ok(None) };
         let nothing = format!("Nothing was sent to {}.", f.app);
         let Some(id) = a.input.get(&d.id).filter(|v| !v.is_null()) else {

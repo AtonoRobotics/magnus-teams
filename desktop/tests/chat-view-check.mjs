@@ -51,8 +51,8 @@ const reader = sandbox.teamReader(state, null);
 // One's own message: the same entry, bubble and controls in both.
 const mine = draw(personal, { id: "e1", kind: "message", text: "Hello", at: "t" });
 const mineTeam = draw(team, sandbox.teamEntry(served({ id: "m1", sender: "sam", text: "Hello", thread: null, at: "t" }), reader));
-assert.match(mine, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline">You · at<\/div><div>Hello<\/div><\/div>/, "the personal chat's own message changed");
-assert.match(mineTeam, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline"><span class="team-avatar"[^]*<\/span>You · at<\/div><div>Hello<\/div><\/div>/, "a team message of one's own is not the personal chat's");
+assert.match(mine, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline">You · at<\/div><div class="msg-body"><p>Hello<\/p><\/div><\/div>/, "the personal chat's own message changed");
+assert.match(mineTeam, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline"><span class="team-avatar"[^]*<\/span>You · at<\/div><div class="msg-body"><p>Hello<\/p><\/div><\/div>/, "a team message of one's own is not the personal chat's");
 assert.equal(skeleton(mineTeam.replace(/<span class="team-avatar"[^]*?<\/span>/, "")).replace(/<div class="msg-actions[^]*$/, ""), skeleton(mine).replace(/<div class="msg-actions[^]*$/, ""), "one's own message is drawn two ways");
 
 // Magnus's answer: the same, with the requester named in a team.

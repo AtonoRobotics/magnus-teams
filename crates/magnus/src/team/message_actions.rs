@@ -131,7 +131,7 @@ async fn save(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((w
     {
         return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
-    let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
+    let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone(), coedit: false };
     send(&k, &p, Change::File { workspace: ws.clone(), file }).await?;
     if m.project.is_some() {
         send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name: name.clone(), project: m.project } }).await?;
@@ -147,7 +147,7 @@ async fn retry(State(k): K, Member { person: p, role, .. }: Member<at::Member>, 
     super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.retry, "only who asked asks again")?;
     let asked = m.workspace.chat.asked.get(task).and_then(|a| m.workspace.channels.get(&channel)?.messages.iter().find(|x| &x.id == a && !x.text.is_empty()).cloned());
     let Some(asked) = asked.filter(|a| !m.workspace.chat.unsent.contains(&a.id)) else { return refuse(StatusCode::CONFLICT, "the request is no longer here to ask again") };
-    Ok(post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, crate::say::Pick::default()).await)
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, false, crate::say::Pick::default()).await)
 }
 
 #[cfg(test)]
@@ -164,7 +164,7 @@ mod tests {
         let mut w = Workspace::default();
         assert_eq!(free_name(&w, "plan.md").as_deref(), Some("plan.md"));
         for n in ["plan.md", "plan-2.md"] {
-            w.files.insert(n.into(), File { name: n.into(), size: 1, by: "someone".into() });
+            w.files.insert(n.into(), File { name: n.into(), size: 1, by: "someone".into(), coedit: false });
         }
         assert_eq!(free_name(&w, "plan.md").as_deref(), Some("plan-3.md"));
     }

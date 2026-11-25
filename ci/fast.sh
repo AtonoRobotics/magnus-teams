@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 # day, so a check that mixes a UTC date with a local one fails on most runs,
 # on every machine alike, instead of passing on one and failing on another.
 export TZ=Pacific/Kiritimati
+
 want=v$(tr -d ' \n' < .node-version)
 have=$(node --version 2>/dev/null || echo none)
 if [ "$have" != "$want" ]; then

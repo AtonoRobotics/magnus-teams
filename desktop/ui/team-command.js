@@ -79,8 +79,8 @@ const TeamCommand = {
       if (r.kind === "start") {
         const made = await Server.workspaces.start(ws, { kind: r.what, name: r.name });
         await loadHome(ws);
-        if (made.project) { Team.justMade = made.project; location.hash = teamHref(ws, { kind: "project", id: made.project }); }
-        else location.hash = teamHref(ws, { kind: "channel", id: made.channel });
+        if (made.channel) location.hash = teamHref(ws, { kind: "channel", id: made.channel });
+        else if (made.project) location.hash = teamHref(ws, { kind: "project", id: made.project });
       }
       if (r.kind === "dm") {
         const c = await Server.workspaces.direct(ws, r.agent ? { agent: true } : { people: [r.person] });

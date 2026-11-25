@@ -5,6 +5,7 @@
 //! Everything outside the kernel talks to it through `api`, the adapter
 //! contract (`adapters`), MCP (`apps`), or vsock (`sandbox`).
 
+pub mod a2a;
 pub mod account_change;
 pub mod account_links;
 pub mod account_removal;
@@ -75,6 +76,8 @@ pub mod inbox;
 mod inbox_admit_tests;
 #[cfg(test)]
 mod inbox_typed_tests;
+#[cfg(test)]
+mod inbox_wait_tests;
 pub mod invitations;
 pub mod issuers;
 pub mod kernel;

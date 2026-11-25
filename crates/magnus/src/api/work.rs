@@ -51,6 +51,9 @@ pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crat
     v["sub_agents_active"] = json!(sub_agents_active);
     v["receipts_count"] = json!(receipts_count);
     v["verified"] = json!(receipts_count > 0);
+    v["actions"] = json!(r.actions);
+    v["recent_steps"] = json!(crate::evidence::recent_steps(r, crate::evidence::RECENT_STEPS_COUNT));
+    v["routine"] = json!(crate::outcomes::routine(s, t, r));
     // Another person's projects and conversations are theirs alone: the
     // owner sees that a task came from a chat, not what was said in it.
     v["project"] = if mine { crate::library::project_ref(s, &t.task_id) } else { Value::Null };
@@ -366,6 +369,9 @@ pub(crate) fn timeline_of(run: &Run, redact_private: bool) -> Value {
 }
 
 pub(super) async fn resume(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    // Under the lock cards are answered under: an answer to the card the
+    // run stopped on sees it resumed, and resumes or extends nothing more.
+    let _decide = k.decide.lock().await;
     let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     if run.status != Status::Suspended {
         return refuse(StatusCode::CONFLICT, "the task is not paused");
@@ -479,7 +485,8 @@ pub(super) async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
         let mut observations: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         for t in s.tasks.values().filter(|t| visible_task(&p, t) && s.listed(t) && !t.review && !t.poll) {
             if let Some(r) = s.runs.get(&t.run_id) {
-                if matches!(r.status, Status::Completed | Status::Failed) {
+                // A schedule's routine run is not news on coming back.
+                if matches!(r.status, Status::Completed | Status::Failed) && !crate::outcomes::routine(s, t, r) {
                     if let Some(ended_at) = r.ended_at.filter(|e| *e > since) {
                         ended.push((ended_at, task_row(&k, s, &p, t, r, &words)));
                     }
@@ -726,7 +733,12 @@ pub(super) async fn edit_schedule(State(k): K, Caller(p): Caller, Path(id): Path
     Ok(controlled(k.edit_schedule(&p, &id, &b, None).await))
 }
 
-/// Cancel: no more runs, and one still going stops.
+/// Stop: no more runs, and one still going stops; the schedule stays, ended.
+pub(super) async fn stop_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(controlled(k.stop_schedule(&p, &id).await))
+}
+
+/// Delete: the schedule is gone, and a run of it still going stops.
 pub(super) async fn remove_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
     // The report goes back with the status: what each stopped run had
     // done, and how many actually stopped (#263).

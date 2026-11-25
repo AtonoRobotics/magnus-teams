@@ -10,6 +10,8 @@ pub const KINDS: &[&str] = &[
     "list",
     "table",
     "stat",
+    "callout",
+    "sources",
     "bar_chart",
     "line_chart",
     "map",
@@ -29,7 +31,7 @@ pub const KINDS: &[&str] = &[
 /// What a chat answer may show beside its text: only components that carry
 /// what prose cannot. Headings, paragraphs and lists belong in the answer
 /// itself, and a chat turn delivers no files to show.
-pub const SHOWN: &[&str] = &["table", "stat", "bar_chart", "line_chart", "map", "timeline", "comparison", "code"];
+pub const SHOWN: &[&str] = &["table", "stat", "callout", "sources", "bar_chart", "line_chart", "map", "timeline", "comparison", "code"];
 
 const MAX_COMPONENTS: usize = 40;
 pub const MAX_TEXT: usize = 4000;
@@ -179,6 +181,22 @@ pub fn validate(view: &Value, files: &[String]) -> Result<(), String> {
                     return Err(format!("{at}.value must be a string or a number"));
                 }
             }
+            "callout" => {
+                text(&c["text"], &format!("{at}.text"))?;
+            }
+            "sources" => {
+                for (i, item) in objects(&c["items"], &format!("{at}.items"), MAX_ITEMS)?.iter().enumerate() {
+                    if item["title"].is_null() && item["url"].is_null() {
+                        return Err(format!("{at}.items[{i}] needs a title or url"));
+                    }
+                    if !item["title"].is_null() {
+                        text(&item["title"], &format!("{at}.items[{i}].title"))?;
+                    }
+                    if !item["url"].is_null() {
+                        text(&item["url"], &format!("{at}.items[{i}].url"))?;
+                    }
+                }
+            }
             "bar_chart" => {
                 let n = strings(&c["labels"], &format!("{at}.labels"), MAX_POINTS)?;
                 numbers(&c["values"], &format!("{at}.values"), n)?;
@@ -306,5 +324,17 @@ mod tests {
         assert_eq!(why(cmp), "", "best -1 means no best");
         assert_eq!(why(json!({ "type": "table", "columns": ["", "Q1"], "rows": [["Revenue", 1]] })), "", "a header over row labels may be empty");
         assert!(why(json!({ "type": "table", "columns": [], "rows": [] })).contains("columns needs 1 to"));
+    }
+
+    #[test]
+    fn callout_and_sources_validate() {
+        assert!(validate_shown(&json!([
+            { "type": "stat", "label": "ARR", "value": 41.7, "unit": "M", "delta": "+18%" },
+            { "type": "callout", "tone": "tip", "title": "Takeaway", "text": "Ship it." },
+            { "type": "sources", "title": "Refs", "items": [{ "title": "Deck", "url": "https://example.com" }] }
+        ]))
+        .is_ok());
+        assert!(why(json!({ "type": "callout", "text": "" })).contains("text is empty"));
+        assert!(why(json!({ "type": "sources", "items": [{}] })).contains("needs a title or url"));
     }
 }

@@ -39,7 +39,6 @@
 const AuroraStage = (() => {
   const FILES_FRESH_MS = 30_000;
   const RECENT_MS = 60 * 60_000;
-  const DUE_SOON_MS = 24 * 60 * 60_000;
   const MOVE_MS = 460;
   const LEAVE_MS = 320;
   const JUMP_PX = 24;
@@ -108,6 +107,11 @@ const AuroraStage = (() => {
   const age = iso => { const at = Date.parse(iso || ""); return Number.isNaN(at) ? Infinity : Date.now() - at; };
   const latest = list => list.sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""))[0];
   const ATTENTION = ["needs_attention", "needs_more_access", "connecting"];
+  /** What a finished task can show for itself: its actions and the receipts the server checked. @param {any} t */
+  const proofOf = t => [t.actions ? plural(t.actions, "action") : "", t.receipts_count ? `${plural(t.receipts_count, "receipt")} checked` : ""].filter(Boolean).join(" · ");
+  const STEP_MARK = /** @type {Record<string, string>} */ ({ done: "✓", failed: "✕", running: "…", stopped: "–" });
+  /** A card's last actions, newest last, each with how it went. @param {Array<{ doing: string, state: string }>|undefined} steps */
+  const stepsList = steps => (steps && steps.length ? `<ol class="stage-tile-steps">${steps.map(x => `<li data-state="${html(x.state)}"><span aria-hidden="true">${STEP_MARK[x.state] || ""}</span> ${html(x.doing)}</li>`).join("")}</ol>` : "");
 
   /** Read live sub-agent rows rendered in the active thread so the composed stage displays them too. */
   function threadSubAgents() {
@@ -139,7 +143,9 @@ const AuroraStage = (() => {
    * @returns {Promise<Array<any>>}
    */
   async function boxes() {
-    const tasks = App.tasks || [];
+    // A schedule's routine run (a heartbeat that found nothing, a later
+    // run that finished) is no news: it is in Tasks, not a box here.
+    const tasks = (App.tasks || []).filter(t => !t.routine);
     const here = tasks.filter(t => App.thread && t.thread === App.thread);
     const activeAll = tasks.filter(t => !ended(t)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));
@@ -161,8 +167,9 @@ const AuroraStage = (() => {
         href: `#/task/${enc(run.task_id)}`,
         title: named(run),
         desc: `${waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…"}${subNote}${tally}`,
+        steps: run.recent_steps,
         pct: pctOf(run),
-        steps: planUnitsOf(run),
+        planSteps: planUnitsOf(run),
         subAgents: liveSubs,
         canStop: true,
         count: activeAll.length > 1 ? activeAll.length : 0,
@@ -187,7 +194,9 @@ const AuroraStage = (() => {
         open: `task:${last.task_id}`,
         href: `#/task/${enc(last.task_id)}`,
         title: named(last),
-        desc: last.summary || (last.status === "completed" ? "Done" : "Stopped"),
+        desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped"),
+        steps: last.recent_steps,
+        proof: proofOf(last),
         verified: !!(last.verified || last.receipts_count > 0 || last.has_deliverable),
         updatedAt: tsOf(last.ended_at || last.created_at),
       });
@@ -207,8 +216,9 @@ const AuroraStage = (() => {
         href: `#/task/${enc(other.task_id)}`,
         title: named(other),
         desc: `${waits(other) ? "Waiting on you to decide" : other.status_line || (step && step.goal) || "Running in background…"}${subNote}`,
+        steps: other.recent_steps,
         pct: pctOf(other),
-        steps: planUnitsOf(other),
+        planSteps: planUnitsOf(other),
         canStop: true,
         updatedAt: tsOf(other.updated_at || other.created_at),
       });
@@ -258,8 +268,7 @@ const AuroraStage = (() => {
       const svg = typeof UI !== "undefined" && UI.computer ? `<svg class="ic" viewBox="0 0 24 24">${UI.computer}</svg>` : "";
       list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: "Cloud Computer", desc: w.pill, updatedAt: tsOf(comp.updated_at) });
     }
-    const due = (App.schedules || []).filter(sc => !sc.ended && !sc.paused && sc.next && -age(sc.next) < DUE_SOON_MS).sort((a, b) => String(a.next).localeCompare(String(b.next)));
-    if (due.length) list.push({ key: "next", label: "Up Next", icon: "calendar", tone: "idle", open: `schedule:${due[0].id}`, href: "#/schedules", title: due[0].title, desc: `${until(due[0].next)}${due.length > 1 ? ` · ${due.length - 1} more today` : ""}`, updatedAt: tsOf(due[0].next) });
+    // What is scheduled next is in Schedules: a run hours away is not something to look at now.
     const fresh = (await recentFiles()).filter(f => age(f.at) < RECENT_MS);
     if (fresh.length) list.push({ key: "files", label: "Files", icon: "file", tone: "done", open: `file:${fresh[0].id}`, href: "#/files", title: fresh[0].name, desc: fresh.length > 1 ? `${plural(fresh.length, "new file")} · ${when(fresh[0].at)}` : `New · ${when(fresh[0].at)}`, updatedAt: tsOf(fresh[0].at) });
     const connectors = (typeof Lib !== "undefined" && Array.isArray(Lib.all) ? Lib.all : App.connectors) || [];
@@ -271,7 +280,7 @@ const AuroraStage = (() => {
       if (said.length) list.push({ key: "away", label: "Since you were away", icon: "clock", tone: "idle", open: "activity", href: "#/activity", title: said.join(" · "), desc: "See what happened", updatedAt: 0 });
     }
     const elsewhere = latest(tasks.filter(t => t.thread !== App.thread && ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
-    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, verified: !!(elsewhere.verified || elsewhere.receipts_count > 0), updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
+    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, steps: elsewhere.recent_steps, proof: proofOf(elsewhere), verified: !!(elsewhere.verified || elsewhere.receipts_count > 0), updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
     // Record live content updates first so dynamic recency sorting immediately promotes changed boxes.
     if (typeof AuroraBoxes.noteChanges === "function") AuroraBoxes.noteChanges(list, Date.now());
     const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" ? 1 : c.tone === "talk" ? 2 : c.tone === "done" ? 3 : 4);
@@ -309,8 +318,8 @@ const AuroraStage = (() => {
     const close = c.said ? "" : `<button type="button" class="stage-tile-close" aria-label="Close ${html(c.label)}" title="Close">${icon("close")}</button>`;
     const verifiedPill = c.verified ? `<span class="aurora-verified-pill">✓ Verified</span>` : "";
     const bar = typeof c.pct === "number" ? `<div class="stage-tile-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${c.pct}"><span style="width:${c.pct}%"></span></div>` : "";
-    const stepsHtml = Array.isArray(c.steps) && c.steps.length
-      ? `<ul class="stage-plan-steps">${c.steps.map(u => `<li data-step="${html(u.status)}"><span class="stage-step-dot" aria-hidden="true"></span><span>${html(u.goal)}</span></li>`).join("")}</ul>`
+    const planStepsHtml = Array.isArray(c.planSteps) && c.planSteps.length
+      ? `<ul class="stage-plan-steps">${c.planSteps.map(u => `<li data-step="${html(u.status)}"><span class="stage-step-dot" aria-hidden="true"></span><span>${html(u.goal)}</span></li>`).join("")}</ul>`
       : "";
     const subsHtml = Array.isArray(c.subAgents) && c.subAgents.length
       ? `<div class="stage-sub-list">${c.subAgents.map(s => `<span class="stage-sub-pill" data-status="${html(s.status)}"><span class="stage-step-dot" aria-hidden="true"></span><strong>${html(s.goal)}</strong>${s.sub ? `<span class="muted"> · ${html(s.sub)}</span>` : ""}</span>`).join("")}</div>`
@@ -318,7 +327,7 @@ const AuroraStage = (() => {
     const previewHtml = (Array.isArray(c.previewRows) && c.previewRows.length) || c.previewBody
       ? `<div class="stage-tile-preview">${c.previewRows?.length ? c.previewRows.map(([k, v]) => `<div class="stage-preview-row"><span class="stage-preview-key">${html(k)}</span><span class="stage-preview-val">${html(v)}</span></div>`).join("") : ""}${c.previewBody ? `<p class="stage-preview-body">${html(c.previewBody)}</p>` : ""}${c.consequence ? `<p class="stage-preview-note">${html(c.consequence)}</p>` : ""}</div>`
       : "";
-    const descHtml = c.desc && !previewHtml ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : "";
+    const descHtml = `${c.desc && !previewHtml ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : ""}${stepsList(c.steps)}${c.proof ? `<span class="stage-tile-proof">${html(c.proof)} · see what it did</span>` : ""}`;
     const actsHtml = c.canStop && c.taskId
       ? `<div class="stage-tile-acts"><a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Details →</a><button type="button" class="stage-tile-stop" data-stage-stop="${html(c.taskId)}">Stop</button></div>`
       : c.answers
@@ -326,7 +335,7 @@ const AuroraStage = (() => {
         : "";
     const foot = c.said
       ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
-      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${stepsHtml}${subsHtml}${actsHtml}`;
+      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${planStepsHtml}${subsHtml}${actsHtml}`;
     return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${verifiedPill}${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
       ${title}
       ${foot}`;
@@ -510,18 +519,19 @@ const AuroraStage = (() => {
       if (n && !n.href) e.preventDefault();
       refresh();
     }
-    // A box answered keeps its place and says the answer, then goes.
-    const btn = t.closest?.(".stage-tile .ask-answers button[data-decision]");
-    const tile = btn?.closest(".stage-tile");
-    if (!btn || !(tile instanceof HTMLElement) || !on()) return;
-    const decision = (/** @type {HTMLElement} */ (btn).dataset.decision || "").split(":")[0];
-    if (decision === "ask-more") return;
+  });
+  // A box answered keeps its place and says the answer, then goes: once the
+  // server took it (app.js tells "magnus:answered"), never at the tap.
+  document.addEventListener("magnus:answered", e => {
+    const { item, decision, button } = /** @type {CustomEvent<{ item: string, decision: string, button?: HTMLElement }>} */ (e).detail || {};
+    const from = button?.closest?.(".stage-tile");
+    if (!item || !decision || decision === "ask-more" || !(from instanceof HTMLElement) || !on()) return;
+    const tile = from.isConnected ? from : document.querySelector(`.stage-tile[data-tile="${CSS.escape(from.dataset.tile || "")}"]:not(.stage-tile-leaving)`);
     const said = typeof AuroraAlerts !== "undefined" ? AuroraAlerts.said(decision) : "Done";
-    const id = /** @type {HTMLElement} */ (btn).dataset.item || "";
-    held = { box: { key: tile.dataset.tile, item: id, label: "Needs your decision", icon: "need", href: "#/inbox", tone: "done", open: `item:${id}`, title: tile.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
-    const row = tile.querySelector(".stage-tile-acts-row, .ask-answers");
+    held = { box: { key: from.dataset.tile, item, label: "Needs your decision", icon: "need", href: "#/inbox", tone: "done", open: `item:${item}`, title: from.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
+    const row = tile?.querySelector(".stage-tile-acts-row, .ask-answers");
     if (row) row.outerHTML = `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(said)}</span></div>`;
-    tile.dataset.tone = "done";
+    if (tile instanceof HTMLElement) tile.dataset.tone = "done";
     setTimeout(refresh, ANSWER_SHOWN_MS + 20);
   });
 
@@ -865,6 +875,6 @@ const AuroraStage = (() => {
     refresh();
   });
 
-  return { on, refresh, boxes, shell, settle, closed, stream, takes, notes, offered };
+  return { on, refresh, boxes, shell, settle, closed, stream, takes, notes };
 })();
 globalThis.AuroraStage = AuroraStage;

@@ -296,8 +296,8 @@ impl Kernel {
     }
 
     /// The person who started the thread answers a card: accept (one
-    /// action, which grants the work it describes), later ("Not now"), or
-    /// decline with their reason. An accepted schedule acts for them (K54),
+    /// action, which grants the work it describes), later ("Not now", which
+    /// keeps it to answer again), or decline with their reason. An accepted schedule acts for them (K54),
     /// within the server's per-task budget, and its runs start with the
     /// taint the turn had; an accepted suggestion without timing starts a
     /// task for them as `create_task` would. A task proposal recorded before
@@ -323,8 +323,13 @@ impl Kernel {
             (false, "dismiss") => "decline",
             (false, d) => d,
         };
-        if self.read(|s| s.arrangements.cards().contains_key(card)) {
-            return Ok(Err(CardRefusal::Decided));
+        // A card put off ("Not now") is kept, to be accepted or declined
+        // later (owner, 2026-11-23); one answered any other way is decided.
+        let put_off = |s: &crate::state::State| s.arrangements.cards().get(card).map(|c| matches!(c.answer, crate::state::Answer::Later));
+        match self.read(put_off) {
+            None => {}
+            Some(true) if decision != "later" => {}
+            Some(_) => return Ok(Err(CardRefusal::Decided)),
         }
         // The card's words are the model's, carrying the turn's taint; a
         // title the person wrote is theirs.
@@ -480,6 +485,9 @@ pub(crate) fn recent_runs(s: &crate::state::State, person: &str, except: Option<
     }
     out
 }
+
+#[cfg(test)]
+mod later_tests;
 
 #[cfg(test)]
 mod tests {

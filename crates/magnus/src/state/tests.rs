@@ -175,3 +175,47 @@ fn erasure_drops_baselines_and_home_and_opened_marks() {
     assert!(!s.inbox.items_opened().contains_key("i1"), "the erased opened mark stayed");
     assert!(!s.inbox.items_resolved_at().contains_key("i1"), "the erased resolved mark stayed");
 }
+
+/// A run's end closes the cards it waited on to go on (its ask, its
+/// question, the notice it stopped on), on replay as live; its outputs
+/// stay. An answer recorded after changes none of them: the first stands.
+#[test]
+fn a_runs_end_closes_the_cards_it_waited_on() {
+    let mut s = State::default();
+    let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
+    s.apply(&ev(1, "person:alice", json!({ "kind": "task_created", "task": "t1", "run": "r1", "person": "alice", "text": "Say hi.", "config": config })));
+    let card = |seq, id: &str, kind: &str| {
+        ev(
+            seq,
+            "kernel",
+            json!({ "kind": "item", "id": id, "item_kind": kind, "task": "t1", "run": "r1", "person": "alice", "summary": "Card", "details": { "reason": "budget" } }),
+        )
+    };
+    s.apply(&card(2, "a1", "approval"));
+    s.apply(&card(3, "q1", "question"));
+    s.apply(&card(4, "n1", "notice"));
+    s.apply(&card(5, "s1", "suggestion"));
+    s.apply(&ev(6, "kernel", json!({ "kind": "suspended", "run": "r1", "reason": "budget", "item": "n1" })));
+    s.apply(&ev(7, "person:alice", json!({ "kind": "cancelled", "run": "r1" })));
+    for id in ["a1", "q1", "n1"] {
+        let r = s.inbox.items()[id].resolution.clone();
+        assert_eq!(r.as_ref().map(|r| (r.0.as_str(), r.2.as_deref())), Some(("superseded", Some(super::inbox::RUN_ENDED_TEXT))), "{id} stayed open after its run ended");
+    }
+    assert!(s.inbox.items()["s1"].resolution.is_none(), "a run's suggestion went with its end");
+    s.apply(&ev(8, "person:alice", json!({ "kind": "item_resolved", "id": "a1", "decision": "approve", "scope": "always" })));
+    assert_eq!(s.inbox.items()["a1"].resolution.as_ref().map(|r| r.0.as_str()), Some("superseded"), "an answer after the end reopened the card");
+}
+
+/// The first answer to a card stands: a second resolution, a race its
+/// caller's re-check missed, overwrites nothing.
+#[test]
+fn a_second_resolution_does_not_overwrite_the_first() {
+    let mut s = State::default();
+    s.apply(&ev(1, "kernel", json!({ "kind": "item", "id": "i1", "item_kind": "secure_form", "task": null, "run": null, "person": "alice", "summary": "Sign in", "details": {} })));
+    s.apply(&ev(2, "person:alice", json!({ "kind": "item_resolved", "id": "i1", "decision": "decline" })));
+    let first = s.inbox.items_resolved_at()["i1"];
+    s.apply(&ev(3, "person:alice", json!({ "kind": "item_resolved", "id": "i1", "decision": "filled" })));
+    let r = s.inbox.items()["i1"].resolution.clone().unwrap();
+    assert_eq!((r.0.as_str(), r.3.as_str()), ("decline", "person:alice"), "the second answer overwrote the first");
+    assert_eq!(s.inbox.items_resolved_at()["i1"], first, "the second answer moved when it was decided");
+}

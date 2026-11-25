@@ -15,6 +15,12 @@ const isTeamAdmin = home => teamRank(home.role) >= teamRank("admin");
 /** Whether the viewer is a peer collaborator (any non-guest member). @param {TeamHome} home */
 const canCollaborate = home => home.role !== "guest";
 
+/** Each shared project's last invite outcome. It carries the link a person
+ * may have to send themselves, so it is drawn with the panel: the panel is
+ * redrawn after an invite and on every refresh, and a note written into the
+ * page alone was wiped before it could be read. @type {Map<string, string>} */
+const inviteNotes = new Map();
+
 /** Label for opening the People & settings view. @param {TeamHome} home */
 const peopleLabel = home => canCollaborate(home) ? "People & invites" : "People";
 
@@ -43,7 +49,7 @@ function teamPeopleHtml(home, candidates, caps = []) {
       <button type="submit" class="primary">Add</button>
     </form>
     ${candList.length ? `<div class="people-chips" data-people-suggestions>${chips}</div>` : ""}
-    <p class="small faint people-status" data-invite-result aria-live="polite"></p>
+    <p class="small faint people-status" data-invite-result aria-live="polite">${esc(inviteNotes.get(home.id) || "")}</p>
   </div>` : `<p class="small faint">Guests can view who is in this shared project.</p>`;
 
   const row = m => {
@@ -127,6 +133,7 @@ function wirePeopleSettings(root, ws, home, candidates, onReload) {
           notes.push(inviteOutcome(email, r));
         }
         if (field) field.value = "";
+        inviteNotes.set(ctx.ws, notes.join(" "));
         await ctx.onReload();
         const afterRes = $("[data-invite-result]", root);
         if (afterRes) afterRes.textContent = notes.join(" ");
@@ -167,8 +174,9 @@ function wirePeopleSettings(root, ws, home, candidates, onReload) {
         const r = await Server.workspaces.invite(ctx.ws);
         const link = serverLink(r);
         try { await navigator.clipboard.writeText(link); toast("Invite link copied. It works for a week."); } catch { /* clipboard unavailable */ }
+        inviteNotes.set(ctx.ws, `Invite link (valid 7 days): ${link}`);
         const res = $("[data-invite-result]", root);
-        if (res) res.textContent = `Invite link (valid 7 days): ${link}`;
+        if (res) res.textContent = inviteNotes.get(ctx.ws) || "";
       } catch (err) { toast(err.message); }
       return;
     }
@@ -209,11 +217,18 @@ function leftWorkspaceQuietly(ws) {
   location.hash = "#/teams";
 }
 
-/** Delete it, once its name is typed: only its creator may. */
+/** Delete a shared project: simple confirm when solo, typed name only when other collaborators are in it. */
 async function deleteWorkspace(home) {
-  if (!(await askTyped(`Delete ${home.name} for everyone? Its shared conversations, tasks, files, and knowledge go, and this cannot be undone.`, home.name, "Delete project"))) return;
+  const others = (home.members?.length || 1) > 1;
+  const ok = others
+    ? await askTyped(`Delete ${home.name} for everyone? Its shared conversations, tasks, files, and knowledge go, and this cannot be undone.`, home.name, "Delete project")
+    : await ask(`Delete ${home.name}? Its conversations and files will be permanently deleted. Your personal space is untouched.`, "Delete project");
+  if (!ok) return;
   try {
     await Server.workspaces.remove(home.id);
+    if (typeof App !== "undefined" && Array.isArray(App.workspaces)) {
+      App.workspaces = App.workspaces.filter(w => w.id !== home.id);
+    }
     leftWorkspaceQuietly(home.id);
     toast(`${home.name} was deleted.`);
   } catch (err) { if (!err.cancelled) toast(err.body?.message || err.message); }

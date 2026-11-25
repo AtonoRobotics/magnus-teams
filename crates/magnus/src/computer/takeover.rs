@@ -287,6 +287,9 @@ impl Kernel {
             }
         };
         let frame = screenshot(&socket, id).await.ok();
+        // The cards it answers are decided as any card is: under the one
+        // lock, from what is still open and waiting now.
+        let _decide = self.decide.lock().await;
         let runs: Vec<(String, u32)> = self.read(|s| {
             runs_on(s, &c.owner)
                 .filter(|r| r.status == crate::state::Status::Suspended && matches!(r.reason.as_deref(), Some("takeover" | super::driving::REQUEST_REASON)))

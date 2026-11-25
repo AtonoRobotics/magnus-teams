@@ -3,7 +3,8 @@
 //! No contract, criteria list or plan is required before the agent acts or
 //! reports. The server already records every tool call and boundary action,
 //! so the evidence a result carries is a byproduct of the work:
-//! - receipts: what was done, in terms the boundary log proves (`receipts`);
+//! - receipts: what was done, in terms the boundary log proves (`receipts`),
+//!   and where, as the gate read it (`Change::Destinations`);
 //! - read-backs: after each irreversible action the server reads the world
 //!   back and keeps what it found (`read_back.rs`, `Change::ReadBack`);
 //! - sources: each claim in a result links to the call it came from
@@ -51,12 +52,22 @@ pub enum Change {
         #[serde(default)]
         sources: Vec<Source>,
     },
+    /// Where the gate read an action goes, before it ran
+    /// (`Kernel::destinations_of`): a draft's recipients as the gate read
+    /// them, never an address the model wrote in a body. Its receipt names
+    /// these.
+    Destinations {
+        run: String,
+        call_id: String,
+        #[serde(default)]
+        to: Vec<String>,
+    },
 }
 
 impl Change {
     pub fn run(&self) -> &str {
         match self {
-            Change::ReadBack { run, .. } | Change::Sources { run, .. } => run,
+            Change::ReadBack { run, .. } | Change::Sources { run, .. } | Change::Destinations { run, .. } => run,
         }
     }
 }
@@ -78,18 +89,21 @@ pub struct ReadBack {
     pub at: DateTime<Utc>,
 }
 
-/// Each run's read-backs and cited sources.
+/// Each run's read-backs, cited sources and where its actions went.
 #[derive(Default, Clone, Debug)]
 pub struct Ledger {
     read_backs: HashMap<String, Vec<ReadBack>>,
     sources: HashMap<String, Vec<Source>>,
+    destinations: HashMap<String, HashMap<String, Vec<String>>>,
 }
 
-/// Their runs' read-backs and sources, which hold what was found.
+/// Their runs' read-backs, sources and destinations, which hold what was
+/// found and who it went to.
 impl crate::forget::Forget for Ledger {
     fn forget(&mut self, who: &crate::forget::Erased) {
         self.read_backs.retain(|run, _| !who.runs.contains(run));
         self.sources.retain(|run, _| !who.runs.contains(run));
+        self.destinations.retain(|run, _| !who.runs.contains(run));
     }
 }
 
@@ -108,6 +122,9 @@ impl Ledger {
             Change::Sources { run, sources } => {
                 self.sources.insert(run.clone(), sources.clone());
             }
+            Change::Destinations { run, call_id, to } => {
+                self.destinations.entry(run.clone()).or_default().insert(call_id.clone(), to.clone());
+            }
         }
     }
 
@@ -118,26 +135,31 @@ impl Ledger {
     pub fn sources(&self, run: &str) -> &[Source] {
         self.sources.get(run).map_or(&[], Vec::as_slice)
     }
+
+    /// Where the gate read an action goes; none when it recorded nothing.
+    pub fn destinations(&self, run: &str, call_id: &str) -> &[String] {
+        self.destinations.get(run).and_then(|d| d.get(call_id)).map_or(&[], Vec::as_slice)
+    }
 }
 
 /// A tool's app and risk class, as the boundary knows it.
 pub type Class<'a> = &'a dyn Fn(&str) -> Option<(String, Risk)>;
 
 /// What a run did, in terms the boundary log proves: each action the model
-/// asked for that changes something and went through, with where it went
-/// and what the server read back after it. Nothing here rests on the
-/// agent's word. What was refused or failed is the result's "not done".
+/// asked for that changes something and went through, with where the gate
+/// read it goes (`Change::Destinations`) and what the server read back
+/// after it. Nothing here rests on the agent's word, its input included. What was refused or failed is the result's "not done".
 pub fn receipts(s: &State, run: &Run, class: Class) -> Vec<Value> {
     let mut done: Vec<&crate::state::Intent> =
         run.intents.values().filter(|i| i.issuer == "model" && changes(class, &i.tool)).filter(|i| i.result.as_ref().is_some_and(|r| !r.is_error && r.status == "done")).collect();
     done.sort_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)));
     done.into_iter()
         .map(|i| {
-            let dests = destinations_of(&i.input);
+            let dests = s.evidence.destinations(&run.id, &i.call_id).to_vec();
             let read_back = s.evidence.read_backs(&run.id).iter().find(|r| r.call_id == i.call_id).cloned();
             let risk = class(&i.tool).map(|(_, r)| r).unwrap_or(Risk::ReversibleWrite);
             let reversible = risk == Risk::ReversibleWrite;
-            json!({
+            let mut r = json!({
                 "call_id": i.call_id,
                 "tool": i.tool,
                 "what": what(class, &i.tool, &dests),
@@ -146,7 +168,13 @@ pub fn receipts(s: &State, run: &Run, class: Class) -> Vec<Value> {
                 "read_back": read_back,
                 "risk": risk.as_str(),
                 "reversible": reversible,
-            })
+            });
+            // A quote or invoice sent from a co-edited file names the version that went.
+            let versions = crate::team::coedit::versions_sent(run, i);
+            if !versions.is_empty() {
+                r["versions"] = json!(versions);
+            }
+            r
         })
         .collect()
 }
@@ -187,17 +215,6 @@ fn what(class: Class, tool: &str, dests: &[String]) -> String {
     let said = said.strip_prefix("Magnus wants to ").unwrap_or(&said).trim_end_matches('.');
     let mut c = said.chars();
     c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
-}
-
-/// The addresses an action names, as its card would.
-fn destinations_of(input: &Value) -> Vec<String> {
-    let mut d: Vec<String> = crate::tools::addresses_in(&input.to_string()).into_iter().collect();
-    if let Some(host) = input["url"].as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.host_str().map(str::to_lowercase)) {
-        d.push(host);
-    }
-    d.sort();
-    d.dedup();
-    d
 }
 
 /// The sources a result cites, checked against the record: each names a
@@ -258,6 +275,33 @@ pub fn status_line(run: &Run) -> Option<String> {
     }
     let last = run.intents.values().filter(|i| i.issuer == "model").max_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)))?;
     Some(doing(&last.tool))
+}
+
+/// Steps a task's card lists: its last few actions.
+pub const RECENT_STEPS_COUNT: usize = 4;
+
+/// What a task did last, newest last, as its card lists it while it works
+/// and once it is done: each action's plain words (`doing_words`, from the
+/// tool's name only, so no content a page or message wrote reaches the
+/// card) and whether it finished, failed or is still going. Run records
+/// (a plan, a note) are not actions and are left out.
+pub fn recent_steps(run: &Run, count: usize) -> Vec<Value> {
+    let mut acts: Vec<_> = run.intents.values().filter(|i| i.issuer == "model" && !crate::tool_registry::is_record(&i.tool)).collect();
+    acts.sort_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)));
+    let skip = acts.len().saturating_sub(count);
+    acts.into_iter()
+        .skip(skip)
+        .map(|i| {
+            let result = i.result.as_ref().or_else(|| run.results.get(&i.call_id));
+            let state = match result {
+                Some(r) if r.is_error => "failed",
+                Some(_) => "done",
+                None if run.status.terminal() => "stopped",
+                None => "running",
+            };
+            json!({ "doing": doing(&i.tool), "state": state, "at": i.at })
+        })
+        .collect()
 }
 
 /// Lightweight count of confirmed read-backs / cited sources recorded for

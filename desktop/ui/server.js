@@ -224,8 +224,10 @@ const Server = (() => {
       edit: (/** @type {Id} */ id, /** @type {any} */ body) => patch(`/v1/schedules/${enc(id)}`, body),
       /** Fires a schedule immediately on demand, or previews when `{ dry_run: true }`. */
       run: (/** @type {Id} */ id, /** @type {any} */ body = {}) => post(`/v1/schedules/${enc(id)}/run`, body),
-      /** Stops a schedule that is running; deletes one that has ended. */
+      /** Deletes a schedule: it is gone, and a run of it still going stops. */
       remove: (/** @type {Id} */ id) => del(`/v1/schedules/${enc(id)}`),
+      /** Stops a schedule: no more runs, and a run still going stops; it stays, ended. */
+      stop: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/stop`),
       resume: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/resume`),
       pause: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/pause`),
     },
@@ -269,6 +271,16 @@ const Server = (() => {
       completeSignIn: (name, body) => post(`/v1/connectors/${enc(name)}/sign-in/complete`, body),
       terms: (/** @type {string} */ name) => get(`/v1/connectors/${enc(name)}/terms`),
       consent: (/** @type {string} */ name, /** @type {string} */ terms) => post(`/v1/connectors/${enc(name)}/consent`, { terms }),
+    },
+
+    /** Outside agents the person connected (another organisation's agents), beside their apps. */
+    outsideAgents: {
+      list: () => get("/v1/outside-agents"),
+      /** Connect one by its agent card's address, with the credential its card asks for. @param {{card_url: string, credential?: string, client_id?: string, client_secret?: string}} body */
+      connect: body => post("/v1/outside-agents", body),
+      /** Let it ask the person, or a shared project as a guest. @param {Id} id @param {{person: string}|{project: string}} to */
+      admit: (id, to) => post(`/v1/outside-agents/${enc(id)}/admit`, { to }),
+      disconnect: (/** @type {Id} */ id) => del(`/v1/outside-agents/${enc(id)}`),
     },
 
     account: {
@@ -396,7 +408,17 @@ const Server = (() => {
       updateTask: (/** @type {Id} */ w, /** @type {Id} */ id, /** @type {any} */ body) => put(`${ws(w)}/tasks/${enc(id)}`, body),
       removeTask: (/** @type {Id} */ w, /** @type {Id} */ id) => del(`${ws(w)}/tasks/${enc(id)}`),
       setProjectMembers: (/** @type {Id} */ w, /** @type {Id} */ project, /** @type {Id[]} */ members) => put(`${ws(w)}/projects/${enc(project)}`, { members }),
+      removeProject: (/** @type {Id} */ w, /** @type {Id} */ project) => del(`${ws(w)}/projects/${enc(project)}`),
       removeFile: (/** @type {Id} */ w, /** @type {Id} */ file) => del(`${ws(w)}/files/${enc(file)}`),
+      // A co-edited file (coedit.js): its history, a check-out, a revert, and this person's open changes.
+      coedit: (/** @type {Id} */ w, /** @type {string} */ name) => get(`${ws(w)}/coedit/${enc(name)}`),
+      checkOut: (/** @type {Id} */ w, /** @type {string} */ name) => post(`${ws(w)}/coedit/${enc(name)}/checkout`),
+      checkIn: (/** @type {Id} */ w, /** @type {string} */ name) => post(`${ws(w)}/coedit/${enc(name)}/checkin`),
+      revert: (/** @type {Id} */ w, /** @type {string} */ name, /** @type {number} */ to) => post(`${ws(w)}/coedit/${enc(name)}/revert`, { to }),
+      coeditChanges: (/** @type {Id} */ w) => get(`${ws(w)}/coedit-changes`),
+      /** @param {Id} w @param {Id} id @param {Record<string, CoeditKeep>} choices */
+      landChange: (w, id, choices) => post(`${ws(w)}/coedit-changes/${enc(id)}/land`, { choices }),
+      discardChange: (/** @type {Id} */ w, /** @type {Id} */ id) => post(`${ws(w)}/coedit-changes/${enc(id)}/discard`),
       knowledge: (/** @type {Id} */ w, /** @type {Id} */ project) => get(`${ws(w)}/knowledge${query({ project })}`),
       /** @param {Id} w @param {{statement: string, kind?: string, project?: Id}} body */
       addKnowledge: (w, body) => post(`${ws(w)}/knowledge`, body),

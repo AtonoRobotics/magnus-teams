@@ -57,10 +57,15 @@ const AuroraBoxes = (() => {
     touched.clear();
   }
 
-  /** Identity + state signature used for close persistence. @param {{ key: string, tone: string, title: string, count?: number }} c */
-  const sign = c => `${c.key}|${c.tone}|${c.title}${c.count ? `|${c.count}` : ""}`;
-  /** Full content signature including live description, used for recency tracking and resurfacing. @param {{ key: string, tone: string, title: string, desc?: string, count?: number }} c */
-  const contentSign = c => `${sign(c)}|${c.desc || ""}`;
+  /**
+   * Identity + state signature used for close persistence. A decision's box
+   * is known by its decision alone: how many others wait is not part of it,
+   * or a closed one would come back when that changed.
+   * @param {{ key: string, tone: string, title: string, count?: number }} c
+   */
+  const sign = c => `${c.key}|${c.tone}|${c.title}${c.count && !c.key.startsWith("approval:") ? `|${c.count}` : ""}`;
+  /** Full content signature including live description and the last steps, used for recency tracking and resurfacing. @param {{ key: string, tone: string, title: string, desc?: string, count?: number, steps?: Array<{ doing: string, state: string }> }} c */
+  const contentSign = c => `${sign(c)}|${c.desc || ""}|${(c.steps || []).map(x => `${x.doing}:${x.state}`).join(",")}`;
   /** Whether a box wants attention or is actively running, and so stays visible. @param {{ tone: string, said?: string }} c */
   const stays = c => c.tone === "needs" || c.tone === "talk" || c.tone === "run" || !!c.said;
 

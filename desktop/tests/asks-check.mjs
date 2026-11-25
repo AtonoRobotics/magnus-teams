@@ -56,6 +56,10 @@ for (const gone of ["Why you are asked", "Approve once", "Approve for an hour", 
   assert.ok(!app.includes(gone), `app.js still has ${gone}`);
 }
 assert.match(ui("index.html"), /<script src="asks\.js"><\/script>/, "the page does not load asks.js");
-const spendCard = sandbox.askCard({ ...item(["allow", "dont_allow"], "once"), tier: "financial", details: { input: { supplier: "Apex", amount: 418 } } }, true);
-assert.match(spendCard, /Spend guardrail:.*\$418.*Vault-only credentials/);
+// No cap is claimed that the server does not enforce: an amount in the
+// model's input is no guardrail (2026-11-23).
+for (const input of [{ supplier: "Apex", amount: 418 }, { deal: "Acme", total: 50000 }, { max_usd: 5 }]) {
+  const spendCard = sandbox.askCard({ ...item(["allow", "dont_allow"], "once"), tier: "financial", details: { input } }, true);
+  assert.doesNotMatch(spendCard, /Spend guardrail|Capped at|Vault-only credentials|data-spend-guardrail/, `a guardrail line for ${JSON.stringify(input)}`);
+}
 console.log("asks card ok");

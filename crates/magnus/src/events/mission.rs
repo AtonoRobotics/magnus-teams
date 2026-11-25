@@ -67,6 +67,10 @@ pub enum TeamMissionEvent {
         /// after a restart posts where the request was made.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<String>,
+        /// The routine this lane fires for: background work that asks no
+        /// one (`State::background_asks`). Recorded before its run wakes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        routine: Option<String>,
     },
     LaneDraftReady {
         workspace: String,
@@ -77,6 +81,11 @@ pub enum TeamMissionEvent {
         draft: String,
         #[serde(default)]
         scrub_flagged: bool,
+        /// Why a lane that would have posted itself waits for its owner
+        /// instead: a check held it (`team::lane_release`). Shown to the
+        /// owner only. Absent from events written before 2026-11-23.
+        #[serde(default)]
+        held_because: Option<String>,
     },
     LaneReleased {
         workspace: String,
@@ -162,6 +171,7 @@ mod tests {
             child_task: None,
             child_run: Some("r".into()),
             thread: None,
+            routine: None,
         });
         let body = serde_json::to_value(&ev).unwrap();
         assert_eq!((body["kind"].as_str(), body["lane_kind"].as_str()), (Some("team_mission"), Some("open_web")), "the lane's kind took the event's: {body}");

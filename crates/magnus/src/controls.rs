@@ -13,6 +13,9 @@ use crate::state::{Run, Schedule, State as Projection, Task};
 use crate::tools::Label;
 use serde_json::{json, Value};
 
+/// Why a schedule its person stopped has ended, as its card shows it.
+pub const STOPPED_BY_PERSON: &str = "you stopped it";
+
 /// Why a control was not done: the person sees "no such" for what is not
 /// theirs, so its existence is not told; a policy denial of what they can
 /// see names the policy, so a narrowing is answerable.
@@ -304,24 +307,48 @@ impl Kernel {
     /// and its last run, which can still be going, goes on (#452).
     pub async fn cancel_schedule(&self, who: &Person, id: &str, turn: Option<&str>) -> Result<Value, Refused> {
         let sc = self.schedule_owned(who, id, "cancel_schedule").await?;
-        let going: Vec<(String, String)> = if sc.ended.is_some() {
-            vec![]
-        } else {
-            self.read(|s| {
-                s.tasks
-                    .values()
-                    .filter(|t| t.schedule.as_deref() == Some(id))
-                    .filter_map(|t| s.runs.get(&t.run_id))
-                    .filter(|r| !r.status.terminal())
-                    .map(|r| (r.task.clone(), r.id.clone()))
-                    .collect()
-            })
-        };
+        let going = if sc.ended.is_some() { vec![] } else { self.schedule_runs_going(id) };
         let (source, turn_ev) = sources(turn);
         self.emit(&format!("person:{}", who.id), Ev::ScheduleRemoved { id: id.into(), source, turn: turn_ev }).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let (stopped, runs) = self.stop_schedule_runs(who, &going, turn).await;
+        Ok(json!({ "cancelled": id, "runs_stopped": stopped, "runs": runs }))
+    }
+
+    /// Stop a schedule: no more runs, and a run of it still going stops,
+    /// but the schedule stays, ended, with its runs, as one that reached
+    /// its end does. Deleting it (`cancel_schedule`) is what removes it
+    /// (owner, 2026-11-23).
+    pub async fn stop_schedule(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let sc = self.schedule_owned(who, id, "cancel_schedule").await?;
+        if sc.ended.is_some() {
+            return Err(Refused::Conflict("the schedule has already ended".into()));
+        }
+        let going = self.schedule_runs_going(id);
+        let ended = Ev::ScheduleEnded { id: id.into(), reason: STOPPED_BY_PERSON.into(), run: None };
+        self.emit(&format!("person:{}", who.id), ended).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let (stopped, runs) = self.stop_schedule_runs(who, &going, None).await;
+        Ok(json!({ "stopped": id, "runs_stopped": stopped, "runs": runs }))
+    }
+
+    /// The (task, run) of each run of a schedule still going.
+    fn schedule_runs_going(&self, id: &str) -> Vec<(String, String)> {
+        self.read(|s| {
+            s.tasks
+                .values()
+                .filter(|t| t.schedule.as_deref() == Some(id))
+                .filter_map(|t| s.runs.get(&t.run_id))
+                .filter(|r| !r.status.terminal())
+                .map(|r| (r.task.clone(), r.id.clone()))
+                .collect()
+        })
+    }
+
+    /// Stop each run of a schedule that was going: how many stopped, and
+    /// what each had done (#263).
+    async fn stop_schedule_runs(&self, who: &Person, going: &[(String, String)], turn: Option<&str>) -> (usize, Vec<Value>) {
         let mut runs = vec![];
         let mut stopped = 0;
-        for (task, run) in &going {
+        for (task, run) in going {
             let (source, turn_ev) = sources(turn);
             // Its sub-agents, which carry no schedule of their own, end with it.
             let actor = format!("person:{}", who.id);
@@ -333,7 +360,7 @@ impl Kernel {
                 }
             }
         }
-        Ok(json!({ "cancelled": id, "runs_stopped": stopped, "runs": runs }))
+        (stopped, runs)
     }
 
     /// Change when a schedule runs and when it ends. What each run does
@@ -472,6 +499,9 @@ fn report_class(result: Option<&crate::state::ResultRec>) -> ReportClass {
 
 #[cfg(test)]
 mod others_tests;
+
+#[cfg(test)]
+mod stop_tests;
 
 #[cfg(test)]
 mod tests {

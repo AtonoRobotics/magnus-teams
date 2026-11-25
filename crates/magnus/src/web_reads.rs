@@ -90,6 +90,9 @@ impl Kernel {
     /// for a browser action with no address of its own, the site of the
     /// page it acts on, so a rule naming that site takes it in.
     pub(crate) fn destinations_of(&self, a: &Action, f: &Facts, shown: Option<&crate::boundary::Shown>) -> Vec<String> {
+        if f.app == crate::a2a::APP && f.connector.is_none() {
+            return self.outside_destinations(a);
+        }
         let d = crate::asks::destinations(a, f, shown);
         if !d.is_empty() || f.app != "browser" || f.connector.is_some() {
             return d;

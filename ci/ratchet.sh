@@ -1,7 +1,8 @@
 #!/bin/sh
 # Ratchets for rules the code already breaks: new code must pass, and the
 # existing count may only fall. The baselines are committed beside this file.
-#   ci/ratchet.sh size     no .rs file over 800 lines unless it is in ci/oversize.txt at its current length
+#   ci/ratchet.sh size     no source .rs file over 800 lines unless it is in ci/oversize.txt at its current length;
+#                          test files (a tests/ directory, *_tests.rs, *_test.rs) are exempt (decisions/2026-11-24-tests-have-no-line-limit.md)
 #   ci/ratchet.sh clippy   clippy warnings (unwrap and expect among them) do not exceed ci/clippy-baseline
 set -eu
 cd "$(dirname "$0")/.."
@@ -11,7 +12,7 @@ size)
   limit=800
   now=$(mktemp)
   # Tracked files and new ones not yet added (but not ignored ones).
-  { git ls-files '*.rs'; git ls-files --others --exclude-standard '*.rs'; } | sort -u | xargs wc -l | awk -v lim="$limit" '$2 != "total" && $1 > lim { print $2, $1 }' | sort > "$now"
+  { git ls-files '*.rs'; git ls-files --others --exclude-standard '*.rs'; } | sort -u | grep -Ev '(^|/)tests/|_tests?\.rs$' | xargs wc -l | awk -v lim="$limit" '$2 != "total" && $1 > lim { print $2, $1 }' | sort > "$now"
   # A file in ci/oversize.txt may not grow above its baseline; shrinking is allowed.
   awk -v lim="$limit" 'NR == FNR { base[$1] = $2; next }
        { seen[$1] = 1 }

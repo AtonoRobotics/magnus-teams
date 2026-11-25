@@ -56,6 +56,8 @@ pub struct Kernel {
     pub(crate) live_tools: tokio::sync::Mutex<HashMap<String, (Instant, Vec<AppTool>)>>,
     /// Each connection whose app refused Magnus when last asked for its tools, with its answer: said in the person's app index.
     pub(crate) refused_apps: Mutex<HashMap<String, String>>,
+    /// The next free quarantine handle number of each quarantined tree, by its top run (`quarantine_runtime::reserve_handles`).
+    pub(crate) handle_reservations: Mutex<HashMap<String, usize>>,
     pub live_text: Arc<Live>,
     /// What model calls in flight hold of every spend limit (`spend::holds`).
     pub(crate) spend_holds: crate::spend::holds::Holds,
@@ -177,6 +179,7 @@ impl Kernel {
             leases: Mutex::new(HashMap::new()),
             live_tools: tokio::sync::Mutex::new(HashMap::new()),
             refused_apps: Mutex::new(HashMap::new()),
+            handle_reservations: Mutex::new(HashMap::new()),
             live_text,
             spend_holds: Default::default(),
             knowledge: crate::knowledge_index::Index::new(&cfg.database.url),

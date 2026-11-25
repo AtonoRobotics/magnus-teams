@@ -7,11 +7,14 @@
 //! leave the call.
 
 mod call;
+mod finish;
 mod record;
 
 pub(crate) use call::memory_result;
+use call::memory_taint;
+pub(crate) use call::CallFailure;
 pub use call::{computer_command, media_type_for};
-use call::{memory_taint, CallFailure};
+use finish::Answer;
 use record::{err_text, Record};
 
 use crate::config::{Connector, Person};
@@ -146,7 +149,9 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if f.connector.is_none() && f.app == "memory" {
         return false;
     }
-    f.connector.is_some() || matches!(f.app.as_str(), "web" | "browser" | "computer" | "local" | "connector" | "team") || f.app.starts_with(crate::desktop::APP_PREFIX)
+    f.connector.is_some()
+        || matches!(f.app.as_str(), "web" | "browser" | "computer" | "local" | "connector" | "team" | crate::a2a::APP)
+        || f.app.starts_with(crate::desktop::APP_PREFIX)
 }
 
 pub fn has_rights(person: &Person, f: &Facts) -> bool {
@@ -405,42 +410,19 @@ impl Kernel {
         // memory_search returns content with the taint it was written under
         // (M1), taken from the same entries it returns: a second lookup could
         // miss a fact forgotten in between and label its text clean.
-        let taint = crate::tool_registry::taint(&a.tool);
-        let (out, memory) = if taint == Taint::Memory {
+        let bearer = secret.as_ref().map(|s| s.expose());
+        let out = if crate::tool_registry::taint(&a.tool) == Taint::Memory {
             let hits = self.memory_hits(&a.run, a.input["query"].as_str().unwrap_or_default()).await?;
-            (Ok(memory_result(&hits)), Some(memory_taint(&hits)))
+            Ok(Answer { taint: Some(memory_taint(&hits)), ..Answer::of(memory_result(&hits)) })
         } else {
-            (self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await, None)
+            self.call(a, &f, bearer, &key, stops).await.map(Answer::of)
         };
-        let (label, sources) = if let Some(taint) = memory {
-            taint
-        } else {
-            let d = || out.as_ref().ok().and_then(|(_, _, d)| d.clone()).unwrap_or_default();
-            match taint {
-                // What the search returned decides; a result that says nothing is untrusted and private.
-                Taint::Returned => (Label { untrusted: d()["untrusted"] != false, private: d()["private"] != false }, vec![f.app.clone()]),
-                // A reference file carries its own taint (M1, M2).
-                Taint::ProjectFile => (self.project_file(&a.run, a.input["name"].as_str().unwrap_or_default()).map_or(Label::PRINCIPAL, |f| f.label), vec![f.app.clone()]),
-                // The summaries it lists carry what their runs read.
-                Taint::Listed if is_chat_tool(&f) => self.listed_taint(&d()),
-                _ => (f.label, vec![f.app.clone()]),
-            }
-        };
-        let clean = |t: &str| match &secret {
-            Some(s) => redact(t, s.expose()),
+        let clean = |t: &str| match bearer {
+            Some(s) => redact(t, s),
             None => t.to_string(),
         };
         match out {
-            Ok((text, is_error, data)) => {
-                let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filters_login_codes(&a.tool)) { crate::login_codes::strip(&t) } else { t };
-                let (text, data) = crate::attachment::lift(&a.run, f.connector.as_ref().is_some_and(|c| c.filters_login_codes(&a.tool)), text, data, |t| filter(clean(&t)));
-                let text = match crate::read_back::applies(a, &f, is_error) {
-                    true => format!("{text}\n\n{}", self.read_back(a, &f, shown.as_ref(), data.as_ref()).await?),
-                    false => text,
-                };
-                let status = if is_error { "failed" } else { "done" };
-                self.record_from(a, Some(key), sources, Record { status, text, is_error, label, data }).await
-            }
+            Ok(answer) => self.finish(a, &f, shown.as_ref(), bearer, key, answer).await,
             Err(CallFailure::NotDone(m)) => {
                 self.record(
                     a,
@@ -468,13 +450,9 @@ impl Kernel {
                 tracing::warn!("{}: outcome unknown: {m}", a.tool);
                 match self.reconcile(a, &f, &key).await? {
                     Gate::Pass => {
-                        let again = self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await;
-                        match again {
-                            Ok((text, is_error, data)) => {
-                                let data = data.map(|d| serde_json::from_str(&clean(&d.to_string())).unwrap_or(Value::Null));
-                                let status = if is_error { "failed" } else { "done" };
-                                self.record(a, Some(key), Record { status, text: clean(&text), is_error, label: f.label, data }).await
-                            }
+                        // The resend's answer is finished as a first try's is.
+                        match self.call(a, &f, bearer, &key, stops).await {
+                            Ok(answer) => self.finish(a, &f, shown.as_ref(), bearer, key, Answer::of(answer)).await,
                             Err(e) => {
                                 let m = match e {
                                     CallFailure::NotDone(m) | CallFailure::Unknown(m) | CallFailure::Stopped(m) => m,
@@ -616,7 +594,8 @@ impl Kernel {
             }
         }
         let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
-        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
+        // Signing in acts as the person's identity, as `browser_as_*` does: not public browsing.
+        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_") && a.tool != "browser_sign_in";
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
         if web_or_browser_read && !is_query_tool && untrusted && private {
@@ -661,15 +640,18 @@ impl Kernel {
                 } else {
                     "destination is outside the user's request envelope"
                 };
-                if let Some(kind) = crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input) {
+                // Only an app's message is staged, and only until the person
+                // has answered for this very action (a staged item they sent
+                // is their approval of it): then it is case 3, answered.
+                let answered = || self.person_cover(run, a, f, shown, &shown_hash(a, shown), &dests, Some(crate::asks::Reason::NewDestination)).is_some();
+                let stageable = f.connector.as_ref().and_then(|_| crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input));
+                if let Some(kind) = stageable.filter(|_| !answered()) {
                     let msg = self.stage_action(a, run, f, shown, crate::staging::StageMeta { kind, dests: &dests, reason: why }).await?;
                     self.decision(a, "stage", "envelope", why, None).await?;
                     return Ok(Err(self.record(a, None, Record { status: "staged", text: msg, is_error: false, label: Label::PRINCIPAL, data: None }).await?));
                 }
-                ask = Some((
-                    format!("the work has read untrusted content and private data, and this unstageable action targets a new destination ({why})"),
-                    Some(crate::asks::NEW_DESTINATION.to_string()),
-                ));
+                ask =
+                    Some(("the work has read untrusted content and private data, and this sends to a new destination".to_string(), Some(crate::asks::NEW_DESTINATION.to_string())));
             }
         }
         Ok(Ok(self.payment_ask(a, f.risk).or(ask)))
@@ -682,6 +664,17 @@ impl Kernel {
         if f.app == "sandbox" {
             let text = err_text(&format!("{} was interrupted by a restart; its outcome is unknown. Check the workspace before doing it again.", a.tool), false);
             return Ok(Gate::Stop(self.record(a, Some(key.into()), Record { status: "unknown", text, is_error: true, label: f.label, data: None }).await?));
+        }
+        // A task sent to an outside agent is never sent again: its state is
+        // read with GetTask (invariant 3 for A2A).
+        if f.app == crate::a2a::APP && f.risk != Risk::Read {
+            match self.resume_outside_task(a, key).await {
+                crate::a2a::Resumed::NotSent => return Ok(Gate::Pass),
+                crate::a2a::Resumed::Answer { text, data } => {
+                    return Ok(Gate::Stop(self.record(a, Some(key.into()), Record { status: "done", text, is_error: false, label: f.label, data }).await?))
+                }
+                crate::a2a::Resumed::Unknown => {}
+            }
         }
         // A chat call's ids come from its key, so resending finds what the
         // first call made.
@@ -702,6 +695,10 @@ impl Kernel {
 #[cfg(test)]
 #[path = "boundary_transport_tests.rs"]
 mod transport_tests;
+
+#[cfg(test)]
+#[path = "boundary_finish_tests.rs"]
+mod finish_tests;
 
 #[cfg(test)]
 mod tests {

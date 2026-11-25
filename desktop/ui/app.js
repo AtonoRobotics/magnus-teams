@@ -448,7 +448,9 @@ function navigationTree() {
       const on=route===href || route.startsWith(`${href}/`);
       return `<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(c.name)}"><span class="ttl">${esc(c.name)}</span>${countBadge(c)}</a>`;
     }).join("");
-    return `<details class="nav-project nav-shared-project" data-key="ws:${esc(w.id)}" open><summary><a href="#/team/${enc(w.id)}"${activeWs && !chRows ? ' class="on" aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span><span class="nav-shared-badge" aria-label="Shared project">Shared</span>${teamBadge(w)}</a></summary>${chRows}</details>`;
+    const canDelWs = w.role === "owner" || w.role === "admin";
+    const delWsBtn = canDelWs ? `<button type="button" class="icon-btn nav-row-del" data-nav-del-shared="${esc(w.id)}" data-nav-del-name="${esc(w.name)}" title="Delete ${esc(w.name)}" aria-label="Delete ${esc(w.name)}">${icon("trash")}</button>` : "";
+    return `<details class="nav-project nav-shared-project" data-key="ws:${esc(w.id)}" open><summary><a href="#/team/${enc(w.id)}"${activeWs && !chRows ? ' class="on" aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span><span class="nav-shared-badge" aria-label="Shared project">Shared</span>${teamBadge(w)}</a>${delWsBtn}</summary>${chRows}</details>`;
   }).join("");
   const peopleRows=[];
   const seenPeople=new Set();
@@ -472,8 +474,9 @@ function navigationTree() {
     }
   }
   const peopleHtml=peopleRows.length ? peopleRows.join("") : '<a class="conv small muted" href="#/teams"><span class="ttl">Start or join a shared project…</span></a>';
-  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><span class="nav-group-acts"><a href="#/teams" class="more">Shared</a><a href="#/projects" data-open="projects" class="more">All</a></span></div>
-    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}${sharedProjects}</div>
+  const inlineNew = typeof Projects !== "undefined" ? Projects.inlineNewHtml() : "";
+  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><a href="#/projects" class="nav-group-link">Projects</a><span class="nav-group-acts"><button type="button" class="icon-btn nav-group-add" data-new-project title="New project" aria-label="New project">${icon("plus")}</button></span></div>${inlineNew}
+    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}"${route===`#/project/${enc(p.id)}` ? ' class="on" aria-current="page"' : ""} title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a><button type="button" class="icon-btn nav-row-del" data-nav-del-project="${esc(p.id)}" data-nav-del-name="${esc(p.name)}" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}">${icon("trash")}</button></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}${sharedProjects}</div>
     <div class="sect" role="group" aria-label="Conversations">${looseHtml}</div>
     <div class="sect" role="group" aria-label="People"><div class="group"><span>People</span><a href="#/teams" class="more">Manage</a></div>${peopleHtml}</div>
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
@@ -1292,7 +1295,7 @@ function convHead(thread, project) {
   const here = thread && App.threads.find(t => t.thread === thread);
   const p = here ? here.project : project && App.projects.find(x => x.id === project);
   const ttl = here ? displayTitle(here.title) : "New conversation";
-  const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
+  const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
   const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share into a shared project (clean-room)">${icon("team")}<span>Share</span></button>` : "";
   const pending = needsMe().length;
@@ -1353,14 +1356,15 @@ route(/^#\/chat\/new\/([^/]+)$/, (m, project) => showNewChat(m, project), true);
 // Where the views over tasks, schedules, files and decisions used to be
 // pages: each opens beside the latest conversation.
 route(/^#\/inbox$/, main => home(main, "needs"), true);
-route(/^#\/(activity|tasks|schedules|files|projects)$/, (main, k) => home(main, k), true);
+route(/^#\/(activity|tasks|schedules|files)$/, (main, k) => home(main, k), true);
+route(/^#\/projects$/, main => Projects.showList(main));
 // The Library is the connector catalog, a page of its own (connectors spec,
 // Library); a connector's page is under it.
 route(/^#\/explore$/, main => Discover.show(main));
 route(/^#\/library(?:\/([^/]+))?$/, (main, name) => showLibrary(main, name));
 route(/^#\/new$/, main => home(main), true);
 route(/^#\/file\/([^/]+)$/, (main, id) => home(main, `file:${id}`), true);
-route(/^#\/project\/([^/]+)$/, (main, id) => home(main, `project:${id}`), true);
+route(/^#\/project\/([^/]+)$/, (main, id) => Projects.show(main, id));
 // A task opens beside the conversation it came from.
 route(/^#\/task\/([^/]+)$/, async (main, id) => {
   const seq = App.seq;
@@ -1431,13 +1435,13 @@ function scheduleText(sc) {
   return `${sc.ended ? `Ended: ${sc.ended}` : sc.paused ? `Paused: ${sc.paused}` : `Next run ${until(sc.next)}`} · ${sc.last_failed ? `Last firing could not start: ${sc.last_failed.error}` : last ? `Last result: ${(STATUS[last.status] || ["", last.status])[1]}, ${when(last.ended_at || last.created_at)}` : "No results yet"}`;
 }
 // A card's answers: accept (one tap, which grants the work), Not now, or
-// Decline, which asks for the reason. A grant card is not put off (`later`
-// false).
-function cardActs(e, ui, accept, later = true) {
+// Decline, which asks for the reason. A grant card, or one already put off,
+// is not put off (`later` false); one put off is deleted, as a decline.
+function cardActs(e, ui, accept, later = true, decline = "Decline") {
   if (ui.declining === e.card) return `<div class="row cc-act decline-why"><label class="sr" for="why-${esc(e.card)}">Why not?</label>
     <input id="why-${esc(e.card)}" data-draft="why-${esc(e.card)}" placeholder="Why not? Magnus reads this before suggesting again">
-    <button class="primary" data-decide="decline">Decline</button><button class="link" data-decide="decline-cancel">Cancel</button></div>`;
-  return `<div class="row cc-act"><button class="primary" data-decide="confirm">${esc(accept)}</button>${later ? `<button data-decide="later">Not now</button>` : ""}<button class="link" data-decide="decline-open">Decline</button></div>`;
+    <button class="primary" data-decide="decline">${esc(decline)}</button><button class="link" data-decide="decline-cancel">Cancel</button></div>`;
+  return `<div class="row cc-act"><button class="primary" data-decide="confirm">${esc(accept)}</button>${later ? `<button data-decide="later">Not now</button>` : ""}<button class="link" data-decide="decline-open">${esc(decline)}</button></div>`;
 }
 
 // A grant's fields as a form (#235): the kind of work, the apps it covers,
@@ -1489,7 +1493,7 @@ function scheduleLine(e) {
   if (!sc) return `<p class="small" data-schedule-gone="${esc(e.schedule || "")}"><span class="chip">Details unavailable</span> ${esc(e.title || "This schedule")} · Schedule details are not currently available.</p>`;
   const act = (k, label) => `<button class="link small" data-sched-act="${k}" data-schedule-id="${esc(sc.id)}">${label}</button>`;
   const chip = sc.ended ? `<span class="chip">Ended</span>` : `<span class="chip sch">${sc.paused ? "Paused" : "Scheduled"}</span>`;
-  const acts = sc.ended ? act("cancel", "Delete") : `${sc.paused ? act("resume", "Resume") : act("pause", "Pause")}${act("cancel", "Cancel")}`;
+  const acts = sc.ended ? act("cancel", "Delete") : `${sc.paused ? act("resume", "Resume") : act("pause", "Pause")}${act("stop", "Stop")}${act("cancel", "Delete")}`;
   return `<div class="reqgroup sched-state" data-schedule="${esc(sc.id)}"><a class="rg-row" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="Open the schedule">
     <span class="st sch">${icon("calendar")}</span><span class="rg-main"><span class="ttl">${esc(sc.title)}</span><span class="sub" data-last>${esc(scheduleText(sc))}</span></span>${chip}${icon("chev", "chev")}</a>
     <div class="card-acts">${acts}<a class="small" href="#/schedules" data-open="schedule:${esc(sc.id)}">Open</a>${sc.started ? `<a class="small" href="#/chat/${enc(`schedule-${sc.id}`)}" data-schedule-runs>Its runs</a>` : ""}</div></div>`;
@@ -1611,16 +1615,18 @@ function entry(e, ui = {}) {
       <div class="pre">${esc(e.summary || "")}</div>${e.view ? shownFrame(e.id, "The deliverable") : ""}${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}</details></div>`;
     case "connector_card": return appOfferCard(e);
     case "suggestion_card": {
-      if (e.state !== "open") return `<div data-card="${esc(e.card)}">${e.schedule ? scheduleLine(e) : cardOutcome(e)}</div>`;
+      // Put off ("Not now"), it is kept, to accept or delete later.
+      const later = e.state === "later";
+      if (e.state !== "open" && !later) return `<div data-card="${esc(e.card)}">${e.schedule ? scheduleLine(e) : cardOutcome(e)}</div>`;
       const timed = e.every_minutes || e.daily_at;
-      return `<div class="confirm chatcard suggestion" data-card="${esc(e.card)}"><div class="cc-head"><span class="st sch">${icon(timed ? "calendar" : "tasks")}</span><strong>${esc(e.title)}</strong></div>
+      return `<div class="confirm chatcard suggestion" data-card="${esc(e.card)}"${later ? " data-later" : ""}><div class="cc-head"><span class="st sch">${icon(timed ? "calendar" : "tasks")}</span><strong>${esc(e.title)}</strong>${later ? ` <span class="chip">Not now</span>` : ""}</div>
         <p class="cc-text">${esc(e.plan)}</p>
         ${e.changed ? `<p class="small"><strong>What changed:</strong> ${esc(e.changed)}</p>` : ""}
         ${evidenceList(e, "Why")}
         <div class="sugg-part"><span class="small muted">What it may do</span><ul class="sugg-list">${(e.permissions || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
         ${timed ? `<div class="tiles"><div><span>When</span><strong>${esc(rule(e))}</strong></div><div><span>Ends</span><strong>${esc(ends(e))}</strong></div></div>` : ""}
         <p class="small muted">It acts for you (${esc(e.acts_for)}), with your access; what it needs from you shows under Needs you.</p>${taintNote(e.taint)}
-        ${cardActs(e, ui, "Accept")}</div>`;
+        ${cardActs(e, ui, "Accept", !later, later ? "Delete" : "Decline")}</div>`;
     }
     case "grant_card": {
       if (e.state !== "open") return `<div data-card="${esc(e.card)}">${cardOutcome(e)}</div>`;
@@ -1647,6 +1653,7 @@ const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
   policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed",
   monitor: "Safety monitor", secure_form: "Secure sign-in", takeover_request: "Take over", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
+  outside_request: "Request from an outside agent", outside_reply: "Reply to an outside agent",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
 const AUDIENCE = { private: "only you", org: "people in your organization", public: "anyone" };
@@ -1730,6 +1737,11 @@ function card(i, composed) {
     case "interrupt":
       body = `${d.why ? `<p>${esc(d.why)}</p>` : ""}${d.evidence ? `<div class="evidence"><div class="small muted">Evidence</div>${fieldValue(d.evidence)}</div>` : ""}${d.notify_at && Date.parse(d.notify_at) > Date.now() ? `<p class="small faint">Pings ${esc(when(d.notify_at))}.</p>` : ""}${taintNote(d.taint)}${buttons(i, [["dismiss", "Dismiss"]])}`;
       break;
+    // An outside agent's request, or the reply to one waiting to be released (outside-agents.js).
+    case "outside_request":
+    case "outside_reply":
+      body = outsideAgentCard(i);
+      break;
     case "shared":
       body = `<div class="msg magnus"><div class="small faint">${esc(d.speaker)} · ${esc(when(d.at))}</div><div class="pre">${esc(d.text)}</div></div>${taintNote(d.taint)}
         ${buttons(i, [["dismiss", "Dismiss"]])}`;
@@ -1804,6 +1816,8 @@ async function respond(btn, root) {
   btn.disabled = true;
   try {
     await Server.inbox.answer(id, body);
+    // Said as given only now the server took it (aurora-alerts.js, aurora-stage.js).
+    document.dispatchEvent(new CustomEvent("magnus:answered", { detail: { item: id, decision, button: btn } }));
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
     if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Rules.", 5000);
     else toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
@@ -2114,7 +2128,9 @@ function openPanel(what, options={}) {
   if (Panel.what !== what) {
     if (Panel.what) Panel.layers[Panel.what]=Panel.layer;
     Panel.unwatch?.(); Panel.unwatch=null;
-    Panel.layer=Panel.layers[what] || "outcome"; stopPanelLive();
+    // A task still at work opens on its steps: its result is not there yet.
+    const atWork = (App.tasks || []).some(t => `task:${t.task_id}` === what && t.status === "running");
+    Panel.layer=Panel.layers[what] || (atWork ? "trace" : "outcome"); stopPanelLive();
   }
   Panel.what = what;
   const el = $("#detail");
@@ -2165,7 +2181,7 @@ function stopPanelLive() {
 }
 
 const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks", schedules: "Routines", files: "Files", apps: "Apps", projects: "Projects", task: "Task", file: "File", schedule: "Schedule", project: "Project", item: "Item", search: "Search", connector: "Connector", rules: "Rules" };
-const PANEL_TAB_PARENT = { activity: "activity", tasks: "tasks", task: "tasks", schedules: "schedules", schedule: "schedules", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
+const PANEL_TAB_PARENT = { activity: "activity", tasks: "tasks", task: "tasks", schedules: "schedules", schedule: "schedules", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files", projects: "projects", project: "projects" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
   const activeTasks = (App.tasks || []).filter(t => !ENDED.includes(t.status)).length;
@@ -2485,9 +2501,10 @@ async function showLibrary(main, name) {
     <div class="lbar"><div class="lseg" role="group" aria-label="Show">${seg("yours", "Yours")}${seg("discover", "Discover")}</div>
     <div class="lsearch">${SVG.search}<label class="sr" for="libq">Search apps and capabilities</label><input id="libq" type="search" value="${esc(Lib.q)}" placeholder="Search apps and capabilities" autocomplete="off"></div></div>
     <div class="lchips" role="group" aria-label="Category">${CATEGORIES.map(([k, l]) => `<button data-lib-cat="${k}" aria-pressed="${Lib.cat === k}">${esc(l)}</button>`).join("")}</div>
-    <p><a href="#/chat/new" data-ask-app>Ask Magnus to find an app</a></p><div id="lib-programs"></div><div id="lib-sections">${connectors ? librarySections(Lib.all) : '<p class="empty">Apps are unavailable. Retrying when connected.</p>'}</div></div>`;
+    <p><a href="#/chat/new" data-ask-app>Ask Magnus to find an app</a></p><div id="lib-programs"></div><div id="lib-outside-agents"></div><div id="lib-sections">${connectors ? librarySections(Lib.all) : '<p class="empty">Apps are unavailable. Retrying when connected.</p>'}</div></div>`;
   bindConnectorActs(main);
   mountPrograms(main).catch(() => {});
+  mountOutsideAgents(main).catch(() => {});
   const update=async()=>{
     const connectors=await Resources.read("Apps","/v1/connectors","connectors",true);
     if(!connectors || !main.querySelector('#lib-sections'))return;
@@ -2795,11 +2812,9 @@ function wirePanel() {
           return;
         }
         case "stop-schedule":
-          if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
-          await Server.schedules.remove(id);
-          App.schedules = (App.schedules || []).filter(x => x.id !== id);
+          if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done. The schedule stays here, ended, until you delete it.", "Stop schedule")) return;
+          await Server.schedules.stop(id);
           toast("The schedule is stopped.");
-          if (Panel.what === `schedule:${id}`) await openPanel("schedules");
           break;
         case "delete-schedule": {
           const sc = (App.schedules || []).find(x => x.id === id);

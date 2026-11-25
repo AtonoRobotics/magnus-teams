@@ -55,14 +55,24 @@ pub struct Entry {
     pub flags: Vec<Flag>,
     #[serde(default)]
     pub retired: Option<Retired>,
+    /// Who last wrote its words, when a curator corrected them: `None`, its
+    /// author's still (and every entry written before 2026-11-23).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
 }
 
 impl Entry {
+    /// Everyone whose words it holds or who answers for it.
+    pub fn writers(&self) -> impl Iterator<Item = &str> {
+        [self.author.as_str(), self.owner.as_str()].into_iter().chain(self.edited_by.as_deref())
+    }
+
     /// What a reader is given. A retired entry is never read as current.
     pub fn line(&self) -> String {
         let outside = if self.weight == Weight::Outside { "; from outside the workspace" } else { "" };
         let flagged = if self.flags.is_empty() { "" } else { "; flagged as possibly wrong" };
-        format!("- [{}] ({}; source: {}{outside}{flagged}) {}\n", self.id, self.kind, self.source, self.statement)
+        let edited = self.edited_by.as_ref().map(|by| format!("; last written by {by}")).unwrap_or_default();
+        format!("- [{}] ({}; source: {}{edited}{outside}{flagged}) {}\n", self.id, self.kind, self.source, self.statement)
     }
 }
 
@@ -147,6 +157,9 @@ impl Workspace {
                     e.owner,
                     e.reviewed_at.to_rfc3339()
                 ));
+                if let Some(by) = &e.edited_by {
+                    text.push_str(&format!("- last written by: {by}\n"));
+                }
                 for r in &e.relations {
                     text.push_str(&format!("- {}: {}\n", r.kind, r.to));
                 }
@@ -189,7 +202,18 @@ mod tests {
             relations: vec![],
             flags: vec![],
             retired: None,
+            edited_by: None,
         }
+    }
+
+    /// A corrected entry's line kept only its first source, so the model
+    /// was told its author wrote the corrector's words.
+    #[test]
+    fn a_corrected_entrys_line_names_its_last_writer() {
+        let mut e = entry(Weight::Member);
+        assert!(!e.line().contains("last written by"));
+        e.edited_by = Some("sam".into());
+        assert!(e.line().contains("source: thread; last written by sam"), "{}", e.line());
     }
 
     #[test]

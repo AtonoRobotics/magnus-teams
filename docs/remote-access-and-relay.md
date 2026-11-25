@@ -420,6 +420,17 @@ each.
    appliance's health JSON. From the LAN, the private address still works
    with the pinned certificate and no device certificate.
 
+6. Outside agents (decisions/2026-11-23-outside-agents-reach-the-server.md)
+   have no device. To let them reach the server's agent card, its key set
+   and its one A2A endpoint, add this to the end of the step 3 rule, so the
+   rule does not block those three paths. Each request to the endpoint is
+   authenticated by the server itself:
+
+   `and not (http.request.uri.path in {"/.well-known/agent-card.json" "/.well-known/agent-card-keys.json" "/a2a"})`
+
+   Until this is added, outside agents can reach the server only from the
+   LAN.
+
 The appliance calls, with the vault token, `POST
 /zones/{zone_id}/client_certificates` with `{"csr", "validity_days"}` and
 `DELETE /zones/{zone_id}/client_certificates/{id}`. A zone on this plan

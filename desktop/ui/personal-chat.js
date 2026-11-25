@@ -257,8 +257,11 @@ async function personalCardClick(e, view) {
         const id = sa.dataset.scheduleId, k = sa.dataset.schedAct;
         if (k === "cancel") {
           const ended = App.schedules.find(x => x.id === sa.dataset.scheduleId)?.ended;
-          if (!await ask(ended ? "Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks." : "Cancel this schedule? No more of its runs start, and a run still going stops.", ended ? "Delete schedule" : "Cancel schedule")) { el.disabled = false; return; }
-          await Server.schedules.remove(id); toast(ended ? "The schedule is deleted." : "The schedule is cancelled.");
+          if (!await ask(ended ? "Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks." : "Delete this schedule? No more of its runs start, and a run still going stops. Its runs stay in Tasks.", "Delete schedule")) { el.disabled = false; return; }
+          await Server.schedules.remove(id); toast("The schedule is deleted.");
+        } else if (k === "stop") {
+          if (!await ask("Stop this schedule? No more of its runs start, and a run still going stops. The schedule stays, ended, until you delete it.", "Stop schedule")) { el.disabled = false; return; }
+          await Server.schedules.stop(id); toast("The schedule is stopped.");
         } else { await (k === "pause" ? Server.schedules.pause(id) : Server.schedules.resume(id)); toast(k === "pause" ? "Paused." : "Resumed."); }
       }
       await refresh();
@@ -285,7 +288,8 @@ async function personalCardClick(e, view) {
   b.disabled = true;
   try {
     const r = await Server.chat.answerCard(card, body);
-    toast(no ? "Declined." : decision === "later" ? "Not now." : r.grant ? "Granted." : r.task ? "Started." : "Scheduled.");
+    const putOff = box.matches("[data-later]");
+    toast(no ? (putOff ? "Deleted." : "Declined.") : decision === "later" ? "Not now. It stays here for later." : r.grant ? "Granted." : r.task ? "Started." : "Scheduled.");
     ui.declining = null; delete drafts[`why-${card}`];
     for (const k of Object.keys(drafts)) if (k.startsWith(`g-${card}-`)) delete drafts[k];
     await refresh();

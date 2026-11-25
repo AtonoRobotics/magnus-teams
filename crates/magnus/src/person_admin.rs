@@ -208,10 +208,13 @@ impl Kernel {
         // admin erases anyone but themselves.
         self.may_change_account(actor, person).await.map_err(|(code, _, m)| (code, m))?;
         // Runs still going stop first, so nothing writes for them after.
+        // In one write, as every cancel is (`cancel_trees`): each of their
+        // runs ends once, and every sub-agent below one ends with it.
         let going: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.person == person && !r.status.terminal()).map(|r| r.id.clone()).collect());
-        for run in &going {
-            if self.emit(actor, Ev::Cancelled { run: run.clone(), source: Some("console".into()), turn: None }).await.is_ok() {
-                self.on_stop(run, true).await;
+        let ends: Vec<(&str, Ev)> = going.iter().map(|run| (actor, Ev::Cancelled { run: run.clone(), source: Some("console".into()), turn: None })).collect();
+        if !going.is_empty() {
+            if let Err(e) = self.cancel_trees(&going, ends).await {
+                tracing::warn!("erasing {person}: their runs could not be stopped: {e:#}");
             }
         }
         let schedules: Vec<String> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person).map(|x| x.id.clone()).collect());
@@ -234,6 +237,8 @@ impl Kernel {
         if !evs.is_empty() {
             self.emit_all(evs).await.map_err(failed)?;
         }
+        // The outside agents they connected: tasks cancelled, keys out of the vault.
+        self.disconnect_outside_agents_of(person).await.map_err(failed)?;
         // Their own sign-ins to the organisation's apps, revoked at each app.
         let mine: Vec<String> = self.vault.names().map_err(failed)?.into_iter().filter(|n| crate::forget::their_sign_in(n, person)).collect();
         let mut sign_ins = 0;
@@ -291,6 +296,31 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests {
+    /// Erased, a person's runs end as every cancel does (`cancel_trees`):
+    /// each once, with every sub-agent below them in the same write, so no
+    /// reader sees one of their runs ended and a child of it still going.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_erasure_ends_their_runs_and_the_sub_agents_below_in_one_write() {
+        use serde_json::json;
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        let ev = |v: serde_json::Value| serde_json::from_value::<crate::events::Ev>(v).unwrap();
+        let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 9, "max_actions": 9, "max_usd": 4.0 }, "verifier": false, "instructions": "", "harness": "" });
+        let created =
+            |task: &str, run: &str, person: &str| ev(json!({ "kind": "task_created", "task": task, "run": run, "person": person, "text": "Check the books.", "config": config }));
+        s.k.emit("person:mo", created("t_top", "r_top", "mo")).await.unwrap();
+        // A sub-agent below mo's run, recorded as running for someone else.
+        s.k.emit("kernel", ev(json!({ "kind": "sub_agent", "child": "r_kid", "parent": "r_top", "tools": [] }))).await.unwrap();
+        s.k.emit("run:r_top", created("t_kid", "r_kid", "lee")).await.unwrap();
+        s.k.erase_person("person:sam", "mo").await.unwrap();
+        let db = s.store().await;
+        let rows = db.query("SELECT body->>'run', xmin::text FROM public.events WHERE kind = 'cancelled' ORDER BY seq", &[]).await.unwrap();
+        let ends: Vec<(String, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+        let runs: Vec<&str> = ends.iter().map(|(r, _)| r.as_str()).collect();
+        assert_eq!(runs, ["r_top", "r_kid"], "each run did not end once: {ends:?}");
+        assert_eq!(ends[0].1, ends[1].1, "the sub-agent ended in a write of its own: {ends:?}");
+        s.done().await;
+    }
+
     /// Erased, a person's card, wallet and own apps' tokens leave the vault
     /// with them, so nothing of theirs is left for anyone to use.
     #[tokio::test(flavor = "multi_thread")]

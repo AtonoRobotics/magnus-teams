@@ -203,7 +203,7 @@ async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws
         .files
         .values()
         .filter(|f| w.sees_file(&f.name, &p.id) && here(w.chat.file_projects.get(&f.name)))
-        .map(|f| json!({ "name": f.name, "size": f.size, "by": f.by, "by_name": name_of(&k, &f.by), "project": w.chat.file_projects.get(&f.name) }))
+        .map(|f| json!({ "name": f.name, "size": f.size, "by": f.by, "by_name": name_of(&k, &f.by), "project": w.chat.file_projects.get(&f.name), "coedit": super::coedit::listed(&w, &f.name, &p.id) }))
         .collect();
     let tasks: Vec<&Task> = w.chat.tasks.values().filter(|t| w.may_read(t.project.as_deref(), &p.id) && here(t.project.as_ref())).collect();
     // Names are looked up after the state is let go: looking one up takes

@@ -7,8 +7,11 @@
 // - boxes come as they become relevant and go when they stop: work starting
 //   brings Live Workspace with the beam and what it is doing; a decision
 //   brings Approvals first, amber, and the others slide over; the decision
-//   answered takes Approvals away; a routine coming due, a new file, bring
-//   theirs;
+//   answered takes Approvals away; a new file brings its box; a schedule
+//   coming due and a schedule's routine runs (a heartbeat) bring none
+//   (decisions/2026-11-25-routine-runs-are-quiet-and-work-shows-its-steps.md);
+// - the work's box lists its last actions with how each went, and once done
+//   what it can show for itself;
 // - work the person watches that finishes opens its result beside the
 //   conversation on its own, and Live Workspace turns mint with the result;
 // - the canvas slides in, and the conversation narrows over time to share
@@ -114,16 +117,25 @@ try {
   const gone = await p.evaluate(() => !document.querySelector('.stage-tile[data-tile="approval:i1"]'));
   check("the decision answered takes Approvals away, leaving from where it was", () => assert.deepEqual([leaving, gone], [{ leaving: true, position: "absolute" }, true]));
 
-  // A routine comes due: Up Next comes in.
-  await step(() => { App.schedules[0].next = new Date(Date.now() + 2 * 3600e3).toISOString(); });
+  // A schedule coming due, and a schedule's routine runs, are no news: no box.
+  await step(() => {
+    App.schedules[0].next = new Date(Date.now() + 2 * 3600e3).toISOString();
+    App.tasks = [...App.tasks, { task_id: "hb1", thread: null, title: "Heartbeat", status: "completed", routine: true, ended_at: new Date().toISOString() }, { task_id: "hb2", thread: null, title: "Heartbeat", status: "running", routine: true }];
+  });
   const due = (await shown()).map(t => `${t.key}:${t.title}`);
-  check("a routine coming due brings Up Next in", () => assert.deepEqual(due, ["live:Plan the trip", "next:AI digest"]));
+  check("a schedule coming due and a schedule's routine runs bring no box", () => assert.deepEqual(due, ["live:Plan the trip"]));
+
+  // The work lists its last actions as it goes.
+  await step(() => { App.tasks = [{ ...App.tasks[0], recent_steps: [{ doing: "Search flights", state: "done" }, { doing: "Read the fare rules", state: "running" }] }]; });
+  const steps = await p.evaluate(() => [...document.querySelectorAll('.stage-tile[data-tile="live"] .stage-tile-steps li')].map(li => `${li.dataset.state}:${li.textContent.trim()}`));
+  check("the work's box lists its last actions with how each went", () => assert.deepEqual(steps, ["done:✓ Search flights", "running:… Read the fare rules"]));
 
   // The work finishes: its result opens on its own; Live Workspace turns mint.
-  await step(() => { App.tasks = [{ task_id: "t1", thread: "c1", title: "Plan the trip", status: "completed", summary: "3-day itinerary · $912 total", ended_at: new Date().toISOString() }]; });
-  const done = await p.evaluate(() => ({ opened: FX.opened, live: [...document.querySelectorAll('.stage-tile[data-tile="live"]')].map(t => `${t.dataset.tone}:${t.querySelector(".stage-tile-desc").textContent}`) }));
+  await step(() => { App.tasks = [{ task_id: "t1", thread: "c1", title: "Plan the trip", status: "completed", summary: "3-day itinerary · $912 total", ended_at: new Date().toISOString(), actions: 6, receipts_count: 2, recent_steps: [{ doing: "Search flights", state: "done" }] }]; });
+  const done = await p.evaluate(() => ({ opened: FX.opened, live: [...document.querySelectorAll('.stage-tile[data-tile="live"]')].map(t => `${t.dataset.tone}:${t.querySelector(".stage-tile-desc").textContent}`), proof: document.querySelector('.stage-tile[data-tile="live"] .stage-tile-proof')?.textContent }));
   check("finished work opens its result beside the conversation on its own", () => assert.deepEqual(done.opened, ["task:t1 (auto)"]));
   check("Live Workspace turns mint with the result", () => assert.deepEqual(done.live, ["done:3-day itinerary · $912 total"]));
+  check("finished work shows what it did and the receipts checked", () => assert.equal(done.proof, "6 actions · 2 receipts checked · see what it did"));
 
   // The canvas slides in; the conversation narrows.
   const width = () => p.evaluate(() => Math.round(document.querySelector("#main > section.conv").getBoundingClientRect().width));
@@ -203,7 +215,8 @@ try {
   const stillClosed = await keys();
   await f.evaluate(() => { FX.pending = [{ id: "i9", summary: "Reply to Dana?" }, { id: "i10", summary: "Pay the invoice?" }]; return AuroraStage.refresh(); });
   const another = await f.evaluate(() => [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => `${t.dataset.tile}:${t.querySelector(".stage-tile-title").textContent}`));
-  check("a closed decision stays away; the next one waiting takes the box", () => assert.deepEqual([stillClosed, another], [["live:needs"], ["live:Watch the inbox", "approval:i10:Pay the invoice?"]]));
+  // Both want the person; the newer, the decision just come, goes first.
+  check("a closed decision stays away; the next one waiting takes the box", () => assert.deepEqual([stillClosed, another], [["live:needs"], ["approval:i10:Pay the invoice?", "live:Watch the inbox"]]));
   // A passive box the pointer is on stays, and leaves its time after the pointer goes.
   await f.mouse.move(5, 5);
   await f.evaluate(() => { FX.pending = []; App.tasks = [{ task_id: "t10", thread: "c1", title: "Sort the files", status: "completed", summary: "Sorted 12 files", ended_at: new Date().toISOString() }]; return AuroraStage.refresh(); });

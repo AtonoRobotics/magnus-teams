@@ -10,8 +10,9 @@
 //   the answer, then folds away;
 // - a toast, where there is no stage to say it (aurora-reasoning.js `tell`),
 //   slides out when it goes.
-// app.js and asks.js are unchanged: they remove and redraw at once, and what
-// they removed is played out here.
+// app.js and asks.js remove and redraw at once, and what they removed is
+// played out here. An answer shows once the server took it: app.js tells
+// "magnus:answered" then (decisions/2026-11-23-answer-shown-once-taken.md).
 "use strict";
 
 /** How long an answered decision shows its answer before it goes. */
@@ -78,13 +79,15 @@ const AuroraAlerts = (() => {
    */
   const answering = new Map();
 
-  document.addEventListener("click", e => {
-    const btn = /** @type {HTMLElement} */ (e.target).closest?.(".ask-answers button[data-decision]");
-    if (!on() || !(btn instanceof HTMLElement) || !btn.dataset.item) return;
-    const decision = (btn.dataset.decision || "").split(":")[0];
-    if (decision === "ask-more") return;
-    given.set(btn.dataset.item, said(decision));
-    const card = btn.closest(DECISION);
+  // An answer is what the server took, not the tap: app.js's respond() tells
+  // "magnus:answered" once the server accepted it. One refused (answered by
+  // someone else first, expired, the network) is never said here.
+  document.addEventListener("magnus:answered", e => {
+    const { item, decision, button } = /** @type {CustomEvent<{ item: string, decision: string, button?: HTMLElement }>} */ (e).detail || {};
+    if (!on() || !item || !decision || decision === "ask-more") return;
+    // The thread says it once the card goes, at the app's redraw.
+    given.set(item, said(decision));
+    const card = button?.closest?.(DECISION);
     if (!(card instanceof HTMLElement) || !card.dataset.id) return;
     answering.set(card.dataset.id, {
       card,
@@ -98,7 +101,7 @@ const AuroraAlerts = (() => {
       before: card.nextElementSibling?.getAttribute("data-id") || "",
       at: Date.now(),
     });
-  }, true);
+  });
 
   /** The card as answered: its answers become what was said. @param {HTMLElement} card @param {string} words */
   function confirmed(card, words) {

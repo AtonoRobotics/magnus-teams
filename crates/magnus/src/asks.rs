@@ -115,7 +115,7 @@ pub(crate) fn is_boundary(a: &Action, f: &Facts) -> bool {
     if !f.risk.changes_state() || is_chat_tool(f) || f.reaches_self {
         return false;
     }
-    f.connector.is_some() || matches!(f.app.as_str(), "local" | "team" | "connector" | "web")
+    f.connector.is_some() || matches!(f.app.as_str(), "local" | "team" | "connector" | "web" | crate::a2a::APP)
 }
 
 /// The host of a URL, as a destination is named.
@@ -471,7 +471,7 @@ impl Kernel {
 
     /// Put one of the four asks in front of the person, and let the run
     /// wait. Background work asks too, and waits as unwatched work does
-    /// (`unattended`); only the team agent's own routines ask no one: the
+    /// (`unattended`); only routines ask no one (`background_asks`): the
     /// action is refused, and the agent may suggest it instead.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn raise(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, reason: Reason, rule: &str, why: &str) -> Result<Gate> {
@@ -479,7 +479,7 @@ impl Kernel {
             return Ok(Gate::Stop(self.deny(a, "approval", "only the agent's own actions wait for a person", false, Some(rule.into())).await?));
         }
         if self.read(|s| s.asks_no_one(&run.id)) {
-            let text = format!("{why}. This is the team agent's own routine work, so no one is asked; if it is worth doing, report it to the channel and finish");
+            let text = format!("{why}. This is a routine's background work, so no one is asked; if it is worth doing, report it to the channel and finish");
             return Ok(Gate::Stop(self.deny(a, "approval", &text, false, Some(rule.into())).await?));
         }
         self.decision(a, "ask", "approval", why, Some(rule.into())).await?;

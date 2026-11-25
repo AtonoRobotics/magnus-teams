@@ -285,7 +285,7 @@ impl Kernel {
     /// taken out.
     async fn index_entry(&self, e: &KnowledgeEntry) -> Result<()> {
         let Some(says) = self.knowledge.content(e).await? else { return self.knowledge.drop_entry(&e.id).await };
-        let embedding = match self.embed(&format!("{}\n{}", e.title, text_of(&says))).await {
+        let embedding = match self.embed(crate::spend::allowance::Owner::Server, &format!("{}\n{}", e.title, text_of(&says))).await {
             Ok(v) => v,
             Err(err) => {
                 tracing::warn!("embed {}: {err:#}", e.id);
