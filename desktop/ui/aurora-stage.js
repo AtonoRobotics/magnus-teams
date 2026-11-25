@@ -113,18 +113,22 @@ const AuroraStage = (() => {
   /** A card's last actions, newest last, each with how it went. @param {Array<{ doing: string, state: string }>|undefined} steps */
   const stepsList = steps => (steps && steps.length ? `<ol class="stage-tile-steps">${steps.map(x => `<li data-state="${html(x.state)}"><span aria-hidden="true">${STEP_MARK[x.state] || ""}</span> ${html(x.doing)}</li>`).join("")}</ol>` : "");
 
-  /** Read live sub-agent rows rendered in the active thread so the composed stage displays them too. */
+  /** Read live and recent sub-agent rows rendered in the active thread so each gets a bento tile. */
   function threadSubAgents() {
     const out = [];
-    for (const el of document.querySelectorAll("#thread .sub-agent")) {
+    const groups = [...document.querySelectorAll("#thread [data-sub-agents]")];
+    const scope = groups.length ? groups[groups.length - 1] : document;
+    for (const el of scope.querySelectorAll(".sub-agent")) {
+      const run = el.getAttribute("data-sub-agent") || "";
       const status = el.getAttribute("data-status") || "";
-      if (status !== "running" && status !== "suspended") continue;
       const goal = el.querySelector(".ttl")?.textContent?.trim() || "";
       const sub = el.querySelector(".sub")?.textContent?.trim() || "";
       const open = el.querySelector("a[data-open]")?.getAttribute("data-open") || "";
-      if (goal) out.push({ goal, status, sub, open });
+      const summary = el.querySelector(".sub-agent-result")?.textContent?.trim().replace(/\s+/g, " ").slice(0, 140) || "";
+      if (goal) out.push({ run: run || goal, goal, status, sub, open, summary });
     }
-    return out.slice(0, 4);
+    const rank = s => (s.status === "suspended" ? 0 : s.status === "running" ? 1 : s.status === "completed" ? 2 : 3);
+    return out.sort((a, b) => rank(a) - rank(b)).slice(0, 4);
   }
 
   /** Concise destination/consequence preview for an approval bento tile. @param {any} i @param {number} pendingCount */
@@ -150,7 +154,8 @@ const AuroraStage = (() => {
     const activeAll = tasks.filter(t => !ended(t)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));
     const last = latest(here.filter(t => ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
-    const liveSubs = threadSubAgents();
+    const threadSubs = threadSubAgents();
+    const activeSubs = threadSubs.filter(s => s.status === "running" || s.status === "suspended");
     const list = [];
     if (typeof App !== "undefined" && App.shared && typeof SharedCanvas !== "undefined") list.push(...SharedCanvas.boxes());
     const live = { key: "live", label: "Live Workspace", icon: "sparkles" };
@@ -158,7 +163,7 @@ const AuroraStage = (() => {
     const tally = here.length > 1 ? ` · ${here.filter(t => t.status === "completed").length} of ${here.length} done` : "";
     if (run) {
       const step = stepOf(run);
-      const subNote = run.sub_agents_active ? ` · ${plural(run.sub_agents_active, "sub-agent")}` : "";
+      const subNote = (run.sub_agents_active || activeSubs.length) ? ` · ${plural(run.sub_agents_active || activeSubs.length, "sub-agent")}` : "";
       list.push({
         ...live,
         tone: waits(run) ? "needs" : "run",
@@ -170,21 +175,19 @@ const AuroraStage = (() => {
         steps: run.recent_steps,
         pct: pctOf(run),
         planSteps: planUnitsOf(run),
-        subAgents: liveSubs,
         canStop: true,
         count: activeAll.length > 1 ? activeAll.length : 0,
         updatedAt: tsOf(run.updated_at || run.created_at),
       });
-    } else if (liveSubs.length) {
+    } else if (activeSubs.length) {
       list.push({
         ...live,
-        tone: liveSubs.some(s => s.status === "suspended") ? "needs" : "run",
-        open: liveSubs[0].open || "tasks",
+        tone: activeSubs.some(s => s.status === "suspended") ? "needs" : "run",
+        open: activeSubs[0].open || "tasks",
         href: "#/tasks",
-        title: liveSubs.length === 1 ? liveSubs[0].goal : `${plural(liveSubs.length, "sub-agent")} working`,
-        desc: liveSubs[0].sub || "Working on your request…",
-        subAgents: liveSubs,
-        count: liveSubs.length > 1 ? liveSubs.length : 0,
+        title: activeSubs.length === 1 ? activeSubs[0].goal : `${plural(activeSubs.length, "sub-agent")} working`,
+        desc: activeSubs[0].sub || "Working on your request…",
+        count: activeSubs.length > 1 ? activeSubs.length : 0,
         updatedAt: Date.now(),
       });
     } else if (last) {
@@ -199,6 +202,23 @@ const AuroraStage = (() => {
         proof: proofOf(last),
         verified: !!(last.verified || last.receipts_count > 0 || last.has_deliverable),
         updatedAt: tsOf(last.ended_at || last.created_at),
+      });
+    }
+    // Give each active or recently finished sub-agent its own bento tile so parallel tracks compose across the side & bottom.
+    const shownSubs = activeSubs.length ? threadSubs : (last ? threadSubs.slice(0, 3) : []);
+    for (const s of shownSubs) {
+      const tone = s.status === "suspended" ? "needs" : s.status === "running" ? "run" : s.status === "completed" ? "done" : "idle";
+      const taskId = s.open.startsWith("task:") ? s.open.slice(5) : "";
+      list.push({
+        key: `sub:${s.run}`,
+        label: s.status === "running" ? "Sub-agent · Working" : s.status === "suspended" ? "Sub-agent · Waiting" : "Sub-agent",
+        icon: "sparkles",
+        tone,
+        open: s.open || "tasks",
+        href: taskId ? `#/task/${enc(taskId)}` : "#/tasks",
+        title: s.goal,
+        desc: s.sub || s.summary || (s.status === "completed" ? "Completed" : "Working…"),
+        updatedAt: s.status === "running" || s.status === "suspended" ? Date.now() : 0,
       });
     }
     // Surface concurrent autonomous tasks running in parallel (this thread or others).
@@ -439,7 +459,7 @@ const AuroraStage = (() => {
     bento.getAnimations().forEach(a => { if (a.id === "stage-grow") a.cancel(); });
     if (!moving()) return;
     const conv = bento.closest("section.conv");
-    if (conv && conv.dataset.stageMode === "composed" && conv.getBoundingClientRect().width >= 820) return;
+    if (conv && bento.classList.contains("stage-bento") && conv.dataset.stageMode === "composed" && conv.getBoundingClientRect().width >= 820) return;
     const now = sizeOf(bento);
     if (Math.abs(now.height - was.height) < 1 && Math.abs(now.margin - was.margin) < 1) return;
     const a = bento.animate([{ height: `${was.height}px`, marginTop: `${was.margin}px` }, { height: `${now.height}px`, marginTop: `${now.margin}px` }], { duration: MOVE_MS, easing: now.height < was.height ? FOLD_EASE : MOVE_EASE });
@@ -575,7 +595,7 @@ const AuroraStage = (() => {
     if (watched.has(main)) return;
     watched.add(main);
     new MutationObserver(records => {
-      if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .aurora-canvas-row"))) return;
+      if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .stage-bento-bottom, .aurora-canvas-row"))) return;
       queued = requestAnimationFrame(() => { queued = 0; refresh(); });
     }).observe(main, { childList: true, subtree: true });
   }
@@ -584,8 +604,39 @@ const AuroraStage = (() => {
   let rerun = false;
   /** The next box to leave on its own. @type {ReturnType<typeof setTimeout>|undefined} */
   let leaving;
-  /** The bento, kept when the conversation is drawn again. @type {?HTMLElement} */
+  /** The side and bottom bento containers, kept when the conversation redraws. @type {?HTMLElement} */
   let kept = null;
+  /** @type {?HTMLElement} */
+  let keptBottom = null;
+
+  /**
+   * Keeps the chat stream calm and Antigravity-like: process cards (tasks,
+   * sub-agents, intermediate results) render as quiet vertical change history
+   * with auto-collapsed details instead of filling the chat box inline while
+   * the live interactive cards compose in the Side and Bottom bento.
+   * @param {Element} conv
+   */
+  function compactThreadHistory(conv) {
+    const thread = conv.querySelector(":scope > .thread");
+    if (!thread) return;
+    thread.querySelectorAll(".reqgroup.chatcard[data-chat-tasks], .reqgroup.chatcard.sub-agents, .result[data-result]").forEach(el => {
+      if (!(el instanceof HTMLElement)) return;
+      el.dataset.history = "1";
+      el.querySelectorAll("details").forEach(d => {
+        if (d.dataset.historyInit) return;
+        // Keep interactive iframe/composed deliverables visible if directly attached; collapse verbose text/sub-agent logs.
+        if (d.querySelector("iframe.composed, .composed-wrap")) return;
+        d.dataset.historyInit = "1";
+        d.open = false;
+      });
+    });
+    thread.querySelectorAll(".decide").forEach(dec => {
+      if (!(dec instanceof HTMLElement)) return;
+      const cards = dec.querySelectorAll(".card.item[data-id]");
+      if (cards.length && cards.length === dec.children.length) dec.dataset.historyHidden = "1";
+      else delete dec.dataset.historyHidden;
+    });
+  }
 
   /**
    * Adds a quiet "Inspect Canvas →" footer row on completed answers backed by
@@ -613,27 +664,30 @@ const AuroraStage = (() => {
     });
   }
 
+  /** Creates a kept bento nav element with hover-hold behavior. @param {string} cls @param {string} label */
+  function makeBento(cls, label) {
+    const el = document.createElement("nav");
+    el.className = cls;
+    el.setAttribute("aria-label", label);
+    sized.observe(el);
+    const away = () => setTimeout(() => {
+      if (!el.isConnected || el.matches(":hover, :focus-within")) return;
+      AuroraBoxes.left(boxesIn(el).map(b => b.dataset.sign || ""));
+      refresh();
+    }, 0);
+    el.addEventListener("pointerleave", away);
+    el.addEventListener("focusout", away);
+    return el;
+  }
+
   /**
-   * The autonomous stage canvas inside `section.conv`.
+   * The primary Side Bento inside `section.conv`.
    * @param {Element} conv
    */
   function bentoIn(conv) {
     let bento = /** @type {?HTMLElement} */ (conv.querySelector(":scope > .stage-bento"));
     if (!bento) {
-      if (!kept) {
-        kept = document.createElement("nav");
-        kept.className = "stage-bento";
-        kept.setAttribute("aria-label", "Live workspace");
-        sized.observe(kept);
-        const away = () => setTimeout(() => {
-          if (!kept || kept.matches(":hover, :focus-within")) return;
-          AuroraBoxes.left(boxesIn(kept).map(b => b.dataset.sign || ""));
-          refresh();
-        }, 0);
-        kept.addEventListener("pointerleave", away);
-        kept.addEventListener("focusout", away);
-        at = new WeakMap();
-      }
+      if (!kept) { kept = makeBento("stage-bento", "Live workspace"); at = new WeakMap(); }
       bento = kept;
     }
     const thread = conv.querySelector(":scope > .thread");
@@ -644,33 +698,69 @@ const AuroraStage = (() => {
     return bento;
   }
 
-  /** Composes the autonomous stage inside `section.conv`, rearranging layout when active work exists. */
+  /**
+   * The secondary Bottom Bento strip inside `section.conv` (parallel tasks,
+   * sub-agents, fresh files, and recent work spanning below the chat & side).
+   * @param {Element} conv @param {Element} sideBento
+   */
+  function bentoBottomIn(conv, sideBento) {
+    let bottom = /** @type {?HTMLElement} */ (conv.querySelector(":scope > .stage-bento-bottom"));
+    if (!bottom) {
+      if (!keptBottom) keptBottom = makeBento("stage-bento-bottom", "Workspace activity");
+      bottom = keptBottom;
+    }
+    if (sideBento.nextElementSibling !== bottom) sideBento.after(bottom);
+    return bottom;
+  }
+
+  /** Composes the autonomous stage inside `section.conv`, rearranging tiles across Side & Bottom bento. */
   function refresh() {
     const main = document.getElementById("main");
     if (!main) return Promise.resolve();
     watch(main);
     const conv = main.querySelector(":scope > section.conv");
     if (!on() || !conv) {
-      document.querySelectorAll(".stage-bento").forEach(b => b.remove());
+      document.querySelectorAll(".stage-bento, .stage-bento-bottom").forEach(b => b.remove());
       document.querySelectorAll(".aurora-canvas-row").forEach(r => r.remove());
-      if (conv instanceof HTMLElement) delete conv.dataset.stageMode;
+      if (conv instanceof HTMLElement) { delete conv.dataset.stageMode; delete conv.dataset.hasBottom; }
       return Promise.resolve();
     }
+    compactThreadHistory(conv);
     if (drawing) { rerun = true; return drawing; }
     drawing = (async () => {
       const all = await boxes();
       const now = main.querySelector(":scope > section.conv");
       if (!now) return;
+      compactThreadHistory(now);
       const bento = bentoIn(now);
-      const heldSet = new Set(bento.matches(":hover, :focus-within") ? boxesIn(bento).map(b => b.dataset.sign || "") : []);
+      const bottom = bentoBottomIn(now, bento);
+      const heldSet = new Set([
+        ...(bento.matches(":hover, :focus-within") ? boxesIn(bento).map(b => b.dataset.sign || "") : []),
+        ...(bottom.matches(":hover, :focus-within") ? boxesIn(bottom).map(b => b.dataset.sign || "") : []),
+      ]);
       const visible = AuroraBoxes.shown(all, Date.now(), heldSet);
       const list = visible.slice(0, SHOWN_BOXES);
       const extra = Math.max(0, visible.length - list.length);
-      if (now instanceof HTMLElement) now.dataset.stageMode = list.length ? "composed" : "chat";
-      place(bento, list);
-      let over = bento.querySelector(":scope > .stage-bento-overflow");
+      let sideList = list;
+      let bottomList = [];
+      if (list.length > 2) {
+        const isPrimary = c => c.key === "live" || c.key.startsWith("approval:");
+        const primary = list.filter(isPrimary);
+        sideList = primary.length ? primary.slice(0, 2) : list.slice(0, 2);
+        const sideKeys = new Set(sideList.map(c => c.key));
+        bottomList = list.filter(c => !sideKeys.has(c.key));
+      }
+      if (now instanceof HTMLElement) {
+        now.dataset.stageMode = list.length ? "composed" : "chat";
+        now.dataset.hasBottom = bottomList.length ? "1" : "0";
+      }
+      place(bento, sideList);
+      place(bottom, bottomList);
+      const overflowHost = bottomList.length ? bottom : bento;
+      document.querySelectorAll(".stage-bento-overflow").forEach(o => { if (o.parentElement !== overflowHost) o.remove(); });
+      let over = overflowHost.querySelector(":scope > .stage-bento-overflow");
       if (extra > 0) {
-        if (!over) { over = document.createElement("a"); over.className = "stage-bento-overflow"; over.setAttribute("href", "#/tasks"); over.setAttribute("data-open", "tasks"); bento.append(over); }
+        if (!over) { over = document.createElement("a"); over.className = "stage-bento-overflow"; over.setAttribute("href", "#/tasks"); over.setAttribute("data-open", "tasks"); overflowHost.append(over); }
         over.textContent = `+${extra} more active in workspace sidebar →`;
       } else if (over) {
         over.remove();

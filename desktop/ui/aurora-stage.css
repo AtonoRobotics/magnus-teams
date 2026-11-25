@@ -25,6 +25,8 @@
 
 /* ---------- The conversation and its bento ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-workspace="single"][data-region="work"]) .shell > main:has(> section.conv) {
+  container-type: inline-size;
+  container-name: aurora-main;
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -116,47 +118,41 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento > .s
   grid-column: 1 / -1;
 }
 
-@container aurora-conv (min-width: 820px) {
+@container aurora-main (min-width: 820px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] {
     display: grid;
-    grid-template-columns: minmax(340px, 44%) minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(360px, 56%) minmax(280px, 44%);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
     align-content: stretch;
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .conv-head {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > #banners {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .thread {
-    grid-column: 1;
-    grid-row: 3;
-    min-height: 0;
-    overflow-y: auto;
-  }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .chat-status {
-    grid-column: 1;
-    grid-row: 4;
-  }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .composer-slot {
-    grid-column: 1;
-    grid-row: 5;
-  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .conv-head { grid-column: 1 / -1; grid-row: 1; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > #banners { grid-column: 1 / -1; grid-row: 2; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .thread { grid-column: 1; grid-row: 3; min-height: 0; overflow-y: auto; padding-left: 24px; padding-right: 20px; }
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento {
     grid-column: 2;
-    grid-row: 3 / 6;
+    grid-row: 3;
+    grid-template-columns: 1fr;
     max-width: none;
     max-height: none;
     height: auto;
     margin: 0;
-    padding: 16px 20px 20px;
+    padding: 14px 18px;
     border-left: 1px solid var(--aurora-rim);
     background: color-mix(in srgb, var(--fg) 1.5%, transparent);
-    gap: 12px;
+    gap: 10px;
   }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento-bottom {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    max-width: none;
+    margin: 0;
+    padding: 10px 20px;
+    border-top: 1px solid var(--aurora-rim);
+    background: color-mix(in srgb, var(--fg) 1.5%, transparent);
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento-bottom[data-count="0"] { padding: 0; border-top: 0; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .chat-status { grid-column: 1 / -1; grid-row: 5; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .composer-slot { grid-column: 1 / -1; grid-row: 6; }
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile.stage-tile-enter {
