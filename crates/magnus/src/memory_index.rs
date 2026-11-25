@@ -26,6 +26,10 @@ pub const DEFAULT_EMBEDDING_DIM: usize = 1536;
 pub const MAX_EMBEDDING_DIM: usize = 4000;
 /// Maximum byte budget for pinned `kind = 'profile'` entries per user.
 pub const PROFILE_MAX_BYTES: usize = 8192;
+/// Default cap on active distilled `kind = 'lesson'` assertions per `(tenant_id, owner_id)`.
+pub const DEFAULT_MAX_LESSONS_PER_SCOPE: usize = 64;
+/// Largest accepted `[memory] max_lessons_per_scope`.
+pub const MAX_LESSONS_PER_SCOPE_LIMIT: usize = 4096;
 
 /// Validated `pgvector >= 0.8.0` HNSW iterative scan mode.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -49,6 +53,10 @@ fn default_embedding_dim() -> usize {
     DEFAULT_EMBEDDING_DIM
 }
 
+fn default_max_lessons_per_scope() -> usize {
+    DEFAULT_MAX_LESSONS_PER_SCOPE
+}
+
 /// Typed startup `[memory]` configuration (validated at startup, takes effect on restart).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MemoryConfig {
@@ -67,6 +75,10 @@ pub struct MemoryConfig {
     /// `pgvector >= 0.8.0` HNSW iterative scan mode.
     #[serde(default)]
     pub hnsw_iterative_scan: HnswIterativeScan,
+    /// Cap on active distilled lessons per `(tenant_id, owner_id)`; the curator
+    /// archives the least-used excess when a new lesson is distilled.
+    #[serde(default = "default_max_lessons_per_scope")]
+    pub max_lessons_per_scope: usize,
 }
 
 impl Default for MemoryConfig {
@@ -77,6 +89,7 @@ impl Default for MemoryConfig {
             person_modes: BTreeMap::new(),
             embedding_dim: default_embedding_dim(),
             hnsw_iterative_scan: HnswIterativeScan::default(),
+            max_lessons_per_scope: default_max_lessons_per_scope(),
         }
     }
 }
@@ -98,6 +111,11 @@ impl MemoryConfig {
             self.embedding_dim >= 1 && self.embedding_dim <= MAX_EMBEDDING_DIM,
             "[memory] embedding_dim must be between 1 and {MAX_EMBEDDING_DIM}, got {}",
             self.embedding_dim
+        );
+        anyhow::ensure!(
+            self.max_lessons_per_scope >= 1 && self.max_lessons_per_scope <= MAX_LESSONS_PER_SCOPE_LIMIT,
+            "[memory] max_lessons_per_scope must be between 1 and {MAX_LESSONS_PER_SCOPE_LIMIT}, got {}",
+            self.max_lessons_per_scope
         );
         Ok(())
     }

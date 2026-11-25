@@ -17,7 +17,8 @@ pub const MIN_PGVECTOR_PATCH: u64 = 0;
 const MIGRATE_ADVISORY_LOCK_KEY: i64 = 0x4D45_4D5F_4D49_4752;
 /// Monotonic schema version recorded in `public.memory_schema_meta` so routine
 /// restarts skip DDL and take zero table locks.
-pub const MEMORY_SCHEMA_VERSION: i32 = 1;
+/// Version 2 adds `memory_curator_watermarks`.
+pub const MEMORY_SCHEMA_VERSION: i32 = 2;
 
 /// Apply unified memory migrations only when `cfg.is_unified_enabled()` is true.
 /// Verifies `cfg.check()` and `pgvector >= 0.8.0` before running DDL with the
@@ -157,6 +158,7 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
         ),
     );
     let pol_jobs_k = ensure_policy_sql("memory_enrichment_jobs", "memory_enrichment_jobs_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
+    let pol_marks_k = ensure_policy_sql("memory_curator_watermarks", "memory_curator_watermarks_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
 
     format!(
         "DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -355,6 +357,22 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          ALTER TABLE public.memory_enrichment_jobs FORCE ROW LEVEL SECURITY;
          REVOKE ALL ON public.memory_enrichment_jobs FROM PUBLIC;
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_enrichment_jobs TO {role};
-         {pol_jobs_k}"
+         {pol_jobs_k}
+
+         -- 8. memory_curator_watermarks: per-tenant progress of each curator job,
+         --    so a pass only looks at assertions written since the last one.
+         CREATE TABLE IF NOT EXISTS public.memory_curator_watermarks (
+             tenant_id         TEXT NOT NULL,
+             job               TEXT NOT NULL,
+             last_created_at   TIMESTAMPTZ NOT NULL,
+             last_assertion_id TEXT NOT NULL,
+             updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+             PRIMARY KEY (tenant_id, job)
+         );
+         ALTER TABLE public.memory_curator_watermarks ENABLE ROW LEVEL SECURITY;
+         ALTER TABLE public.memory_curator_watermarks FORCE ROW LEVEL SECURITY;
+         REVOKE ALL ON public.memory_curator_watermarks FROM PUBLIC;
+         GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_curator_watermarks TO {role};
+         {pol_marks_k}"
     )
 }

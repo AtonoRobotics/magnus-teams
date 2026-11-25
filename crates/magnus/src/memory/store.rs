@@ -192,59 +192,46 @@ impl MemoryStore {
     }
 
     /// Record that `new_assertion_id` supersedes `old_assertion_id` within `tenant_id`.
-    /// Enforces:
-    /// - No self-supersession or transitive cycles.
-    /// - Untrusted assertions may never supersede trusted assertions (Invariant 4).
-    /// - Non-profile assertions may never supersede `kind = 'profile'`.
-    pub async fn record_supersession(&mut self, tenant_id: &str, new_assertion_id: &str, old_assertion_id: &str) -> Result<()> {
-        anyhow::ensure!(new_assertion_id != old_assertion_id, "an assertion cannot supersede itself");
+    /// A guard refusal is an `Ok(Refused(..))`, never an error, so callers can
+    /// tell a policy decision from a database failure. Refuses:
+    /// - self-supersession and transitive cycles;
+    /// - an untrusted assertion superseding a trusted one (Invariant 4);
+    /// - a non-profile assertion superseding `kind = 'profile'`;
+    /// - either assertion being gone (e.g. merged away earlier in a curator pass).
+    pub async fn record_supersession(&mut self, tenant_id: &str, new_assertion_id: &str, old_assertion_id: &str) -> Result<SupersessionOutcome> {
+        if new_assertion_id == old_assertion_id {
+            return Ok(SupersessionOutcome::Refused(SupersessionRefusal::SelfLink));
+        }
         let tx = self.client.transaction().await.context("begin record_supersession tx")?;
 
-        let new_row = tx
-            .query_opt(
-                "SELECT kind, untrusted FROM public.memory_assertions
-                 WHERE tenant_id = $1 AND assertion_id = $2
-                 FOR SHARE",
-                &[&tenant_id, &new_assertion_id],
-            )
-            .await?
-            .context("superseding assertion not found")?;
-        let old_row = tx
-            .query_opt(
-                "SELECT kind, untrusted FROM public.memory_assertions
-                 WHERE tenant_id = $1 AND assertion_id = $2
-                 FOR SHARE",
-                &[&tenant_id, &old_assertion_id],
-            )
-            .await?
-            .context("superseded assertion not found")?;
+        let lock_sql = "SELECT kind, untrusted FROM public.memory_assertions
+                        WHERE tenant_id = $1 AND assertion_id = $2
+                        FOR SHARE";
+        let new_row = tx.query_opt(lock_sql, &[&tenant_id, &new_assertion_id]).await.context("lock superseding assertion")?;
+        let old_row = tx.query_opt(lock_sql, &[&tenant_id, &old_assertion_id]).await.context("lock superseded assertion")?;
+        let (Some(new_row), Some(old_row)) = (new_row, old_row) else {
+            tx.rollback().await?;
+            return Ok(SupersessionOutcome::Refused(SupersessionRefusal::Missing));
+        };
 
-        let new_kind: String = new_row.get(0);
+        let new_kind: AssertionKind = new_row.get::<_, String>(0).parse()?;
         let new_untrusted: bool = new_row.get(1);
-        let old_kind: String = old_row.get(0);
+        let old_kind: AssertionKind = old_row.get::<_, String>(0).parse()?;
         let old_untrusted: bool = old_row.get(1);
 
-        anyhow::ensure!(!(new_untrusted && !old_untrusted), "untrusted assertion cannot supersede a trusted assertion (Invariant 4)");
-        anyhow::ensure!(!(old_kind == AssertionKind::Profile.as_str() && new_kind != AssertionKind::Profile.as_str()), "non-profile assertion cannot supersede a profile entry");
-
-        let creates_cycle = tx
-            .query_opt(
-                "WITH RECURSIVE chain AS (
-                     SELECT old_assertion_id AS cur
-                     FROM public.memory_supersessions
-                     WHERE tenant_id = $1 AND new_assertion_id = $2
-                     UNION
-                     SELECT s.old_assertion_id
-                     FROM public.memory_supersessions s
-                     JOIN chain c ON s.new_assertion_id = c.cur
-                     WHERE s.tenant_id = $1
-                 )
-                 SELECT 1 FROM chain WHERE cur = $3 LIMIT 1",
-                &[&tenant_id, &old_assertion_id, &new_assertion_id],
-            )
-            .await?
-            .is_some();
-        anyhow::ensure!(!creates_cycle, "supersession would create a cycle");
+        let refusal = if new_untrusted && !old_untrusted {
+            Some(SupersessionRefusal::UntrustedOverTrusted)
+        } else if old_kind == AssertionKind::Profile && new_kind != AssertionKind::Profile {
+            Some(SupersessionRefusal::NonProfileOverProfile)
+        } else if supersession_reaches(&tx, tenant_id, old_assertion_id, new_assertion_id).await? {
+            Some(SupersessionRefusal::Cycle)
+        } else {
+            None
+        };
+        if let Some(reason) = refusal {
+            tx.rollback().await?;
+            return Ok(SupersessionOutcome::Refused(reason));
+        }
 
         tx.execute(
             "INSERT INTO public.memory_supersessions (tenant_id, new_assertion_id, old_assertion_id)
@@ -256,6 +243,46 @@ impl MemoryStore {
         .context("insert memory_supersessions")?;
 
         tx.commit().await?;
-        Ok(())
+        Ok(SupersessionOutcome::Recorded)
     }
+}
+
+/// Result of `MemoryStore::record_supersession`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SupersessionOutcome {
+    Recorded,
+    Refused(SupersessionRefusal),
+}
+
+/// Why a supersession was refused by policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SupersessionRefusal {
+    SelfLink,
+    Missing,
+    UntrustedOverTrusted,
+    NonProfileOverProfile,
+    Cycle,
+}
+
+/// True when following `new -> old` supersession links from `from` reaches `to`
+/// (so adding `to -> from` would close a cycle).
+pub(crate) async fn supersession_reaches(tx: &Transaction<'_>, tenant_id: &str, from: &str, to: &str) -> Result<bool> {
+    let hit = tx
+        .query_opt(
+            "WITH RECURSIVE chain AS (
+                 SELECT old_assertion_id AS cur
+                 FROM public.memory_supersessions
+                 WHERE tenant_id = $1 AND new_assertion_id = $2
+                 UNION
+                 SELECT s.old_assertion_id
+                 FROM public.memory_supersessions s
+                 JOIN chain c ON s.new_assertion_id = c.cur
+                 WHERE s.tenant_id = $1
+             )
+             SELECT 1 FROM chain WHERE cur = $3 LIMIT 1",
+            &[&tenant_id, &from, &to],
+        )
+        .await
+        .context("walk supersession chain")?;
+    Ok(hit.is_some())
 }

@@ -1,6 +1,7 @@
 //! Unified Rust + Postgres memory engine (Phase 1-2: core schema, tenant+CNF
 //! RLS store, sync ingest, fenced enrichment, and 0-LLM hybrid+graph retrieval).
 
+pub mod curator;
 pub mod enrich;
 pub mod graph;
 pub mod ingest;
@@ -10,6 +11,10 @@ pub mod store;
 
 #[cfg(test)]
 mod bench_tests;
+#[cfg(test)]
+mod curator_tests;
+#[cfg(test)]
+mod live_pg_test;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -66,6 +71,21 @@ impl AssertionKind {
             Self::Chunk => "chunk",
             Self::Lesson => "lesson",
             Self::Profile => "profile",
+        }
+    }
+}
+
+impl std::str::FromStr for AssertionKind {
+    type Err = anyhow::Error;
+
+    /// Inverse of `as_str`, for kinds read back from `memory_assertions.kind`.
+    fn from_str(raw: &str) -> anyhow::Result<Self> {
+        match raw {
+            "fact" => Ok(Self::Fact),
+            "chunk" => Ok(Self::Chunk),
+            "lesson" => Ok(Self::Lesson),
+            "profile" => Ok(Self::Profile),
+            other => anyhow::bail!("unknown assertion kind {other:?}"),
         }
     }
 }
@@ -165,6 +185,13 @@ pub fn intersect_readers(policies: &[Vec<Vec<String>>]) -> Vec<Vec<String>> {
         combined.extend(policy.iter().cloned());
     }
     canonicalize_readers(&combined)
+}
+
+/// True when every principal set that satisfies the CNF policy `narrower` also
+/// satisfies `wider`: each clause of `wider` contains some clause of `narrower`.
+/// An empty `wider` (no clause) admits every reader.
+pub fn readers_cover(wider: &[Vec<String>], narrower: &[Vec<String>]) -> bool {
+    wider.iter().all(|w| narrower.iter().any(|n| n.iter().all(|p| w.contains(p))))
 }
 
 /// Format an embedding slice as a pgvector literal `[v0,v1,...]` after verifying

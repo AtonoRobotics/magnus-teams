@@ -4,17 +4,12 @@
 use super::*;
 use crate::memory::enrich::{claim_next_job, commit_enrichment, EnrichCommit, EnrichmentOutput};
 use crate::memory::ingest::{ingest_source, IngestOutcome};
+use crate::memory::live_pg_test::{test_config, LiveDb};
 use crate::memory::schema::{check_pgvector_version, migrate_if_enabled, migrate_sql};
-use crate::memory::store::MemoryStore;
+use crate::memory::store::{SupersessionOutcome, SupersessionRefusal};
 use crate::memory_index::{HnswIterativeScan, MemoryConfig, MemoryMode, PROFILE_MAX_BYTES};
 use chrono::Utc;
 use serde_json::json;
-
-const TEST_EMBEDDING_DIM: usize = 4;
-
-fn test_config() -> MemoryConfig {
-    MemoryConfig { mode: MemoryMode::V2, embedding_dim: TEST_EMBEDDING_DIM, hnsw_iterative_scan: HnswIterativeScan::RelaxedOrder, ..Default::default() }
-}
 
 #[test]
 fn config_validation_rejects_invalid_dim_and_unknown_scan_mode() {
@@ -74,31 +69,11 @@ fn migrate_sql_enforces_forced_rls_on_all_tables_and_profile_size_cap() {
     assert!(!sql.contains("canonical_name"));
 }
 
-/// Connect to live Postgres when `MAGNUS_TEST_ADMIN_URL` and `MAGNUS_TEST_KERNEL_URL`
-/// are set. Panics loudly on connection/migration failure if env vars are present.
-async fn setup_test_store() -> Option<(String, String, MemoryStore)> {
-    let admin_url = std::env::var("MAGNUS_TEST_ADMIN_URL").ok()?;
-    let kernel_url = std::env::var("MAGNUS_TEST_KERNEL_URL").expect("MAGNUS_TEST_KERNEL_URL required with MAGNUS_TEST_ADMIN_URL");
-    let parsed = url::Url::parse(&kernel_url).expect("valid MAGNUS_TEST_KERNEL_URL");
-    let role = parsed.username().to_string();
-    let admin = crate::log::connect(&admin_url).await.expect("connect MAGNUS_TEST_ADMIN_URL");
-    let _ = admin
-        .batch_execute(&format!(
-            "DO $$ BEGIN CREATE ROLE {role} LOGIN PASSWORD 'testpw' NOSUPERUSER NOBYPASSRLS; \
-             EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
-        ))
-        .await;
-    let cfg = test_config();
-    migrate_if_enabled(&admin_url, &kernel_url, &cfg).await.expect("migrate_if_enabled");
-    let store = MemoryStore::connect(&kernel_url, &cfg).await.expect("connect MemoryStore");
-    Some((admin_url, kernel_url, store))
-}
-
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn phase1_live_rls_erasure_taint_merge_dedup_and_fencing() {
-    let Some((admin_url, kernel_url, mut store)) = setup_test_store().await else {
-        return;
-    };
+    let db = LiveDb::create().await;
+    let (admin_url, kernel_url) = (db.admin_url.clone(), db.kernel_url.clone());
+    let mut store = db.store().await;
     let tenant = format!("t_{}", Uuid::new_v4());
     let now = Utc::now();
 
@@ -352,9 +327,8 @@ async fn phase2_mixed_visibility_override_hop_taint_hybrid_and_selective_rls() {
     use chrono::Duration;
     use std::time::Instant;
 
-    let Some((_admin_url, _kernel_url, mut store)) = setup_test_store().await else {
-        return;
-    };
+    let db = LiveDb::create().await;
+    let mut store = db.store().await;
     let tenant = format!("t_{}", Uuid::new_v4());
     let now = Utc::now();
 
@@ -575,9 +549,9 @@ async fn phase2_review_fixes_tenant_rls_supersession_guards_advisory_lock_and_mu
 
     const SELECTIVE_RLS_MAX_LATENCY_MS: u128 = 500;
 
-    let Some((admin_url, kernel_url, mut store)) = setup_test_store().await else {
-        return;
-    };
+    let db = LiveDb::create().await;
+    let (admin_url, kernel_url) = (db.admin_url.clone(), db.kernel_url.clone());
+    let mut store = db.store().await;
 
     // 1. Concurrent migrate_if_enabled must succeed without pg_type catalog race.
     let cfg = test_config();
@@ -641,10 +615,10 @@ async fn phase2_review_fixes_tenant_rls_supersession_guards_advisory_lock_and_mu
     };
     assert!(matches!(ingest_source(&mut store, &s_clean).await.unwrap(), IngestOutcome::Inserted { .. }));
     assert!(matches!(ingest_source(&mut store, &s_untrusted).await.unwrap(), IngestOutcome::Inserted { .. }));
-    // Drain jobs for this tenant
+    // Drain the queue: the tenant_a/tenant_b sources from step 2 left jobs with nothing to extract.
     while let Some(job) = claim_next_job(&mut store).await.unwrap() {
         if job.tenant_id != t {
-            let _ = commit_enrichment(&mut store, &job, &EnrichmentOutput::default()).await;
+            assert_eq!(commit_enrichment(&mut store, &job, &EnrichmentOutput::default()).await.unwrap(), EnrichCommit::Committed);
             continue;
         }
         let out = if job.source_id == "s_clean" {
@@ -709,10 +683,13 @@ async fn phase2_review_fixes_tenant_rls_supersession_guards_advisory_lock_and_mu
         assert_eq!(commit_enrichment(&mut store, &job, &out).await.unwrap(), EnrichCommit::Committed);
     }
 
-    assert!(store.record_supersession(&t, "a_untrusted", "a_trusted").await.is_err(), "untrusted must not supersede trusted");
-    assert!(store.record_supersession(&t, "a_trusted", "a_prof").await.is_err(), "fact must not supersede profile");
-    store.record_supersession(&t, "a_trusted_2", "a_trusted").await.unwrap();
-    assert!(store.record_supersession(&t, "a_trusted", "a_trusted_2").await.is_err(), "supersession cycle must be rejected");
+    let refused = |r| SupersessionOutcome::Refused(r);
+    assert_eq!(store.record_supersession(&t, "a_untrusted", "a_trusted").await.unwrap(), refused(SupersessionRefusal::UntrustedOverTrusted));
+    assert_eq!(store.record_supersession(&t, "a_trusted", "a_prof").await.unwrap(), refused(SupersessionRefusal::NonProfileOverProfile));
+    assert_eq!(store.record_supersession(&t, "a_trusted_2", "a_trusted").await.unwrap(), SupersessionOutcome::Recorded);
+    assert_eq!(store.record_supersession(&t, "a_trusted", "a_trusted_2").await.unwrap(), refused(SupersessionRefusal::Cycle));
+    assert_eq!(store.record_supersession(&t, "a_trusted", "a_trusted").await.unwrap(), refused(SupersessionRefusal::SelfLink));
+    assert_eq!(store.record_supersession(&t, "a_gone", "a_trusted").await.unwrap(), refused(SupersessionRefusal::Missing));
 
     // 4. Multi-word entity lookup ("Port Congestion") finds the edge directly.
     let mw_req = RetrieveRequest::new(&t, vec!["org:acme".into()], "Tell me about Port Congestion");
