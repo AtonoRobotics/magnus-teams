@@ -34,3 +34,8 @@ Cached input is priced at about a tenth of fresh input by both providers.
 None of this changes
 what a run may do or what it is shown; it changes only how often the same
 context is paid for.
+
+## Also
+d924a56 added `system` to a schedule's record without re-pinning the state's
+folded form, leaving main's fast tier red. The pin is updated to show the
+new field; nothing else in the fold changed.
