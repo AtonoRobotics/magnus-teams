@@ -185,17 +185,14 @@ pub(crate) async fn add_file(k: &Kernel, p: &Person, b: &Value, thread: Option<S
     Ok(Ok(id))
 }
 
-/// The person's uploaded files named in a request (`files`), to give to a
-/// task or a message.
+/// The person's files (uploaded or delivered) named in a request (`files`),
+/// to give to a task or a message.
 pub(crate) fn given_files(k: &Kernel, p: &Person, b: &Value) -> crate::api_error::ApiResult<Vec<String>> {
     let ids: Vec<String> = b["files"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect();
     for id in &ids {
-        match k.read(|s| s.library.files().get(id).filter(|f| f.person == p.id).map(|f| f.uploaded)) {
-            None => return crate::api_error::refuse(StatusCode::NOT_FOUND, format!("no such file {id}")),
-            Some(false) => {
-                return crate::api_error::refuse(StatusCode::BAD_REQUEST, "only uploaded files can be given to a task or message; to use a delivered file, put it in a project")
-            }
-            Some(true) => {}
+        let owns = k.read(|s| s.library.files().get(id).is_some_and(|f| f.person == p.id));
+        if !owns {
+            return crate::api_error::refuse(StatusCode::NOT_FOUND, format!("no such file {id}"));
         }
     }
     Ok(ids)

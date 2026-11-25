@@ -358,7 +358,7 @@ const WAITING = {
   provider: "paused: the model provider is unavailable", usage_limit: "paused: model usage limit", auth: "paused: sign in to the model again",
   monitor: "waiting for you: the safety monitor held an action", secure_form: "waiting for you to sign in", payment: "waiting for you to approve a purchase", takeover: "paused: you have control of the computer", takeover_request: "waiting for you to take over the computer",
   kill_switch: "stopped by the kill switch", timer: "waiting until a set time", invalid_request: "paused: the model rejected the request",
-  spend_limit: "paused: a monthly spend limit is reached",
+  spend_limit: "paused: a monthly spend limit is reached", paused_by_user: "paused by you",
 };
 const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class="chip ${c}">${esc(l)}</span>`; };
 
@@ -1772,7 +1772,7 @@ async function respond(btn, root) {
   try {
     await Server.inbox.answer(id, body);
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
-    if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Settings → Rules.", 5000);
+    if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Rules.", 5000);
     else toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
@@ -1878,20 +1878,25 @@ function timelineGroups(active, done) {
 // A decision waiting on the person, with its app's icon, tier, preview and answers.
 function needsInlineCard(i) {
   const ic = SidePanel.brand(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) || `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
-  const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
-  const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
+  const quickMap = {
+    approval: ["approve", "reject", "Approve", "Deny"],
+    review: ["accept", "dismiss", "Accept", "Dismiss"],
+    endorsement: ["endorse", "decline", "Endorse", "Decline"],
+  };
+  const quick = quickMap[i.kind];
   const fields = typeof askSummaryFields === "function" ? askSummaryFields(i) : { rows: [], body: "" };
   const preview = [
     ...fields.rows.slice(0, 2).map(([k, v]) => `${k}: ${v}`),
     i.consequence || fields.body || "",
   ].filter(Boolean).join(" · ");
   const tier = typeof askTierBadge === "function" ? askTierBadge(i) : "";
+  const acts = quick
+    ? `<button type="button" data-item="${esc(i.id)}" data-decision="${quick[1]}">${quick[3]}</button>
+      <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${quick[0]}">${quick[2]}</button>`
+    : `<a class="btn primary" href="#/inbox" data-open="item:${esc(i.id)}">Open →</a>`;
   return `<div class="gbox needs-inline-card">
     <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${tier}${tier ? " " : ""}${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span>${preview ? `<span class="needs-inline-preview">${esc(preview)}</span>` : ""}</span></a>
-    <div class="needs-inline-acts">
-      <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
-      <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
-    </div>
+    <div class="needs-inline-acts">${acts}</div>
   </div>`;
 }
 // The schedules coming up, each with its app's icon or a calendar (a bell
@@ -1982,8 +1987,8 @@ function needsView(composed) {
     if (/mail|gmail|email/.test(hay)) return `<span class="appr-ic mail" aria-hidden="true">M</span>`;
     return `<span class="appr-ic" aria-hidden="true">${icon("globe")}</span>`;
   };
-  const list = items => `<div class="appr-list">${items.map(i => `<div class="needs-item appr-hist-row" data-needs="${esc(i.id)}">
-    <div class="appr-row-top">${appBadge(i)}<div class="appr-row-main"><div class="appr-hist-title">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || i.kind || "Pending decision")}</div>${where(i)}</div><span class="companion-status-lbl warn">${esc((KIND && KIND[i.kind]) || i.kind || "External")}</span></div>
+  const list = items => `<div class="appr-list">${items.map(i => `<div class="needs-item" data-needs="${esc(i.id)}">
+    ${where(i)}
     ${card(i, composed)}
   </div>`).join("")}</div>`;
   const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
@@ -2230,7 +2235,12 @@ async function taskView(id, composed) {
   const cost = Number.isFinite(t.usage?.cost_usd) ? `$${t.usage.cost_usd.toFixed(2)}` : null;
   // The result leads with the deliverable, then its files, the person's
   // verdict; what it cost closes it.
-  const outcome = `${view.length ? `<iframe class="composed" sandbox="allow-same-origin" title="The deliverable" id="pview"></iframe>` : running ? "" : `<p class="empty">No result yet.</p>`}
+  const deliverableBar = view.length ? `<div class="row small" data-deliverable-bar style="margin-bottom:6px;justify-content:flex-end">
+      <button type="button" class="link small" data-act="copy-deliverable">Copy Markdown</button>
+      <button type="button" class="link small" data-act="export-deliverable">Export .md</button>
+      <button type="button" class="link small" data-act="fullscreen-deliverable">Fullscreen</button>
+    </div>` : "";
+  const outcome = `${deliverableBar}${view.length ? `<iframe class="composed" sandbox="allow-same-origin" title="The deliverable" id="pview"></iframe>` : running ? "" : `<p class="empty">No result yet.</p>`}
     ${t.spoken && App.canReadAloud ? `<div class="row" style="margin:10px 0"><button type="button" class="icon-btn" data-act="${voice.entry===`task:${id}` ? "hush" : "speak"}" data-voice-entry="task:${esc(id)}" aria-label="${voice.entry===`task:${id}` ? "Stop reading" : "Read aloud"}" data-tooltip="${voice.entry===`task:${id}` ? "Stop reading" : "Read aloud"}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[voice.entry===`task:${id}` ? "hush" : "listen"]}</svg></button></div>` : ""}
     ${files.length ? `<div class="frows">${files.map(f => fileRow(f, t.project)).join("")}</div>` : ""}
     ${evidenceSection(t)}
@@ -2252,7 +2262,7 @@ async function taskView(id, composed) {
     <div class="seg layers" role="tablist" aria-label="What to show">${[["outcome", "Result"], ["contract", "Progress"], ["trace", "Steps"]].map(([k, l]) => `<button role="tab" aria-selected="${Panel.layer === k}" class="${Panel.layer === k ? "on" : ""}" data-layer="${k}">${l}</button>`).join("")}</div>
     <section class="layer">${layers[Panel.layer]}</section>
     ${!ENDED.includes(t.status) ? `<form class="row small" data-task-steer="${esc(id)}"><input placeholder="Steer Magnus on the next step…" aria-label="Steer Magnus" autocomplete="off"><button type="submit">Steer</button></form>` : ""}
-    <div class="row pactions">${moveControl(t.task_id, t.project, App.projects)}${!ENDED.includes(t.status) ? `<button data-act="cancel" data-id="${esc(id)}">Stop</button>` : trashButton(t.task_id, "Delete task")}${t.status === "suspended" && !t.waiting_item ? `<button data-act="resume" data-id="${esc(id)}">Resume</button>` : ""}</div>`;
+    <div class="row pactions">${moveControl(t.task_id, t.project, App.projects)}${running ? `<button data-act="pause-task" data-id="${esc(id)}">Pause</button>` : ""}${!ENDED.includes(t.status) ? `<button data-act="cancel" data-id="${esc(id)}">Stop</button>` : trashButton(t.task_id, "Delete task")}${t.status === "suspended" && !t.waiting_item ? `<button data-act="resume" data-id="${esc(id)}">Resume</button>` : ""}</div>`;
   Panel.task = t;
   return { head, body, after: el => Panel.layer === "outcome" && view.length && fill($("#pview", el), view, id, t) };
 }
@@ -2637,7 +2647,42 @@ function wirePanel() {
         case "cancel":
           if (!await ask("Stop this task? What it already did stays done.", "Stop")) return;
           await Server.tasks.cancel(id); break;
+        case "pause-task":
+          await Server.tasks.pause(id);
+          toast("Task paused. Resume it anytime.");
+          break;
         case "resume": await Server.tasks.resume(id); break;
+        case "copy-deliverable": {
+          const text = Panel.task?.summary || $("#pview", el)?.contentDocument?.body?.innerText || "";
+          if (text && navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); toast("Copied to clipboard."); }
+          else toast("Nothing to copy yet.");
+          return;
+        }
+        case "export-deliverable": {
+          const text = Panel.task?.summary || $("#pview", el)?.contentDocument?.body?.innerText || "";
+          if (!text) { toast("Nothing to export yet."); return; }
+          const slug = String(Panel.task?.title || "deliverable").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "deliverable";
+          const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const link = Object.assign(document.createElement("a"), { href: url, download: `${slug}.md` });
+          document.body.append(link); link.click(); link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast(`Exported ${slug}.md.`);
+          return;
+        }
+        case "fullscreen-deliverable": {
+          const frame = $("#pview", el);
+          if (frame?.requestFullscreen) frame.requestFullscreen().catch(() => {});
+          return;
+        }
+        case "run-schedule": {
+          a.disabled = true;
+          const r = await Server.schedules.run(id);
+          toast("Started a run now.");
+          await refresh();
+          if (r?.task_id) await openPanel(`task:${r.task_id}`);
+          return;
+        }
         case "stop-schedule":
           if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
           await Server.schedules.remove(id);
@@ -2687,6 +2732,24 @@ function wirePanel() {
     refresh();
   });
   el.addEventListener("submit", async e => {
+    const editSched = e.target.closest("form[data-edit-schedule]");
+    if (editSched) {
+      e.preventDefault();
+      const sid = editSched.dataset.editSchedule;
+      const fd = new FormData(editSched);
+      const kind = String(fd.get("kind") || "daily");
+      const patch = { text: String(fd.get("text") || "").trim() };
+      if (kind === "daily") patch.daily_at = String(fd.get("daily_at") || "08:00");
+      else patch.every_minutes = Math.max(5, Number(fd.get("every_minutes")) || 60);
+      const mr = String(fd.get("max_runs") || "").trim();
+      if (mr) patch.max_runs = Math.max(1, Number(mr) || 1);
+      try {
+        await Server.schedules.edit(sid, patch);
+        toast("Schedule updated.");
+        await refresh();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     if (e.target.id !== "np") return;
     e.preventDefault();
     try {
@@ -2764,6 +2827,7 @@ async function openSettingsModal(which) {
       await dataSection($('[data-s="data"]', el));
       await agreementsSection($('[data-s="agreements"]', el));
     }, "account privacy password sign out payments billing spend data export delete agreements terms"],
+    ["memory", "Memory & Promises", memorySection, "memory facts forget playbook lessons promises commitments relationship notes"],
     ["appearance", "Appearance", appearanceSection, "appearance theme style dark light accent color motion density font sidebar"],
     ["notifications", "Notifications", notificationsSection, "notifications alerts sounds desktop badges"],
     ["updates", "Updates", updatesSection, "updates version check restart release"],

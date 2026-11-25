@@ -13,6 +13,15 @@ use std::sync::Arc;
 /// A failed poll mark waits this long times its attempt before it is emitted again.
 const MARK_RETRY_STEP_MS: u64 = 100;
 
+/// Open commitments due within this many hours — or already overdue — trigger a proactive wake.
+const COMMITMENT_WAKE_HORIZON_HOURS: i64 = 24;
+
+/// Whether a commitment due at `due` should wake the proactive loop at `now`.
+/// Includes already-overdue commitments (`due <= now`) as well as those due within the horizon.
+pub(crate) fn commitment_due_for_wake(due: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    due <= now + chrono::Duration::hours(COMMITMENT_WAKE_HORIZON_HOURS)
+}
+
 /// The ended task that woke a review: its ID, its outcome line, and the
 /// taint it ended with, which the review starts with (#383, #390).
 pub(crate) struct Ended {
@@ -164,7 +173,7 @@ impl crate::kernel::Kernel {
                     }
                 }
                 for c in s.arrangements.commitments().values().filter(|c| c.person == person && c.status == "open") {
-                    if c.by.as_deref().and_then(|b| crate::commitments::due(b, st.tz)).is_some_and(|d| d > now && d <= now + chrono::Duration::hours(24))
+                    if c.by.as_deref().and_then(|b| crate::commitments::due(b, st.tz)).is_some_and(|d| commitment_due_for_wake(d, now))
                         && !s.inbox.wake_marks().get(&format!("{person}:commitment {}", c.id)).is_some_and(|d| d == &today)
                     {
                         return Some((commitment_reason(&c.id), None));
@@ -438,7 +447,7 @@ impl crate::kernel::Kernel {
     /// unfinished work, schedules, approvals, disagreements and
     /// commitments (#237, #383).
     async fn review_context(&self, person: &str, ended: Option<&Ended>) -> String {
-        let (tasks, schedules, approvals, disagreements, commitments) = self.read(|s| {
+        let (tasks, schedules, approvals, disagreements, commitment_meta) = self.read(|s| {
             let tasks = s
                 .tasks
                 .values()
@@ -471,23 +480,34 @@ impl crate::kernel::Kernel {
                 .filter(|d| d.person == person && d.outcome.is_none())
                 .map(|d| format!("{} -> {}", d.position.chars().take(120).collect::<String>(), d.decision))
                 .collect::<Vec<_>>();
-            let commitments = s
+            let commitment_meta = s
                 .arrangements
                 .commitments()
                 .values()
                 .filter(|c| c.person == person && c.status == "open")
                 .map(|c| {
                     let zone = s.identity.zone(person);
-                    format!(
-                        "{} (by {}){}",
-                        c.id,
-                        c.by.as_deref().unwrap_or("no date"),
-                        if c.by.as_deref().and_then(|b| crate::commitments::due(b, zone)).is_some_and(|d| d < Utc::now()) { ", OVERDUE" } else { "" }
-                    )
+                    let overdue = c.by.as_deref().and_then(|b| crate::commitments::due(b, zone)).is_some_and(|d| d < Utc::now());
+                    (c.id.clone(), c.seq, c.by.clone(), overdue)
                 })
                 .collect::<Vec<_>>();
-            (tasks, schedules, approvals, disagreements, commitments)
+            (tasks, schedules, approvals, disagreements, commitment_meta)
         });
+        let c_seqs: Vec<i64> = commitment_meta.iter().map(|(_, seq, ..)| *seq).collect();
+        let c_content = if c_seqs.is_empty() { std::collections::HashMap::new() } else { self.recall.content(person, &c_seqs).await.unwrap_or_default() };
+        let commitments: Vec<String> = commitment_meta
+            .into_iter()
+            .map(|(id, seq, by, overdue)| {
+                let what = c_content.get(&seq).and_then(|v| v["what"].as_str()).unwrap_or_default();
+                let to = c_content.get(&seq).and_then(|v| v["to"].as_str()).unwrap_or_default();
+                let detail = match (what.is_empty(), to.is_empty()) {
+                    (false, false) => format!(": {what} (to {to})"),
+                    (false, true) => format!(": {what}"),
+                    _ => String::new(),
+                };
+                format!("{id}{detail} (by {}){}", by.as_deref().unwrap_or("no date"), if overdue { ", OVERDUE" } else { "" })
+            })
+            .collect();
         let mut open = vec![];
         if let Ok(words) = self.words(tasks).await {
             open = self.read(|s| {
@@ -686,5 +706,16 @@ mod tests {
         .await;
         assert!(r.is_ok());
         assert_eq!(calls.load(Ordering::SeqCst), 1, "a healthy store was retried");
+    }
+
+    #[test]
+    fn commitment_due_for_wake_includes_overdue() {
+        let now: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-11-24T12:00:00Z").unwrap().into();
+        let overdue = now - chrono::Duration::hours(3);
+        let due_soon = now + chrono::Duration::hours(6);
+        let due_later = now + chrono::Duration::hours(30);
+        assert!(commitment_due_for_wake(overdue, now), "overdue commitment must wake");
+        assert!(commitment_due_for_wake(due_soon, now), "commitment within 24h must wake");
+        assert!(!commitment_due_for_wake(due_later, now), "commitment > 24h away should not wake yet");
     }
 }

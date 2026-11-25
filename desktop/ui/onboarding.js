@@ -148,26 +148,26 @@ function setupStepHtml(f) {
   }
   if (step === 2) {
     const sim = Guide.setup.sim;
-    const simMsg = sim === "once" ? `<p class="wiz-note ok">Approved once. Magnus placed the order and saved the receipt.</p>`
-      : sim === "always" ? `<p class="wiz-note ok">Rule saved: Auto-approve verified supplier orders under $500.</p>`
-      : sim === "deny" ? `<p class="wiz-note bad">Declined. Magnus paused the order and asked what to change.</p>` : "";
+    const simMsg = sim === "once" ? `<p class="wiz-note ok">Approved once. Magnus sent the quote request and logged the receipt in Activity.</p>`
+      : sim === "always" ? `<p class="wiz-note ok">Rule saved: Allow quote emails to @apexindustrial.com. Spending money still always asks.</p>`
+      : sim === "deny" ? `<p class="wiz-note bad">Declined. Magnus paused and asked what you want changed.</p>` : "";
     return `<h2>How Magnus works safely on your behalf</h2>
       <p class="wiz-sub">Instead of waiting for you to type every prompt, Magnus runs tasks in the background and pauses at sensitive moments so you stay in control.</p>
       <div class="wiz-grid-3">
         <div class="wiz-card"><span class="small" style="color:var(--accent-text);font-weight:600;">1 · Trigger or Schedule</span><strong>Runs without you</strong><span class="small muted">Starts on a schedule, when a message arrives, or from a goal you hand off.</span></div>
         <div class="wiz-card"><span class="small" style="color:var(--accent-text);font-weight:600;">2 · Cross-App Execution</span><strong>Does the legwork</strong><span class="small muted">Reads email &amp; calendar, compares quotes, drafts replies, and builds briefs.</span></div>
-        <div class="wiz-card"><span class="small" style="color:var(--accent-text);font-weight:600;">3 · Approval Gate</span><strong>Asks before acting</strong><span class="small muted">External actions—sending email, moving invites, or ordering—pause for your OK.</span></div>
+        <div class="wiz-card"><span class="small" style="color:var(--accent-text);font-weight:600;">3 · Approval Gate</span><strong>Asks before acting</strong><span class="small muted">External actions—sending email, moving invites, or spending money—pause for your OK.</span></div>
       </div>
       <div class="wiz-sim">
         <div><div class="small" style="color:var(--warn);font-weight:600;text-transform:uppercase;">Interactive Approval Gate</div>
           <strong style="display:block;margin:4px 0;">You decide what needs permission</strong>
-          <p class="small muted" style="margin:0;">Test how Magnus pauses before sensitive actions. Every action is logged in Activity.</p></div>
+          <p class="small muted" style="margin:0;">Test how Magnus pauses before sensitive actions. Spending money always asks, and every action is logged in Activity.</p></div>
         <div class="wiz-sim-box">
-          <strong>Ready to place order &amp; confirm delivery</strong>
-          <div class="small muted" style="margin-top:4px;">Supplier: <strong>Apex Industrial</strong> · Best quote: <strong>$418.00</strong> (saved $94)</div>
+          <strong>Ready to send quote request to Apex Industrial</strong>
+          <div class="small muted" style="margin-top:4px;">To: <strong>quotes@apexindustrial.com</strong> · Drafted from your vendor comparison</div>
           <div class="wiz-sim-btns">
             <button class="primary" data-wiz-sim="once">Allow once</button>
-            <button data-wiz-sim="always">Allow always (&lt; $500)</button>
+            <button data-wiz-sim="always">Allow @apexindustrial.com</button>
             <button data-wiz-sim="deny">Decline</button>
           </div>${simMsg}
         </div>
@@ -283,12 +283,8 @@ function discStepHtml(f) {
     <div class="wiz-stepper" style="margin-bottom:12px;">${fBtn("all", `Matched (${matched.length})`)}${fBtn("simple", "Simple")}${fBtn("complex", "Multi-Step")}${fBtn("long", "Long-Running")}</div>
     ${items.length ? items.map(p => `<div class="wiz-prop${p.active ? " on" : ""}">
       <div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;"><span class="chip ${p.cls}">${esc(p.badge)}</span><strong>${esc(p.title)}</strong>${!p.ready ? `<span class="chip warn">Needs ${esc(p.needsLabel)}</span>` : ""}</div>
-        <p class="small muted" style="margin:0 0 8px;">${esc(p.desc)}</p>
-        <label class="small">Safety mode: <select data-disc-mode="${esc(p.id)}">
-          <option value="ask"${p.mode === "ask" ? " selected" : ""}>Ask before external actions (Recommended)</option>
-          <option value="draft"${p.mode === "draft" ? " selected" : ""}>Prepare drafts &amp; briefs only</option>
-          <option value="auto"${p.mode === "auto" ? " selected" : ""}>Auto-run within threshold</option>
-        </select></label></div>
+        <p class="small muted" style="margin:0 0 6px;">${esc(p.desc)}</p>
+        <p class="small faint" style="margin:0;">Guardrail: Reads &amp; drafts autonomously; asks before sending external messages or spending money (manage anytime in Rules).</p></div>
       <button type="button" class="${p.active ? "primary" : ""}" data-disc-toggle="${esc(p.id)}" ${p.ready ? "" : "disabled title=\"Connect required app first\""}>${p.active ? "Selected" : p.ready ? "Select" : "Needs app"}</button>
     </div>`).join("") : `<p class="empty">No templates match this filter. Switch filters or click "Ask Magnus to scan live".</p>`}`;
 }
@@ -303,16 +299,10 @@ async function openDiscoveryWizard() {
     paint(d, `<div class="wiz-head"><div class="wiz-stepper">${pill(1, "Scope & Focus")}${pill(2, "Suggested Plans")}${pill(3, "Safety & Start")}</div><button type="button" class="link" data-disc-close>Close</button></div>
       <div class="wiz-body">${discStepHtml(f)}</div>
       <div class="wiz-foot"><span class="small muted">Step ${st} of 3 · All actions logged in Activity</span>
-        <div class="wiz-actions">${st > 1 ? `<button type="button" data-disc-step="${st - 1}">Back</button>` : ""}${st < 3 ? `<button type="button" class="primary" data-disc-step="${st + 1}">${st === 1 ? "See Matching Plans" : "Review Safety Rules"}</button>` : `<button type="button" class="primary" data-disc-activate ${count ? "" : "disabled"}>Start Selected (${count})</button>`}</div>
+        <div class="wiz-actions">${st > 1 ? `<button type="button" data-disc-step="${st - 1}">Back</button>` : ""}${st < 3 ? `<button type="button" class="primary" data-disc-step="${st + 1}">${st === 1 ? "See Matching Plans" : "Review Guardrails"}</button>` : `<button type="button" class="primary" data-disc-activate ${count ? "" : "disabled"}>Start Selected (${count})</button>`}</div>
       </div>`);
   };
   d.oninput = e => { const ta = /** @type {HTMLElement} */ (e.target).closest("[data-disc-note]"); if (ta) Guide.disc.note = /** @type {HTMLTextAreaElement} */ (ta).value; };
-  d.onchange = e => {
-    const sel = /** @type {HTMLSelectElement} */ (e.target).closest("[data-disc-mode]");
-    if (!sel) return;
-    const item = Guide.disc.items.find(p => p.id === sel.dataset.discMode);
-    if (item) item.mode = sel.value;
-  };
   d.onclick = async e => {
     const t = /** @type {HTMLElement} */ (e.target);
     if (t.closest("[data-disc-close]")) { d.close(); return; }
@@ -334,14 +324,14 @@ async function openDiscoveryWizard() {
       let created = 0;
       for (const p of scheds) {
         try {
-          await Server.schedules.create({ text: `${p.title}: ${p.desc} (Safety: ${p.mode})${Guide.disc.note ? ` Context: ${Guide.disc.note}` : ""}`, ...p.schedule });
+          await Server.schedules.create({ text: `${p.title}: ${p.desc}${Guide.disc.note ? ` Context: ${Guide.disc.note}` : ""}`, ...p.schedule });
           created++;
         } catch { onDemand.push(p); }
       }
       if (created && typeof refresh === "function") refresh().catch(() => {});
       if (created && typeof toast === "function") toast(`Created ${created} schedule${created === 1 ? "" : "s"}.`);
       if (onDemand.length) {
-        await guideStartTurn(`Set up and run:\n${onDemand.map(p => `- ${p.title} (${p.badge}) — Safety: ${p.mode}`).join("\n")}${Guide.disc.note ? `\nExtra context: ${Guide.disc.note}` : ""}`);
+        await guideStartTurn(`Set up and run:\n${onDemand.map(p => `- ${p.title} (${p.badge})`).join("\n")}${Guide.disc.note ? `\nExtra context: ${Guide.disc.note}` : ""}`);
       } else if (created && typeof openPanel === "function") {
         openPanel("schedules", { history: true, focus: true });
       }

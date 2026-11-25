@@ -204,6 +204,116 @@ function commitmentRow(c, editing) {
   </div>`;
 }
 
+function personalSpendCard(sp) {
+  if (!sp) return "";
+  const spent = Number(sp.spent_usd || 0);
+  const limit = Number.isFinite(Number(sp.limit_usd)) && sp.limit_usd !== null ? Number(sp.limit_usd) : null;
+  const pct = limit && limit > 0 ? Math.min(100, Math.round((spent / limit) * 100)) : 0;
+  const tone = pct >= 90 ? "bad" : pct >= 70 ? "warn" : "ok";
+  return `<h3>Monthly usage &amp; spend</h3>
+    <div class="card" data-personal-spend>
+      <div class="spread"><span><strong>${esc(sp.month || "This month")}</strong> · <span class="num">$${spent.toFixed(2)}</span>${limit !== null ? ` of <span class="num">$${limit.toFixed(2)}</span>` : " spent (no monthly cap)"}</span>
+        ${limit !== null ? `<button type="button" data-act="ask-more-spend">Request more</button>` : ""}</div>
+      ${limit !== null ? `<div class="stage-bar" style="margin-top:8px"><div class="stage-bar-fill" style="width:${pct}%"></div></div><div class="small muted" style="margin-top:4px"><span class="chip ${tone}">${pct}% used</span>${sp.left_usd !== null && sp.left_usd !== undefined ? ` · $${Math.max(0, Number(sp.left_usd)).toFixed(2)} remaining` : ""}</div>` : ""}
+    </div>`;
+}
+
+async function memorySection(el) {
+  let query = "";
+  let editingC = null;
+  let notes = [];
+  const draw = async () => {
+    const [memRes, pbRes, rel, cmtRes] = await Promise.all([
+      Server.memory.summary().catch(() => ({ clean_facts: [], untrusted_facts: [], archived_facts: [] })),
+      Server.memory.playbook().catch(() => ({ playbook: [] })),
+      Server.memory.relationship().catch(() => ({ notes: [] })),
+      Server.memory.commitments().catch(() => ({ commitments: [] })),
+    ]);
+    notes = rel.notes || [];
+    const facts = [...(memRes.clean_facts || []), ...(memRes.untrusted_facts || [])];
+    const q = query.trim().toLowerCase();
+    const shownFacts = q ? facts.filter(f => `${f.fact || ""} ${f.topic || ""}`.toLowerCase().includes(q)) : facts;
+    const lessons = pbRes.playbook || [];
+    const commitments = cmtRes.commitments || [];
+    paint(el, `<h2>Memory, Playbook &amp; Promises</h2>
+      <p class="muted">Everything Magnus remembers about you, lessons it learned from your feedback, and promises you or Magnus made. No one else sees these.</p>
+      <h3>What Magnus remembers <span class="count">${facts.length}</span></h3>
+      <div class="card" data-memory-facts>
+        <div class="row" style="margin-bottom:8px;flex-wrap:wrap">
+          <input id="mem-search" type="search" value="${esc(query)}" placeholder="Search memories…" aria-label="Search memories" style="flex:1;min-width:160px">
+        </div>
+        ${shownFacts.length ? `<ul class="tlist">${shownFacts.map(m => `<li class="trow" data-mem-id="${esc(m.id)}"><div class="spread" style="padding:6px 0;gap:8px">
+          <div><div>${esc(m.fact || "(stored fact)")}</div><div class="small muted">${m.topic ? `<span class="chip">${esc(m.topic)}</span> ` : ""}${m.by === "person" ? "Added by you" : "Learned by Magnus"} · ${esc(when(m.at))}</div></div>
+          <button type="button" class="link small" data-act="mem-forget" data-id="${esc(m.id)}">Forget</button>
+        </div></li>`).join("")}</ul>` : `<p class="small faint">${q ? "No matching memories." : "No saved memories yet."}</p>`}
+        <form class="row" data-mem-add style="margin-top:10px;flex-wrap:wrap">
+          <input name="fact" placeholder="Teach Magnus something to remember…" aria-label="New memory" style="flex:2;min-width:180px">
+          <input name="topic" placeholder="Topic (optional)" aria-label="Topic" style="flex:1;min-width:110px">
+          <button type="submit" class="primary">Remember</button>
+        </form>
+      </div>
+      <h3>Learned playbook lessons <span class="count">${lessons.length}</span></h3>
+      <div class="card" data-memory-playbook>
+        <p class="small muted">Standing habits Magnus distilled from your corrections and reviews.</p>
+        ${lessons.length ? `<ul class="tlist">${lessons.map(pb => `<li class="trow" data-pb-id="${esc(pb.id)}"><div class="spread" style="padding:6px 0;gap:8px">
+          <div><div>${esc(pb.text)}</div>${pb.addresses ? `<div class="small muted">Applies to: ${esc(pb.addresses)}</div>` : ""}</div>
+          <button type="button" class="link small" data-act="pb-retire" data-id="${esc(pb.id)}">Retire</button>
+        </div></li>`).join("")}</ul>` : `<p class="small faint">No playbook lessons yet.</p>`}
+      </div>
+      <h3>How Magnus works with you</h3>
+      <div class="card" data-relationship><p class="small muted">Standing instructions on tone, delegation, and style carried into every task.</p>
+        ${notes.map((n, i) => `<div class="row" data-note="${i}" style="margin-top:6px"><input aria-label="Note" value="${esc(n)}" style="flex:1"><button data-act="note-save">Save</button><button data-act="note-remove">Remove</button></div>`).join("") || `<p class="small faint">Nothing yet.</p>`}
+        <div class="row" style="margin-top:8px"><input id="mem-newnote" aria-label="New note" style="flex:1" placeholder="For example: keep updates to 3 bullets"><button data-act="note-add">Add</button></div></div>
+      <h3>Promises &amp; commitments <span class="count">${commitments.filter(c => c.status === "open").length}</span></h3>
+      <div class="card" data-commitments><p class="small muted">What you or Magnus promised to do, with due dates and overdue alerts.</p>
+        ${commitments.map(c => commitmentRow(c, editingC)).join("") || `<p class="small faint">None yet.</p>`}</div>`);
+  };
+  el.oninput = e => {
+    if (e.target.id === "mem-search") { query = e.target.value; draw(); }
+  };
+  el.onsubmit = async e => {
+    const f = e.target.closest("form[data-mem-add]");
+    if (!f) return;
+    e.preventDefault();
+    const fd = new FormData(f);
+    const fact = String(fd.get("fact") || "").trim();
+    const topic = String(fd.get("topic") || "").trim();
+    if (!fact) return toast("Write something for Magnus to remember.");
+    try {
+      await Server.memory.add(topic ? { fact, topic } : { fact });
+      toast("Saved to Magnus's memory.");
+      el._html = null; await draw();
+    } catch (err) { toast(err.message); }
+  };
+  el.onclick = async e => {
+    const b = e.target.closest("button[data-act]"); if (!b) return;
+    try {
+      if (b.dataset.act === "mem-forget") { b.disabled = true; await Server.memory.forget(b.dataset.id); toast("Forgotten."); }
+      if (b.dataset.act === "pb-retire") { b.disabled = true; await Server.memory.retirePlaybook(b.dataset.id); toast("Lesson retired."); }
+      const row = b.closest("[data-note]"), note = row && notes[+row.dataset.note];
+      if (b.dataset.act === "note-add") { b.disabled = true; await Server.memory.note({ action: "add", text: $("#mem-newnote", el).value }); toast("Saved."); }
+      if (b.dataset.act === "note-save") { b.disabled = true; await Server.memory.note({ action: "change", note, text: $("input", row).value }); toast("Saved."); }
+      if (b.dataset.act === "note-remove") { b.disabled = true; await Server.memory.note({ action: "remove", note }); toast("Removed."); }
+      const cr = b.closest("[data-commitment]"), c = cr?.dataset.commitment;
+      if (b.dataset.act === "cmt-edit") editingC = c;
+      if (b.dataset.act === "cmt-cancel") editingC = null;
+      const status = { "cmt-done": "done", "cmt-release": "released", "cmt-reopen": "open" }[b.dataset.act];
+      if (status) { b.disabled = true; await Server.memory.updateCommitment(c, { status }); toast("Updated."); }
+      if (b.dataset.act === "cmt-save") {
+        const f = k => $(`[data-f="${k}"]`, cr).value.trim();
+        if (!f("what")) return toast("Say what will be done.");
+        b.disabled = true; await Server.memory.updateCommitment(c, { what: f("what"), to: f("to"), by: f("by") }); editingC = null; toast("Saved.");
+      }
+      if (b.dataset.act === "cmt-remove") {
+        if (!await ask("Remove this promise?", "Remove")) return;
+        b.disabled = true; await Server.memory.removeCommitment(c); toast("Removed.");
+      }
+      el._html = null; await draw();
+    } catch (err) { toast(err.message); b.disabled = false; }
+  };
+  await draw();
+}
+
 async function dataSection(el) {
   // The person's relationship notes as last drawn: each row names its note by them.
   let notes = [];
@@ -212,11 +322,16 @@ async function dataSection(el) {
   // The commitment being edited, if any.
   let editingC = null;
   const draw = async () => {
-    const [prefs, { requests }, rel, { disagreements }, granted, { commitments }] = await Promise.all([Server.preferences.get(), Server.memory.deletionRequests(), Server.memory.relationship(), Server.memory.disagreements(), Server.memory.grants(), Server.memory.commitments()]);
+    const [prefs, { requests }, rel, { disagreements }, granted, { commitments }, mySpend] = await Promise.all([
+      Server.preferences.get(), Server.memory.deletionRequests(), Server.memory.relationship(),
+      Server.memory.disagreements(), Server.memory.grants(), Server.memory.commitments(),
+      Server.spend.get().catch(() => null),
+    ]);
     App.prefs = prefs;
     notes = rel.notes;
     const STATE = { done: ["ok", "done"], decline: ["bad", "declined"] };
     paint(el, `<h2>Data and privacy</h2>
+      ${personalSpendCard(mySpend)}
       <div class="card"><label class="row toggle"><input type="checkbox" data-pref="feedback_consent" ${prefs.feedback_consent ? "checked" : ""}>
         <span><span>Send problem reports</span><span class="small muted" style="display:block">When you report a problem, what you wrote and the task's record go to the people who build Magnus. Off: nothing leaves the server.</span></span></label></div>
       <h3>How Magnus works with you</h3>
@@ -247,6 +362,11 @@ async function dataSection(el) {
   el.onclick = async e => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     try {
+      if (b.dataset.act === "ask-more-spend") {
+        if (typeof offerMoreSpend === "function") offerMoreSpend({ scope: "person" });
+        else { await Server.spend.ask(10, "Requested from Settings"); toast("Spend request sent."); }
+        return;
+      }
       if (b.dataset.act === "delete-request") {
         const what = $("#delwhat", el).value.trim();
         if (!await ask(`Ask the owner to delete ${what || "all of your data"}?`, "Ask the owner")) return;

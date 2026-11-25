@@ -61,7 +61,7 @@ G.Guide.setup.step = 2;
 G.Guide.setup.sim = "always";
 await G.openSetupWizard();
 assert.match(setupDlg.innerHTML, /How Magnus works safely on your behalf/);
-assert.match(setupDlg.innerHTML, /Auto-approve verified supplier orders under \$500/);
+assert.match(setupDlg.innerHTML, /Allow quote emails to @apexindustrial\.com\. Spending money still always asks/);
 
 G.Guide.setup.step = 3;
 G.Guide.setup.tier = "complex";

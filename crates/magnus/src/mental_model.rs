@@ -48,8 +48,10 @@ pub fn format_clean_model(clean_bullets: &[String]) -> String {
 impl Kernel {
     /// Unified provenance-backed memory summary (`GET /v1/memory/summary`, W3.2):
     /// separates clean always-on facts/playbook from untrusted on-demand items,
-    /// exposing `at`, `run`, `label`, `archived`, and `superseded_by` for each.
-    pub fn memory_summary_json(&self, person: &str) -> Value {
+    /// exposing recalled `fact` and `topic` alongside `at`, `run`, `label`, and `archived`.
+    pub async fn memory_summary_json(&self, person: &str) -> Value {
+        let recalled: std::collections::HashMap<String, (String, Option<String>)> =
+            self.remembered(person, |_| true).await.unwrap_or_default().into_iter().map(|r| (r.entry.id, (r.fact, r.topic))).collect();
         self.read(|s| {
             let mut clean_facts = Vec::new();
             let mut untrusted_facts = Vec::new();
@@ -58,9 +60,13 @@ impl Kernel {
                 if s.memory_superseded.contains_key(&m.id) {
                     continue;
                 }
+                let (fact, topic) = recalled.get(&m.id).cloned().unwrap_or_default();
                 let entry = json!({
                     "id": m.id,
+                    "fact": fact,
+                    "topic": topic,
                     "run": m.run,
+                    "by": m.by.as_deref().unwrap_or("model"),
                     "at": m.at,
                     "label": m.label,
                     "sources": m.sources,

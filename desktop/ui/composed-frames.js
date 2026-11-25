@@ -24,8 +24,45 @@ function patchLive(el, text) {
     }
     if (html) { node.innerHTML = Compose.markdown(p.text); return; }
     node.className = "ui-block";
-    Object.assign(node.dataset, { uiKind: p.kind, uiBody: p.body, uiClosed: p.closed ? "1" : "0" });
+    Object.assign(node.dataset, { uiKind: p.kind, uiId: p.id || "", uiBody: p.body, uiClosed: p.closed ? "1" : "0" });
   });
+}
+// Wire table Copy/CSV export and deck PPTX/PDF export inside any composed frame.
+function wireFrameExports(frame, docId) {
+  const doc = frame.contentDocument;
+  if (!doc) return;
+  doc.querySelectorAll(".deck-export").forEach(b => {
+    if (!docId) { b.style.display = "none"; return; }
+    b.addEventListener("click", async () => {
+      const fmt = b.dataset.format;
+      const deckTitle = b.closest(".deck")?.querySelector(".fname")?.textContent || docId;
+      const slug = deckTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || docId;
+      b.disabled = true;
+      try {
+        await Magnus.download(`/v1/ui/docs/${enc(docId)}/export/${enc(fmt)}`, `${slug}.${fmt}`);
+        toast(`Exported ${slug}.${fmt}.`);
+      } catch (err) { toast(err.message); }
+      b.disabled = false;
+    });
+  });
+  const rowsOf = wrap => [...wrap.querySelectorAll("tr")].map(tr => [...tr.querySelectorAll("th,td")].map(c => c.textContent.trim()));
+  const csvCell = s => /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  doc.querySelectorAll(".table-copy").forEach(b => b.addEventListener("click", async () => {
+    const wrap = b.closest(".tw");
+    const tsv = wrap ? rowsOf(wrap).map(r => r.join("\t")).join("\n") : "";
+    if (tsv && navigator.clipboard?.writeText) { await navigator.clipboard.writeText(tsv); toast("Table copied."); }
+  }));
+  doc.querySelectorAll(".table-csv").forEach(b => b.addEventListener("click", () => {
+    const wrap = b.closest(".tw");
+    const csv = wrap ? rowsOf(wrap).map(r => r.map(csvCell).join(",")).join("\r\n") : "";
+    if (!csv) return;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement("a"), { href: url, download: "table.csv" });
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Exported table.csv.");
+  }));
 }
 // A spec block in the agent's words is drawn in a frame of its own: Compose
 // makes the document, and the frame's scripts stay off. HTML the agent wrote
@@ -33,13 +70,15 @@ function patchLive(el, text) {
 function drawUiBlocks(root) {
   if ((root.ownerDocument || root) !== document) return;
   root.querySelectorAll(".ui-block").forEach((block, n) => {
-    const body = block.dataset.uiBody, closed = block.dataset.uiClosed === "1", kind = block.dataset.uiKind;
+    const body = block.dataset.uiBody, closed = block.dataset.uiClosed === "1", kind = block.dataset.uiKind, docId = block.dataset.uiId || "";
     if (block._drawn === body + closed) return;
     block._drawn = body + closed;
     if (kind === "html") {
       if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
-      block.innerHTML = `<iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
-      Magnus.sandboxUrl(HtmlFrame.wrap(body, ...look())).then(url => { if (block.firstChild?.matches?.("iframe")) block.firstChild.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
+      block.innerHTML = `<div class="row small" style="justify-content:flex-end;margin-bottom:4px"><button type="button" class="link small" data-html-fullscreen>Fullscreen</button></div><iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
+      const frame = block.querySelector("iframe");
+      block.querySelector("[data-html-fullscreen]")?.addEventListener("click", () => frame?.requestFullscreen?.().catch(() => {}));
+      Magnus.sandboxUrl(HtmlFrame.wrap(body, ...look())).then(url => { if (frame?.isConnected) frame.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
       return;
     }
     let view;
@@ -56,19 +95,19 @@ function drawUiBlocks(root) {
     const files = {};
     const paint = () => { frame.srcdoc = Compose.documentFor(view, files, fontCss(), undefined, ...look()); };
     paint();
-    frame.onload = () => { sizeComposedFrame(frame); if (closed) wireBlock(frame, view, block, n); };
+    frame.onload = () => { sizeComposedFrame(frame); wireFrameExports(frame, docId); if (closed) wireBlock(frame, view, block, n); };
     if (closed) view.filter(c => c.placeholder).forEach(c => waitForImage(c.placeholder, files, block, paint));
   });
 }
 // What is pressed is read again by the server from what the task holds.
 function wireBlock(frame, view, block, fence) {
   const task = block.closest("[data-task]")?.dataset.task;
+  const doc = frame.contentDocument;
+  doc?.querySelectorAll(".deck-present").forEach(b => b.addEventListener("click", () => presentDeck(frame)));
   if (!task) return;
   const at = kind => view.flatMap((c, i) => c.type === kind ? [i] : []);
   const send = (index, values, b) => { b.disabled = true; Server.tasks.action(task, index, { fence, values }).then(() => toast("Started as a new request")).catch(e => { b.disabled = false; toast(e.message); }); };
-  const doc = frame.contentDocument;
   doc?.querySelectorAll("button.action:not(.form-send)").forEach((b, n) => b.addEventListener("click", () => send(at("action")[n], {}, b)));
-  doc?.querySelectorAll(".deck-present").forEach(b => b.addEventListener("click", () => presentDeck(frame)));
   doc?.querySelectorAll(".uiform").forEach((form, n) => form.querySelector(".form-send").addEventListener("click", e => {
     if (![...form.querySelectorAll("input,select,textarea")].every(i => i.reportValidity())) return;
     send(at("form")[n], Object.fromEntries([...form.querySelectorAll("[name]")].map(i => [i.name, i.value])), e.currentTarget);
@@ -274,7 +313,7 @@ async function fill(frame, view, taskId, task) {
   const t = task || (view?.some(c => c.type === "image" || c.type === "file") ? await Server.tasks.get(taskId) : null);
   frame.removeAttribute("data-sized");
   frame.srcdoc = Compose.documentFor(view, await fileData(view, t), fontCss(), t?.preview, ...look());
-  frame.onload=()=>{wireMarkdown(frame.contentDocument);wireActions(frame,view,taskId);sizeComposedFrame(frame);};
+  frame.onload=()=>{wireMarkdown(frame.contentDocument);wireFrameExports(frame,"");wireActions(frame,view,taskId);sizeComposedFrame(frame);};
 }
 
 // A button in something the agent made starts a new request and approves nothing.

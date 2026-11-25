@@ -211,4 +211,29 @@ impl Kernel {
             }
         }
     }
+
+    /// Fires a schedule immediately at the person's explicit request ("Run now").
+    pub(crate) async fn fire_schedule_now(self: &Arc<Self>, sc: Schedule) -> anyhow::Result<String> {
+        let w = self.words_of(&sc.person, sc.seq).await?;
+        let prompt_text = w.text(sc.seq).to_string();
+        let o = NewRun {
+            quarantine: self.schedule_quarantine(&sc, &prompt_text),
+            budget: Some(crate::task_budget::scheduled(&self.cfg.budget, sc.budget.as_ref())),
+            label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),
+            project: self.read(|s| s.project_of(&sc.id)),
+            scope: w.opt(sc.seq, "scope"),
+            chat: self.read(|s| crate::schedule_thread::of(s, &sc)).map(|thread| crate::events::ChatOrigin {
+                thread,
+                turn: false,
+                from_run: None,
+                conversation: vec![],
+                opener: None,
+            }),
+            modules: [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into(),
+            ..Default::default()
+        };
+        let (task, _) = self.create_run(&format!("schedule:{}", sc.id), &sc.person, prompt_text, vec![], o).await?;
+        let _ = self.emit("kernel", Ev::ScheduleFired { id: sc.id.clone(), task: task.clone() }).await;
+        Ok(task)
+    }
 }

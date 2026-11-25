@@ -101,11 +101,12 @@ function scheduleFacts(sc) {
     ${sc.paused ? `<div class="small" data-paused><span class="chip bad">Paused</span> ${esc(sc.paused)}. ${sc.paused_on ? `It goes on once you answer that run (<a href="#/task/${enc(sc.paused_on)}" data-open="task:${esc(sc.paused_on)}">open it</a>).` : "Nothing runs until you resume it."}</div>` : ""}
     ${sc.skipped ? `<div class="small muted" data-skipped>Skipped a run ${esc(when(sc.skipped.at))}: ${esc(sc.skipped.why)} (<a href="#/task/${enc(sc.skipped.task)}" data-open="task:${esc(sc.skipped.task)}">open it</a>)</div>` : ""}`;
 }
-// Every schedule (active, paused, or ended) offers Delete so users can always remove it.
-function scheduleButtons(sc, stop = "Stop schedule") {
+// Every schedule (active, paused, or ended) offers clear actions without redundant Stop/Delete buttons.
+function scheduleButtons(sc) {
   if (sc.ended) return `<button type="button" class="danger" data-act="delete-schedule" data-id="${esc(sc.id)}">Delete schedule</button>`;
+  const runNow = `<button type="button" data-act="run-schedule" data-id="${esc(sc.id)}">Run now</button>`;
   const toggle = sc.paused ? (!sc.paused_on ? `<button type="button" data-act="resume-schedule" data-id="${esc(sc.id)}">Resume</button>` : "") : `<button type="button" data-act="pause-schedule" data-id="${esc(sc.id)}">Pause</button>`;
-  return `${toggle}<button type="button" data-act="stop-schedule" data-id="${esc(sc.id)}">${stop}</button><button type="button" class="danger" data-act="delete-schedule" data-id="${esc(sc.id)}">Delete</button>`;
+  return `${runNow}${toggle}<button type="button" class="danger" data-act="delete-schedule" data-id="${esc(sc.id)}">Delete</button>`;
 }
 
 // Schedules, soonest first, ended last: each opens beside the conversation.
@@ -123,13 +124,33 @@ function schedulesView() {
     : offered("No schedules yet. Ask in a conversation for something done every day or every week."));
 }
 
-// One schedule: what it does, when, how its runs went, and a way to stop it.
+// One schedule: what it does, when, inline edit form, how its runs went, and controls.
 function scheduleView(id) {
   const sc = App.schedules.find(x => x.id === id);
   if (!sc) return `<p class="empty">Schedule details are not available.</p>`;
+  const cadenceMode = sc.daily_at ? "daily" : "every";
+  const editForm = !sc.ended ? `<details class="card flat" data-key="sched-edit:${esc(sc.id)}" style="margin:10px 0">
+      <summary class="small"><strong>Edit schedule</strong></summary>
+      <form class="sched-edit-form" data-edit-schedule="${esc(sc.id)}" style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+        <label class="small">Instructions<textarea name="text" rows="3" style="width:100%">${esc(sc.text)}</textarea></label>
+        <div class="row" style="flex-wrap:wrap">
+          <label class="small">Cadence
+            <select name="kind">
+              <option value="daily"${cadenceMode === "daily" ? " selected" : ""}>Daily at time</option>
+              <option value="every"${cadenceMode === "every" ? " selected" : ""}>Every N minutes</option>
+            </select>
+          </label>
+          <label class="small">Time (HH:MM)<input type="time" name="daily_at" value="${esc(sc.daily_at || "08:00")}"></label>
+          <label class="small">Minutes<input type="number" name="every_minutes" min="5" max="10080" value="${esc(String(sc.every_minutes || 60))}" style="width:6em"></label>
+          <label class="small">Max runs<input type="number" name="max_runs" min="0" placeholder="Unlimited" value="${esc(sc.max_runs ? String(sc.max_runs) : "")}" style="width:6em"></label>
+        </div>
+        <div class="row"><button type="submit" class="primary">Save changes</button></div>
+      </form>
+    </details>` : "";
   return `<h2 class="ptitle">${esc(sc.title)}</h2><p class="small muted">${esc(rule(sc))}</p>
     <div class="card flat sched" data-schedule="${esc(sc.id)}"><p>${esc(sc.text)}</p>${scheduleFacts(sc)}<div class="small" data-last>${scheduleState(sc)}</div></div>
-    <div class="row">${moveControl(sc.id, sc.project, App.projects)}${scheduleButtons(sc, "Stop this schedule")}</div>
+    <div class="row">${moveControl(sc.id, sc.project, App.projects)}${scheduleButtons(sc)}</div>
+    ${editForm}
     <h3>Runs</h3>${sc.runs.length ? `<ul class="tlist">${sc.runs.map(taskRow).join("")}</ul>` : `<p class="empty">None yet.</p>`}
     ${sc.failures?.length ? `<h3>Firings that could not start</h3><ul class="small">${sc.failures.map(f => `<li>${esc(when(f.at))}: ${esc(f.error)}</li>`).join("")}</ul>` : ""}`;
 }

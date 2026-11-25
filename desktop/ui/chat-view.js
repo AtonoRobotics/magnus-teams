@@ -120,7 +120,7 @@ const ChatView = (() => {
     if (typeof UiSpec === "undefined") return marked(Compose.markdown(text), conv);
     return UiSpec.split(text).map(p => p.kind === "text"
       ? marked(Compose.markdown(p.text), conv)
-      : `<div class="ui-block" data-ui-kind="${esc(p.kind)}" data-ui-body="${esc(p.body)}" data-ui-closed="${p.closed ? "1" : "0"}"></div>`).join("");
+      : `<div class="ui-block" data-ui-kind="${esc(p.kind)}" data-ui-id="${esc(p.id || "")}" data-ui-body="${esc(p.body)}" data-ui-closed="${p.closed ? "1" : "0"}"></div>`).join("");
   }
 
   /** The agent's answer. @param {ChatEntry} e @param {ChatUi} ui @param {ChatConversation} conv @param {ChatViewState} view */

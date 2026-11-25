@@ -12,8 +12,9 @@ mod work_list_tests;
 
 use crate::api_error::{refuse, session_unread, ApiResult};
 use crate::config::Person;
+use crate::events::Ev;
 use crate::extract::{Body, Caller};
-use crate::kernel::{Kernel, HARNESS_VERSION};
+use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
 use crate::{api_bodies as req, people::rights};
 use axum::{
     extract::{ConnectInfo, Path, Request, State},
@@ -144,6 +145,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/tasks/{id}", get(task))
         .route("/v1/tasks/{id}/timeline", get(timeline))
         .route("/v1/tasks/{id}/resume", post(resume))
+        .route("/v1/tasks/{id}/pause", post(pause_task))
         .route("/v1/tasks/{id}/cancel", post(cancel))
         .route("/v1/tasks/{id}/steer", post(steer))
         .route("/v1/tasks/{id}/verdict", post(verdict))
@@ -169,13 +171,16 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/adapters/{id}/conformance", post(conformance))
         .route("/v1/adapters/{id}/sign-in", post(sign_in_begin))
         .route("/v1/adapters/{id}/sign-in/complete", post(sign_in_complete))
-        .route("/v1/memory", get(memory))
+        .route("/v1/memory", get(memory).post(add_memory))
         .route("/v1/memory/summary", get(memory_summary))
         .route("/v1/memory/{id}", axum::routing::delete(forget))
+        .route("/v1/playbook", get(playbook_list))
+        .route("/v1/playbook/{id}", axum::routing::delete(playbook_retire))
         .route("/v1/schedules", get(schedules).post(add_schedule))
         .route("/v1/schedules/{id}", axum::routing::delete(remove_schedule).patch(edit_schedule))
         .route("/v1/schedules/{id}/resume", post(resume_schedule))
         .route("/v1/schedules/{id}/pause", post(pause_schedule))
+        .route("/v1/schedules/{id}/run", post(run_schedule_now))
         .merge(crate::dev::router().merge(crate::legal::routes::router(k.clone())))
         .merge(crate::connectors::router().merge(crate::generated::router()).merge(crate::payments::router()).merge(crate::push::router()))
         .merge(crate::library::router().merge(crate::consent::router()))
@@ -286,8 +291,93 @@ async fn memory(State(k): K, Caller(p): Caller) -> ApiResult {
     Ok(Json(json!({ "memory": items })).into_response())
 }
 
+async fn add_memory(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> ApiResult {
+    let fact = b["fact"].as_str().unwrap_or_default().trim();
+    if fact.is_empty() || fact.chars().count() > crate::compose::MAX_TEXT {
+        return refuse(StatusCode::BAD_REQUEST, "memory fact is required");
+    }
+    let topic = b["topic"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    let id = new_id("mem");
+    let actor = format!("person:{}", p.id);
+    k.emit(
+        &actor,
+        Ev::Memory {
+            id: id.clone(),
+            person: p.id.clone(),
+            run: String::new(),
+            fact: fact.to_string(),
+            topic,
+            label: crate::tools::Label::PRINCIPAL,
+            sources: vec![],
+            by: Some("person".into()),
+        },
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(json!({ "id": id }))).into_response())
+}
+
 async fn memory_summary(State(k): K, Caller(p): Caller) -> ApiResult {
-    Ok(Json(k.memory_summary_json(&p.id)).into_response())
+    Ok(Json(k.memory_summary_json(&p.id).await).into_response())
+}
+
+/// The person's active playbook lessons (user-facing, not gated behind Developer).
+async fn playbook_list(State(k): K, Caller(p): Caller) -> ApiResult {
+    let items: Vec<Value> = k.read(|s| {
+        let ver = s.library.playbook_version();
+        s.playbook_at(&p.id, ver)
+            .into_iter()
+            .map(|item| json!({ "id": item.id, "text": item.text, "addresses": item.addresses, "label": item.label, "added": item.added }))
+            .collect()
+    });
+    Ok(Json(json!({ "playbook": items })).into_response())
+}
+
+/// Retire one of the person's own playbook lessons.
+async fn playbook_retire(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    let exists = k.read(|s| {
+        let ver = s.library.playbook_version();
+        s.playbook_at(&p.id, ver).into_iter().any(|item| item.id == id)
+    });
+    if !exists {
+        return refuse(StatusCode::NOT_FOUND, "no such playbook lesson");
+    }
+    let actor = format!("person:{}", p.id);
+    k.emit(&actor, Ev::Playbook { item: id, op: "retire".into(), person: p.id.clone(), run: String::new(), text: None, addresses: None, label: crate::tools::Label::PRINCIPAL })
+        .await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Fire a schedule immediately on demand ("Run now").
+async fn run_schedule_now(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    let Some(sc) = k.read(|s| s.arrangements.schedules().get(&id).cloned()) else {
+        return refuse(StatusCode::NOT_FOUND, "no such schedule");
+    };
+    if sc.person != p.id {
+        return refuse(StatusCode::FORBIDDEN, "only its owner may run a schedule");
+    }
+    if sc.ended.is_some() {
+        return refuse(StatusCode::CONFLICT, "this schedule has ended");
+    }
+    match k.fire_schedule_now(sc).await {
+        Ok(task) => Ok((StatusCode::CREATED, Json(json!({ "task_id": task }))).into_response()),
+        Err(e) => Ok(internal(e)),
+    }
+}
+
+/// Pause a running task without cancelling it; resume later with POST /v1/tasks/{id}/resume.
+async fn pause_task(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    let Some((task, run)) = k.read(|s| s.tasks.get(&id).and_then(|t| s.runs.get(&t.run_id).map(|r| (t.clone(), r.clone())))) else {
+        return refuse(StatusCode::NOT_FOUND, "no such task");
+    };
+    if task.person != p.id {
+        return refuse(StatusCode::FORBIDDEN, "only its owner may pause a task");
+    }
+    if run.status != crate::state::Status::Running {
+        return refuse(StatusCode::CONFLICT, "only a running task can be paused");
+    }
+    let actor = format!("person:{}", p.id);
+    k.emit(&actor, Ev::Suspended { run: run.id.clone(), reason: "paused_by_user".into(), item: None }).await?;
+    Ok(Json(json!({ "ok": true, "status": "suspended" })).into_response())
 }
 
 async fn explore_scan(State(k): K, Caller(p): Caller) -> ApiResult {

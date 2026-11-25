@@ -234,7 +234,7 @@ const Compose = (() => {
 
   function part(c, files, limit) {
     switch (c.type) {
-      case "deck": return `<div class="deck" data-deck><div class="deck-bar"><span class="fname">${esc(c.title)}</span><button type="button" class="deck-present">Present</button></div>${c.slides.map(slide).join("")}</div>`;
+      case "deck": return `<div class="deck" data-deck><div class="deck-bar"><span class="fname">${esc(c.title)}</span><div class="deck-acts"><button type="button" class="deck-export" data-format="pptx">PPTX</button><button type="button" class="deck-export" data-format="pdf">PDF</button><button type="button" class="deck-present">Present</button></div></div>${c.slides.map(slide).join("")}</div>`;
       case "card": return frame({ title: c.title }, `<p>${esc(c.text)}</p>`);
       case "gallery": return frame(c, `<div class="gallery">${c.items.map(g => { const f = files[g.file]; return `<div>${f?.image ? `<img src="${esc(f.image)}" alt="${esc(g.caption || g.file)}">` : `<p class="cap">${esc(g.file)}</p>`}${g.caption ? `<p class="cap">${esc(g.caption)}</p>` : ""}</div>`; }).join("")}</div>`);
       case "form": return frame(c, `<div class="uiform">${c.fields.map(field).join("")}<button type="button" class="action form-send">${esc(c.submit)}</button></div>`);
@@ -245,7 +245,7 @@ const Compose = (() => {
       case "table": {
         const head = c.columns.some(h => String(h).trim()) ? `<thead><tr>${c.columns.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead>` : "";
         const cell = (v, i) => `<td class="${typeof v === "number" || (i > 0 && /^[-+]?[$€£]?[\d,.]+%?$/.test(String(v).trim())) ? "num" : ""}">${fmt(v)}</td>`;
-        return frame(c, `<div class="tw"><table>${head}<tbody>${c.rows.map(r => `<tr${/^total\b/i.test(String(r[0])) ? ` class="total"` : ""}>${r.map(cell).join("")}</tr>`).join("")}</tbody></table></div>`);
+        return frame(c, `<div class="tw"><div class="table-acts"><button type="button" class="table-btn table-copy">Copy</button><button type="button" class="table-btn table-csv">CSV</button></div><table>${head}<tbody>${c.rows.map(r => `<tr${/^total\b/i.test(String(r[0])) ? ` class="total"` : ""}>${r.map(cell).join("")}</tr>`).join("")}</tbody></table></div>`);
       }
       case "stat": return `<div class="stat"><div class="sv">${fmt(c.value)}${c.unit ? `<span class="su"> ${esc(c.unit)}</span>` : ""}</div><div class="sl">${esc(c.label)}</div>${c.caption ? `<p class="cap">${esc(c.caption)}</p>` : ""}</div>`;
       case "bar_chart": return bar(c);
@@ -338,7 +338,10 @@ const Compose = (() => {
     .pt { fill: var(--bar); }
     .deck { display: flex; flex-direction: column; gap: 12px; }
     .deck-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .deck-present { min-height: 44px; padding: 0 16px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; }
+    .deck-acts { display: flex; align-items: center; gap: 6px; }
+    .deck-present, .deck-export { min-height: 36px; padding: 0 12px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; font: inherit; font-size: 13px; }
+    .table-acts { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
+    .table-btn { padding: 3px 8px; background: var(--raised); border: 1px solid var(--line); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; font: inherit; font-size: 12px; }
     .slide { aspect-ratio: 16 / 9; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md, 8px); padding: 32px; box-sizing: border-box; overflow: hidden; }
     .slide h2 { font-size: 28px; margin: 0 0 16px; }
     .slide.title { display: flex; flex-direction: column; justify-content: center; }

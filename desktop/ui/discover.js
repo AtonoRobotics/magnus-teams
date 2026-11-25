@@ -299,12 +299,16 @@ const Discover = (() => {
     const flow = p.tools.map(t => toolBadge(t, true)).join('<span class="flow-arrow" aria-hidden="true">→</span>');
     const img = CAT_IMAGE[p.cat] || "card-inbox.webp";
     if (!expanded) {
-      return `<button type="button" class="hello-card" data-starter-prompt="${esc(p.prompt)}">
+      const conn = typeof App !== "undefined" && Array.isArray(App.connectors)
+        ? App.connectors.filter(c => (typeof stateOf === "function" ? stateOf(c) : c.state) === "connected").map(c => c.name)
+        : null;
+      const needsApp = conn && p.requires.length > 0 && !isReady(p, conn);
+      return `<button type="button" class="hello-card" data-starter-prompt="${esc(p.prompt)}"${needsApp ? ` data-needs-app="${esc(p.needsLabel || "app")}"` : ""}>
         <div class="card-media"><img src="${esc(img)}" alt="" aria-hidden="true" loading="lazy"></div>
-        <div class="hello-card-top"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span><div class="card-flow" aria-hidden="true">${flow}</div></div>
+        <div class="hello-card-top"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span>${needsApp ? `<span class="chip warn">Needs ${esc(p.needsLabel || "app")}</span>` : ""}<div class="card-flow" aria-hidden="true">${flow}</div></div>
         <strong class="hello-card-title">${esc(p.title)}</strong>
         <p class="hello-card-desc">${esc(p.desc)}</p>
-        <div class="hello-card-foot"><span class="hello-card-meta">${esc(p.tools.join(" · "))}</span><span class="hello-card-go">Try →</span></div>
+        <div class="hello-card-foot"><span class="hello-card-meta">${esc(p.tools.join(" · "))}</span><span class="hello-card-go">${needsApp ? `Connect ${esc(p.needsLabel || "app")} →` : "Try →"}</span></div>
       </button>`;
     }
     const connectedNames = ctx.connectedNames || [];

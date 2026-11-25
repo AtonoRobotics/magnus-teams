@@ -112,6 +112,7 @@ const Server = (() => {
       get: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}`),
       timeline: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}/timeline`),
       cancel: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/cancel`),
+      pause: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/pause`),
       resume: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/resume`),
       steer: (/** @type {Id} */ id, /** @type {string} */ text) => post(`/v1/tasks/${enc(id)}/steer`, { text }),
       stopAll: () => post("/v1/tasks/stop-all"),
@@ -190,6 +191,13 @@ const Server = (() => {
 
     /** What the agent keeps about the person, and what they asked it to forget. */
     memory: {
+      list: () => get("/v1/memory"),
+      summary: () => get("/v1/memory/summary"),
+      /** @param {{fact: string, topic?: string}} body */
+      add: body => post("/v1/memory", body),
+      forget: (/** @type {Id} */ id) => del(`/v1/memory/${enc(id)}`),
+      playbook: () => get("/v1/playbook"),
+      retirePlaybook: (/** @type {Id} */ id) => del(`/v1/playbook/${enc(id)}`),
       deletionRequests: () => get("/v1/deletion-requests"),
       askToDelete: (/** @type {string} */ what) => post("/v1/deletion-requests", { what }),
       relationship: () => get("/v1/relationship"),
@@ -207,6 +215,10 @@ const Server = (() => {
     schedules: {
       /** Creates a recurring schedule (every_minutes or daily_at). */
       create: (/** @type {{text: string, every_minutes?: number, daily_at?: string, until?: string, max_runs?: number, project?: Id}} */ body) => post("/v1/schedules", body),
+      /** Edits an existing schedule's prompt, cadence, or bounds. */
+      edit: (/** @type {Id} */ id, /** @type {any} */ body) => patch(`/v1/schedules/${enc(id)}`, body),
+      /** Fires a schedule immediately on demand. */
+      run: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/run`),
       /** Stops a schedule that is running; deletes one that has ended. */
       remove: (/** @type {Id} */ id) => del(`/v1/schedules/${enc(id)}`),
       resume: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/resume`),
@@ -298,6 +310,8 @@ const Server = (() => {
     },
 
     spend: {
+      /** The person's current monthly spend and limit. */
+      get: () => get("/v1/spend"),
       /** Ask an admin for more to spend. @param {number} usd @param {string} reason */
       ask: (usd, reason) => post("/v1/spend/requests", { usd, reason }),
     },
