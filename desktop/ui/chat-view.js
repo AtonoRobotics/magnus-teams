@@ -192,8 +192,11 @@ const ChatView = (() => {
     view.entries = entries;
     await conv.prepare?.(entries, view);
     const el = view.list, ui = view.ui;
-    const anchor = ui.drawn ? ReadingAnchors.capture(el) : view.record?.anchor || { follow: true };
     const newEntries = ui.entryIds ? entries.filter(e => e.id && !ui.entryIds.has(e.id)) : [];
+    const newUserMessage = newEntries.some(e => e.kind === "message" && mine(e, conv));
+    const anchor = newUserMessage
+      ? { follow: true }
+      : ui.drawn ? ReadingAnchors.capture(el) : view.record?.anchor || { follow: true };
     const newActivity = newEntries.length > 0;
     const newAnswer = newEntries.some(e => e.kind === "answer" || (e.sender === "agent" && e.text));
     ui.entryIds = new Set(entries.map(e => e.id)); ui.drawn = true;
@@ -201,9 +204,11 @@ const ChatView = (() => {
     if (painted) {
       liveStatusLines(el);
       ReadingAnchors.restore(el, anchor); ReadingAnchors.remember(el, anchor);
+      if (view.record && anchor.follow) view.record.anchor = { follow: true };
       if (newActivity && !anchor.follow) $("[data-jump-latest]", view.section).hidden = false;
       motion(el, ui);
       conv.drawn?.(el, entries, view);
+      ReadingAnchors.restore(el, anchor); ReadingAnchors.remember(el, anchor);
     }
     if (newAnswer) {
       const announce = $("[data-chat-announce]", view.section);
@@ -228,7 +233,7 @@ const ChatView = (() => {
     /** @type {ChatViewState} */
     const view = { conv, section, list: $(".thread", section), ui: { editing: null, sharing: null, declining: null, people: [], live: {} }, entries: [], revision: 0, record: o.record, draw: () => draw(view) };
     $("[data-jump-latest]", section).onclick = () => {
-      const list = view.list; list.scrollTop = list.scrollHeight; ReadingAnchors.remember(list);
+      const list = view.list; ReadingAnchors.restore(list, { follow: true }); ReadingAnchors.remember(list, { follow: true });
       if (view.record) view.record.anchor = { follow: true };
       $("[data-jump-latest]", section).hidden = true;
     };

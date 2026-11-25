@@ -598,11 +598,13 @@
   function onStageTransition(e) {
     if (!active || e.propertyName !== "grid-template-columns" || !(e.target instanceof Element) || !e.target.matches(".shell")) return;
     const t = document.getElementById("thread");
-    if (!t || t.scrollHeight - t.scrollTop - t.clientHeight > 80) return;
+    const following = () => typeof ReadingAnchors !== "undefined" ? !!ReadingAnchors.capture(t)?.follow : t.scrollHeight - t.scrollTop - t.clientHeight <= 80;
+    if (!t || !following()) return;
     const until = performance.now() + STAGE_PIN_MS;
     const pin = () => {
-      if (!t.isConnected) return;
-      t.scrollTop = t.scrollHeight;
+      if (!t.isConnected || !following()) return;
+      if (typeof ReadingAnchors !== "undefined") ReadingAnchors.restore(t, { follow: true });
+      else t.scrollTop = t.scrollHeight;
       if (performance.now() < until) requestAnimationFrame(pin);
     };
     requestAnimationFrame(pin);

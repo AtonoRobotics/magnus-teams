@@ -93,9 +93,14 @@ const App = {
 // Capture an entry and its relative offset before content/layout changes.
 const ReadingAnchors = (() => {
   const state = new WeakMap();
+  const programmatic = new WeakMap();
+  const lastTop = new WeakMap();
+  const nearBottom = root => root.scrollHeight - root.scrollTop - root.clientHeight <= 80;
   function capture(root) {
     if (!root) return null;
     if (!root.clientHeight) return state.get(root) || null;
+    const prev = state.get(root);
+    const follow = nearBottom(root) || (!!prev?.follow && root.scrollTop >= (lastTop.get(root) ?? 0) - 2);
     const bounds = root.getBoundingClientRect();
     const frames=[...root.querySelectorAll("iframe.composed")];
     for (const [frameIndex,frame] of frames.entries()) {
@@ -104,46 +109,69 @@ const ReadingAnchors = (() => {
       try {
         const nodes=[...frame.contentDocument.querySelectorAll("h1,h2,h3,h4,p,li,tr,pre")];
         const index=nodes.findIndex(n=>rect.top+n.getBoundingClientRect().bottom>bounds.top);
-        if (index>=0) return {follow:root.scrollHeight-root.scrollTop-root.clientHeight<=80,top:root.scrollTop,frameIndex,nodeIndex:index,offset:rect.top+nodes[index].getBoundingClientRect().top-bounds.top};
+        if (index>=0) return {follow,top:root.scrollTop,frameIndex,nodeIndex:index,offset:rect.top+nodes[index].getBoundingClientRect().top-bounds.top};
       } catch { /* frame not loaded */ }
     }
     const node = [...root.querySelectorAll("[data-entry], [data-shown], [data-key], h2, h3, p")].find(n => n.getBoundingClientRect().bottom > bounds.top);
-    return {follow:root.scrollHeight-root.scrollTop-root.clientHeight<=80, top:root.scrollTop,
+    return {follow, top:root.scrollTop,
       entry:node?.dataset.entry, shown:node?.dataset.shown, key:node?.dataset.key,
       index:node ? [...root.querySelectorAll("h2,h3,p")].indexOf(node) : -1,
       offset:node ? node.getBoundingClientRect().top-bounds.top : 0};
   }
+  function setTop(root, top) {
+    root.scrollTop = top;
+    const actual = root.scrollTop;
+    programmatic.set(root, actual);
+    lastTop.set(root, actual);
+  }
   function restore(root, anchor) {
     if (!root || !anchor || !root.clientHeight) return;
-    if (anchor.follow) root.scrollTop = root.scrollHeight;
+    if (anchor.follow) setTop(root, root.scrollHeight);
     else if (anchor.frameIndex!==undefined) {
       try {
         const frame=root.querySelectorAll("iframe.composed")[anchor.frameIndex];
         const node=frame?.contentDocument.querySelectorAll("h1,h2,h3,h4,p,li,tr,pre")[anchor.nodeIndex];
-        root.scrollTop=node ? root.scrollTop+frame.getBoundingClientRect().top+node.getBoundingClientRect().top-root.getBoundingClientRect().top-anchor.offset : anchor.top;
-      } catch { root.scrollTop=anchor.top; }
+        setTop(root, node ? root.scrollTop+frame.getBoundingClientRect().top+node.getBoundingClientRect().top-root.getBoundingClientRect().top-anchor.offset : anchor.top);
+      } catch { setTop(root, anchor.top); }
     } else {
       const node = anchor.entry ? root.querySelector(`[data-entry="${CSS.escape(anchor.entry)}"]`) : anchor.shown ? root.querySelector(`[data-shown="${CSS.escape(anchor.shown)}"]`) : anchor.key ? root.querySelector(`[data-key="${CSS.escape(anchor.key)}"]`) : root.querySelectorAll("h2,h3,p")[anchor.index];
-      root.scrollTop = node ? root.scrollTop + node.getBoundingClientRect().top-root.getBoundingClientRect().top-anchor.offset : anchor.top;
+      setTop(root, node ? root.scrollTop + node.getBoundingClientRect().top-root.getBoundingClientRect().top-anchor.offset : anchor.top);
     }
   }
-  function remember(root, preferred) { const a = preferred || capture(root); if (root) state.set(root,a); return a; }
+  function remember(root, preferred) { const a = preferred || capture(root); if (root) { state.set(root,a); lastTop.set(root, root.scrollTop); } return a; }
   function hold(root, change) { const a = capture(root); const result = change(); restore(root,a); if (root) state.set(root,a); return result; }
   function watch(root, record, persist=true) {
-    let restoredTop = null;
     if (record?.anchor) restore(root,record.anchor); else restore(root,{follow:true});
-    state.set(root,record?.anchor || capture(root));
+    state.set(root,record?.anchor || (persist ? { follow: true } : capture(root)));
+    lastTop.set(root, root.scrollTop);
     const onScroll = () => {
-      // Ignore only our own restored offset. Deliberate scrolling can
-      // arrive before the next animation frame and must update the anchor.
-      if(restoredTop!==null && Math.abs(root.scrollTop-restoredTop)<1){restoredTop=null;return;}
-      restoredTop=null;
       if (!root.clientHeight) return;
-      const a = remember(root); if (!persist) a.follow=false; if (a.follow) root.parentElement?.querySelector("[data-jump-latest]")?.setAttribute("hidden", ""); if (record) record.anchor = a;
+      const prev = state.get(root);
+      // Ignore programmatic restores; if content grew after restoring bottom, re-pin instead of detaching.
+      const prog = programmatic.get(root);
+      if (prog !== undefined && Math.abs(root.scrollTop - prog) < 2) {
+        programmatic.delete(root);
+        if (persist && prev?.follow && !nearBottom(root)) setTop(root, root.scrollHeight);
+        return;
+      }
+      programmatic.delete(root);
+      const prevTop = lastTop.get(root) ?? root.scrollTop;
+      const movedUp = root.scrollTop < prevTop - 2;
+      if (persist && prev?.follow && !movedUp && !nearBottom(root)) {
+        // Content grew or viewport shrank (e.g. iframe load / bento open) without upward scroll: stay pinned to bottom.
+        setTop(root, root.scrollHeight);
+        return;
+      }
+      const a = capture(root);
+      if (!persist) a.follow = false;
+      else if (movedUp && !nearBottom(root)) a.follow = false;
+      remember(root, a);
+      if (a.follow) root.parentElement?.querySelector("[data-jump-latest]")?.setAttribute("hidden", "");
+      if (record) record.anchor = a;
     };
     root.addEventListener("scroll",onScroll,{passive:true});
     const resize = new ResizeObserver(() => {
-      restore(root,state.get(root));restoredTop=root.scrollTop;
+      restore(root,state.get(root));
     });
     const observe = () => { resize.disconnect(); resize.observe(root); for (const n of root.children) resize.observe(n); };
     const content = new MutationObserver(observe); content.observe(root,{childList:true}); observe();
@@ -523,8 +551,9 @@ const Workspace = (() => {
     if (work && Panel.autoOpened && (shell.clientWidth < B.autoOpenMinWidthPx || !m.eligible)) { closePanel(false); return m; }
     delete document.body.dataset.team;
     const prior=[...document.querySelectorAll("#thread, #detail .detail-body")].filter(el=>el.clientHeight).map(root=>{
-      const rect=root.getBoundingClientRect(), nodes=[...root.querySelectorAll("[data-entry], iframe, h2, h3, p")], node=nodes.find(n=>n.getBoundingClientRect().bottom>rect.top);
-      return {root,node,top:root.scrollTop,offset:node ? node.getBoundingClientRect().top-rect.top : 0,follow:root.id==="thread" && root.scrollHeight-root.scrollTop-root.clientHeight<=80};
+      const anchor=ReadingAnchors.capture(root);
+      if (anchor && root.id!=="thread") anchor.follow=false;
+      return {root,anchor};
     });
     const railDrawerOpen = m.nav==="compact" && typeof AuroraRail!=="undefined" && AuroraRail.open && $("#navigation-drawer")?.open;
     shell.style.setProperty("--nav-width",`${m.navWidth}px`);shell.style.setProperty("--panel-width",`${m.panel}px`);shell.style.setProperty("--conversation-min-width",`${B.conversationMinWidthPx}px`);shell.style.setProperty("--splitter-width",`${B.splitterWidthPx}px`);
@@ -540,7 +569,7 @@ const Workspace = (() => {
     $(".workspace-heading").hidden=work;
     const separator=$("#workspace-splitter");separator.hidden=!m.split;separator.setAttribute("aria-valuenow",String(Math.round(m.panel)));separator.setAttribute("aria-valuemin",String(m.min));separator.setAttribute("aria-valuemax",String(m.max));separator.setAttribute("aria-valuetext",`${Math.round(m.panel)} pixels`);
     if (m.nav!=="drawer" && !railDrawerOpen && $("#navigation-drawer").open) closeDrawer(false);
-    for(const a of prior){if(!a.root.clientHeight)continue;a.root.scrollTop=a.follow ? a.root.scrollHeight : a.node?.isConnected ? a.root.scrollTop+a.node.getBoundingClientRect().top-a.root.getBoundingClientRect().top-a.offset : a.top;}
+    for(const a of prior){if(!a.root.clientHeight || !a.anchor)continue;ReadingAnchors.restore(a.root,a.anchor);}
     reportOpenedSoon();
     return m;
   }

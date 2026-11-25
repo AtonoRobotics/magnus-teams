@@ -619,23 +619,27 @@ const AuroraStage = (() => {
   function compactThreadHistory(conv) {
     const thread = conv.querySelector(":scope > .thread");
     if (!thread) return;
-    thread.querySelectorAll(".reqgroup.chatcard[data-chat-tasks], .reqgroup.chatcard.sub-agents, .result[data-result]").forEach(el => {
-      if (!(el instanceof HTMLElement)) return;
-      el.dataset.history = "1";
-      el.querySelectorAll("details").forEach(d => {
-        if (d.dataset.historyInit) return;
-        // Keep interactive iframe/composed deliverables visible if directly attached; collapse verbose text/sub-agent logs.
-        if (d.querySelector("iframe.composed, .composed-wrap")) return;
-        d.dataset.historyInit = "1";
-        d.open = false;
+    const apply = () => {
+      thread.querySelectorAll(".reqgroup.chatcard[data-chat-tasks], .reqgroup.chatcard.sub-agents, .result[data-result]").forEach(el => {
+        if (!(el instanceof HTMLElement)) return;
+        el.dataset.history = "1";
+        el.querySelectorAll("details").forEach(d => {
+          if (d.dataset.historyInit) return;
+          // Keep interactive iframe/composed deliverables visible if directly attached; collapse verbose text/sub-agent logs.
+          if (d.querySelector("iframe.composed, .composed-wrap")) return;
+          d.dataset.historyInit = "1";
+          d.open = false;
+        });
       });
-    });
-    thread.querySelectorAll(".decide").forEach(dec => {
-      if (!(dec instanceof HTMLElement)) return;
-      const cards = dec.querySelectorAll(".card.item[data-id]");
-      if (cards.length && cards.length === dec.children.length) dec.dataset.historyHidden = "1";
-      else delete dec.dataset.historyHidden;
-    });
+      thread.querySelectorAll(".decide").forEach(dec => {
+        if (!(dec instanceof HTMLElement)) return;
+        const cards = dec.querySelectorAll(".card.item[data-id]");
+        if (cards.length && cards.length === dec.children.length) dec.dataset.historyHidden = "1";
+        else delete dec.dataset.historyHidden;
+      });
+    };
+    if (typeof ReadingAnchors !== "undefined" && ReadingAnchors.hold) ReadingAnchors.hold(thread, apply);
+    else apply();
   }
 
   /**

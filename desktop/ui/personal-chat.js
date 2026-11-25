@@ -34,6 +34,9 @@ function personalComposer() {
         }
       }
       return async () => {
+        record.anchor = { follow: true };
+        const threadEl = $("#thread");
+        if (threadEl && typeof ReadingAnchors !== "undefined") ReadingAnchors.remember(threadEl, { follow: true });
         // A secret typed into chat was hidden by the server: say so, and where a sign-in belongs.
         if (response?.hidden?.length) toast(`Magnus hid the ${[...new Set(response.hidden)].join(" and ")} in your message: it is not kept, and Magnus never sees it. When Magnus needs a sign-in, it asks for it through a secure form.`, 8000);
         if (!record.thread && response?.thread) {
@@ -42,6 +45,7 @@ function personalComposer() {
           const next = MessageDrafts.forThread(response.thread);
           next.text = record.text; next.files = record.files; next.model = record.model; next.modelUnder = record.modelUnder;
           next.pendingRun = carry.pendingRun; next.runningIds = carry.runningIds; next.cancelRequested = carry.cancelRequested;
+          next.anchor = { follow: true };
           if (App.workspace && App.draftRecord === record) { history.replaceState(history.state, "", `#/chat/${enc(response.thread)}`); record.sending = false; await go(); return; }
         }
         await refresh();
