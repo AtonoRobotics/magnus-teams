@@ -197,7 +197,6 @@ assert.equal(slotNode.textContent, "Reading issue #84");
 ctx.needsMe = () => [{ id: "n1", thread: "t1", summary: "Send Gmail update" }, { id: "n2", summary: "Create GitHub PR" }];
 assert.match(act, /<section class="companion-scheds">/);
 assert.match(act, /<a class="sec-head-link" href="#\/schedules"/);
-assert.match(act, /<nav class="activity-views" aria-label="Activity views">/);
 assert.ok(act.indexOf("companion-needs-banner") < act.indexOf("companion-active-card"), "Inline approval banner appears above Active now card");
 assert.ok(act.indexOf("companion-active-card") < act.indexOf("companion-timeline"), "Active now card appears above Recent work timeline");
 assert.ok(act.indexOf("companion-timeline") < act.indexOf("companion-scheds"), "Recent work appears above Up next schedules");
@@ -281,8 +280,9 @@ clickLook("accent", "emerald");
 clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
-// 5. Desktop auto-open, rules panel handler, and multi-theme CSS rules.
-assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= Theme\.LAYOUT_BOUNDS\.autoOpenMinWidthPx\)/);
+// 5. On-demand right sidebar toggle, rules panel handler, and multi-theme CSS rules.
+assert.match(app, /data-toggle-inspector/, "conversation header includes on-demand right sidebar toggle");
+assert.doesNotMatch(app, /openPanel\(needsMe\(\)\.length \? "needs" : "activity", \{ auto: true \}\)/, "right sidebar does not auto-open on startup");
 assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < B\.autoOpenMinWidthPx \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);

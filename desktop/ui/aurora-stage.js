@@ -49,9 +49,9 @@ const AuroraStage = (() => {
   const WORD_ANIM_MS = 340;
   const WORD_UNWRAP_BUFFER_MS = 80;
   const WORDS_STREAMED = 120;
-  const SHOWN_BOXES = 4;
+  const SHOWN_BOXES = 6;
   const MAX_APPROVAL_BOXES = 2;
-  const MAX_CONCURRENT_TASK_BOXES = 2;
+  const MAX_CONCURRENT_TASK_BOXES = 3;
   const PREVIEW_ROWS_MAX = 6;
   const PREVIEW_BODY_MAX_CHARS = 600;
   const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files", "shared"]);
@@ -70,12 +70,8 @@ const AuroraStage = (() => {
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   let files = { at: 0, list: [], loading: null };
   let lastArtifact = null;
-  /** @type {Map<string, string>|null} each task's state when last seen */
-  let seen = null;
   /** Messages that would have been pop-ups, by key, newest last. @type {Map<string, { key: string, title: string, body: string, href: string, at: number }>} */
   const notes = new Map();
-  /** Decisions of this conversation opened beside it once already. */
-  const offered = new Set();
   /** What came to be told before the page was first drawn. @type {Array<{ key: string, title: string, body: string, href: string, system?: string }>} */
   const early = [];
   /** A box just answered, shown with its answer until `until`. @type {?{ box: any, until: number }} */
@@ -97,18 +93,35 @@ const AuroraStage = (() => {
 
   const ended = t => ENDED.includes(t.status);
   const waits = t => !ended(t) && needsYou(t);
-  const stateOfTask = t => (ended(t) ? t.status : waits(t) ? "needs" : "running");
   const stepOf = t => ((t.plan && t.plan.units) || []).find(u => u.status === "active");
   const pctOf = t => {
     const units = t?.plan?.units || [];
     if (!units.length) return null;
     return Math.round((100 * units.filter(u => u.status === "done").length) / units.length);
   };
+  const planUnitsOf = t => ((t?.plan && Array.isArray(t.plan.units)) ? t.plan.units : []).slice(0, 5).map(u => ({
+    goal: u.goal || "",
+    status: u.status || "pending",
+  }));
   const named = t => t.title || firstLine(t.text) || "Task";
   const tsOf = iso => { const at = Date.parse(iso || ""); return Number.isNaN(at) ? 0 : at; };
   const age = iso => { const at = Date.parse(iso || ""); return Number.isNaN(at) ? Infinity : Date.now() - at; };
   const latest = list => list.sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""))[0];
   const ATTENTION = ["needs_attention", "needs_more_access", "connecting"];
+
+  /** Read live sub-agent rows rendered in the active thread so the composed stage displays them too. */
+  function threadSubAgents() {
+    const out = [];
+    for (const el of document.querySelectorAll("#thread .sub-agent")) {
+      const status = el.getAttribute("data-status") || "";
+      if (status !== "running" && status !== "suspended") continue;
+      const goal = el.querySelector(".ttl")?.textContent?.trim() || "";
+      const sub = el.querySelector(".sub")?.textContent?.trim() || "";
+      const open = el.querySelector("a[data-open]")?.getAttribute("data-open") || "";
+      if (goal) out.push({ goal, status, sub, open });
+    }
+    return out.slice(0, 4);
+  }
 
   /** Concise destination/consequence preview for an approval bento tile. @param {any} i @param {number} pendingCount */
   function approvalDesc(i, pendingCount) {
@@ -122,8 +135,8 @@ const AuroraStage = (() => {
   }
 
   /**
-   * What is relevant now, dynamically ordered by urgency and recency: each a box of the bento.
-   * @returns {Promise<Array<{ key: string, label: string, icon: string, svg?: string, open: string, href: string, tone: string, title: string, desc: string, count?: number, pct?: number|null, updatedAt?: number }>>}
+   * What is relevant now, dynamically ordered by urgency and recency: each a box of the composed autonomous stage.
+   * @returns {Promise<Array<any>>}
    */
   async function boxes() {
     const tasks = App.tasks || [];
@@ -131,6 +144,7 @@ const AuroraStage = (() => {
     const activeAll = tasks.filter(t => !ended(t)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));
     const last = latest(here.filter(t => ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
+    const liveSubs = threadSubAgents();
     const list = [];
     if (typeof App !== "undefined" && App.shared && typeof SharedCanvas !== "undefined") list.push(...SharedCanvas.boxes());
     const live = { key: "live", label: "Live Workspace", icon: "sparkles" };
@@ -142,13 +156,29 @@ const AuroraStage = (() => {
       list.push({
         ...live,
         tone: waits(run) ? "needs" : "run",
+        taskId: run.task_id,
         open: `task:${run.task_id}`,
         href: `#/task/${enc(run.task_id)}`,
         title: named(run),
         desc: `${waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…"}${subNote}${tally}`,
         pct: pctOf(run),
+        steps: planUnitsOf(run),
+        subAgents: liveSubs,
+        canStop: true,
         count: activeAll.length > 1 ? activeAll.length : 0,
         updatedAt: tsOf(run.updated_at || run.created_at),
+      });
+    } else if (liveSubs.length) {
+      list.push({
+        ...live,
+        tone: liveSubs.some(s => s.status === "suspended") ? "needs" : "run",
+        open: liveSubs[0].open || "tasks",
+        href: "#/tasks",
+        title: liveSubs.length === 1 ? liveSubs[0].goal : `${plural(liveSubs.length, "sub-agent")} working`,
+        desc: liveSubs[0].sub || "Working on your request…",
+        subAgents: liveSubs,
+        count: liveSubs.length > 1 ? liveSubs.length : 0,
+        updatedAt: Date.now(),
       });
     } else if (last) {
       list.push({
@@ -157,7 +187,8 @@ const AuroraStage = (() => {
         open: `task:${last.task_id}`,
         href: `#/task/${enc(last.task_id)}`,
         title: named(last),
-        desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped"),
+        desc: last.summary || (last.status === "completed" ? "Done" : "Stopped"),
+        verified: !!(last.verified || last.receipts_count > 0 || last.has_deliverable),
         updatedAt: tsOf(last.ended_at || last.created_at),
       });
     }
@@ -171,32 +202,42 @@ const AuroraStage = (() => {
         label: other.thread === App.thread ? "Parallel Task" : "Autonomous Task",
         icon: "sparkles",
         tone: waits(other) ? "needs" : "run",
+        taskId: other.task_id,
         open: `task:${other.task_id}`,
         href: `#/task/${enc(other.task_id)}`,
         title: named(other),
         desc: `${waits(other) ? "Waiting on you to decide" : other.status_line || (step && step.goal) || "Running in background…"}${subNote}`,
         pct: pctOf(other),
+        steps: planUnitsOf(other),
+        canStop: true,
         updatedAt: tsOf(other.updated_at || other.created_at),
       });
     }
-    // Approvals already open beside the conversation (either the list or this decision) are not also a box.
+    // Approvals already open in the sidebar are not duplicated on the stage.
     const pending = Panel.what === "needs" ? [] : needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
     if (held && held.until > Date.now()) list.push(held.box);
     else held = null;
-    // Show up to MAX_APPROVAL_BOXES unclosed pending decisions with rich previews & 1-tap actions.
-    const ask = (i, idx) => ({
-      key: `approval:${i.id}`,
-      item: i.id,
-      label: "Approvals",
-      icon: "need",
-      href: "#/inbox",
-      tone: "needs",
-      count: idx === 0 && pending.length > 1 ? pending.length : 0,
-      open: `item:${i.id}`,
-      title: i.ask?.sentence || i.summary || "A decision",
-      desc: approvalDesc(i, pending.length),
-      updatedAt: tsOf(i.created_at),
-    });
+    // Show up to MAX_APPROVAL_BOXES unclosed pending decisions with full structured previews & 1-tap actions.
+    const ask = (i, idx) => {
+      const fields = typeof askSummaryFields === "function" ? askSummaryFields(i) : { rows: [], body: "" };
+      return {
+        key: `approval:${i.id}`,
+        item: i.id,
+        label: "Needs your decision",
+        icon: "need",
+        href: "#/inbox",
+        tone: "needs",
+        tierHtml: typeof askTierBadge === "function" ? askTierBadge(i) : "",
+        previewRows: fields.rows.slice(0, 4),
+        previewBody: fields.body || "",
+        consequence: i.consequence || "",
+        count: idx === 0 && pending.length > 1 ? pending.length : 0,
+        open: `item:${i.id}`,
+        title: i.ask?.sentence || i.summary || "A decision",
+        desc: approvalDesc(i, pending.length),
+        updatedAt: tsOf(i.created_at),
+      };
+    };
     let shownApprovals = 0;
     for (const i of pending) {
       if (shownApprovals >= MAX_APPROVAL_BOXES) break;
@@ -224,15 +265,13 @@ const AuroraStage = (() => {
     const connectors = (typeof Lib !== "undefined" && Array.isArray(Lib.all) ? Lib.all : App.connectors) || [];
     const asking = connectors.filter(c => ATTENTION.includes(stateOf(c)));
     if (asking.length) list.push({ key: "apps", label: "Apps", icon: "grid", tone: "needs", open: `connector:${asking[0].name}`, href: "#/apps", title: asking[0].title, desc: asking.length > 1 ? `${asking.length} apps need attention` : "Needs attention to keep working", updatedAt: 0 });
-    // What happened while the person was away, in place of the banner over
-    // the thread; opened, it goes until the next session.
     const feed = App.feed;
     if (feed && !App.feedDismissed) {
       const said = [[feed.ended?.length, "finished"], [feed.arrived?.length, "new for you"], [feed.decided?.length, "decided"]].filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
       if (said.length) list.push({ key: "away", label: "Since you were away", icon: "clock", tone: "idle", open: "activity", href: "#/activity", title: said.join(" · "), desc: "See what happened", updatedAt: 0 });
     }
     const elsewhere = latest(tasks.filter(t => t.thread !== App.thread && ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
-    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
+    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, verified: !!(elsewhere.verified || elsewhere.receipts_count > 0), updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
     // Record live content updates first so dynamic recency sorting immediately promotes changed boxes.
     if (typeof AuroraBoxes.noteChanges === "function") AuroraBoxes.noteChanges(list, Date.now());
     const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" ? 1 : c.tone === "talk" ? 2 : c.tone === "done" ? 3 : 4);
@@ -263,19 +302,32 @@ const AuroraStage = (() => {
     return out;
   }
 
-  /** A box's inside, as the mockup's small bento box. */
+  /** A box's inside: composes structured previews, plan steps, sub-agents, progress bars, and direct controls. */
   function boxInner(c) {
-    const title = c.answers ? `<a class="stage-tile-title" href="${html(c.href)}" data-open="${html(c.open)}">${html(c.title)}</a>` : `<strong class="stage-tile-title">${html(c.title)}</strong>`;
-    // A box just answered goes on its own in a moment: it needs no Close.
+    const interactive = !!(c.answers || c.said || c.canStop);
+    const title = interactive ? `<a class="stage-tile-title" href="${html(c.href)}" data-open="${html(c.open)}">${html(c.title)}</a>` : `<strong class="stage-tile-title">${html(c.title)}</strong>`;
     const close = c.said ? "" : `<button type="button" class="stage-tile-close" aria-label="Close ${html(c.label)}" title="Close">${icon("close")}</button>`;
+    const verifiedPill = c.verified ? `<span class="aurora-verified-pill">✓ Verified</span>` : "";
     const bar = typeof c.pct === "number" ? `<div class="stage-tile-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${c.pct}"><span style="width:${c.pct}%"></span></div>` : "";
-    const descHtml = c.desc ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : "";
+    const stepsHtml = Array.isArray(c.steps) && c.steps.length
+      ? `<ul class="stage-plan-steps">${c.steps.map(u => `<li data-step="${html(u.status)}"><span class="stage-step-dot" aria-hidden="true"></span><span>${html(u.goal)}</span></li>`).join("")}</ul>`
+      : "";
+    const subsHtml = Array.isArray(c.subAgents) && c.subAgents.length
+      ? `<div class="stage-sub-list">${c.subAgents.map(s => `<span class="stage-sub-pill" data-status="${html(s.status)}"><span class="stage-step-dot" aria-hidden="true"></span><strong>${html(s.goal)}</strong>${s.sub ? `<span class="muted"> · ${html(s.sub)}</span>` : ""}</span>`).join("")}</div>`
+      : "";
+    const previewHtml = (Array.isArray(c.previewRows) && c.previewRows.length) || c.previewBody
+      ? `<div class="stage-tile-preview">${c.previewRows?.length ? c.previewRows.map(([k, v]) => `<div class="stage-preview-row"><span class="stage-preview-key">${html(k)}</span><span class="stage-preview-val">${html(v)}</span></div>`).join("") : ""}${c.previewBody ? `<p class="stage-preview-body">${html(c.previewBody)}</p>` : ""}${c.consequence ? `<p class="stage-preview-note">${html(c.consequence)}</p>` : ""}</div>`
+      : "";
+    const descHtml = c.desc && !previewHtml ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : "";
+    const actsHtml = c.canStop && c.taskId
+      ? `<div class="stage-tile-acts"><a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Details →</a><button type="button" class="stage-tile-stop" data-stage-stop="${html(c.taskId)}">Stop</button></div>`
+      : c.answers
+        ? `<div class="stage-tile-acts-row">${c.answers}<a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Details →</a></div>`
+        : "";
     const foot = c.said
       ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
-      : c.answers
-        ? `${descHtml}${c.answers}`
-        : `${bar}${descHtml}`;
-    return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
+      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${stepsHtml}${subsHtml}${actsHtml}`;
+    return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${verifiedPill}${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
       ${title}
       ${foot}`;
   }
@@ -329,7 +381,7 @@ const AuroraStage = (() => {
     for (const c of list) {
       let b = bento.querySelector(`:scope > .stage-tile[data-tile="${CSS.escape(c.key)}"]:not(.stage-tile-leaving)`);
       // A box with answers in it is not a link: its title is.
-      const tag = c.answers || c.said ? "DIV" : "A";
+      const tag = c.answers || c.said || c.canStop ? "DIV" : "A";
       if (b && b.tagName !== tag) { b.remove(); b = null; }
       if (!b) {
         b = document.createElement(tag);
@@ -371,81 +423,26 @@ const AuroraStage = (() => {
 
   /**
    * The bento grows or shrinks from the size it was drawn at to the size it
-   * has now, and the conversation above it with it. Growing, it keeps pace
-   * with the box rising in; shrinking, it waits for the leaving box to fade
-   * before its room closes. A conversation read to its end is kept at its
-   * end while it shrinks.
+   * has now, and the conversation above it with it.
    * @param {HTMLElement} bento @param {{ height: number, margin: number }} was
    */
   function grow(bento, was) {
     bento.getAnimations().forEach(a => { if (a.id === "stage-grow") a.cancel(); });
     if (!moving()) return;
+    const conv = bento.closest("section.conv");
+    if (conv && conv.dataset.stageMode === "composed" && conv.getBoundingClientRect().width >= 820) return;
     const now = sizeOf(bento);
     if (Math.abs(now.height - was.height) < 1 && Math.abs(now.margin - was.margin) < 1) return;
     const a = bento.animate([{ height: `${was.height}px`, marginTop: `${was.margin}px` }, { height: `${now.height}px`, marginTop: `${now.margin}px` }], { duration: MOVE_MS, easing: now.height < was.height ? FOLD_EASE : MOVE_EASE });
     a.id = "stage-grow";
-    const thread = bento.closest("section.conv")?.querySelector(":scope > .thread");
+    const thread = conv?.querySelector(":scope > .thread");
     if (!thread || thread.scrollHeight - thread.scrollTop - thread.clientHeight > END_PX) return;
     const keep = () => { thread.scrollTop = thread.scrollHeight; if (a.playState === "running") requestAnimationFrame(keep); };
     requestAnimationFrame(keep);
   }
 
-  /** The conversation head's slim dock: Approvals direct, other views in one popover (context-aware for shared projects). */
-  function dock() {
-    const n = needsMe().length;
-    const more = (typeof App !== "undefined" && App.shared && typeof SharedCanvas !== "undefined")
-      ? SharedCanvas.dockItems(App.shared.ws)
-      : [
-        ["tasks", "#/tasks", "clock", "Tasks"],
-        ["schedules", "#/schedules", "calendar", "Routines"],
-        ["rules", "#/rules", "shield", "Rules"],
-        ["files", "#/files", "file", "Files"],
-        ["apps", "#/apps", "grid", "Apps"],
-      ];
-    const items = more.map(([open, href, ic, label]) =>
-      `<a class="stage-dock-item" role="menuitem" href="${href}" data-open="${open}">${icon(ic)}<span>${label}</span></a>`
-    ).join("");
-    return `<a class="icon-btn stage-dock-btn" href="#/inbox" data-open="needs" title="Approvals" aria-label="Approvals${n ? `, ${n} waiting` : ""}">${icon("need")}${n ? `<span class="stage-dock-badge" aria-hidden="true">${n}</span>` : ""}</a>`
-      + `<details class="stage-dock-more"><summary class="icon-btn stage-dock-btn" aria-label="Workspace views" title="Workspace views">${icon("grid")}</summary><div class="stage-dock-menu" role="menu" aria-label="Workspace views">${items}</div></details>`;
-  }
-
-  // Work the person is watching that just finished or now needs them opens
-  // its result beside the conversation, unless they opened something else.
-  function follow() {
-    const tasks = App.tasks || [];
-    const now = new Map(tasks.map(t => [t.task_id, stateOfTask(t)]));
-    const was = seen;
-    seen = now;
-    if (App.thread && decide(tasks)) return;
-    if (!was || !App.thread) return;
-    const turned = tasks.find(t => t.thread === App.thread && was.get(t.task_id) === "running" && ["completed", "needs"].includes(now.get(t.task_id) || ""));
-    if (!turned || (Panel.what && !Panel.autoOpened) || Panel.what === `task:${turned.task_id}`) return;
-    openPanel(`task:${turned.task_id}`, { auto: true });
-  }
-
   /**
-   * A decision about this conversation, not yet offered, opens beside it
-   * with its answers, unless the person opened something else themselves.
-   * @param {any[]} tasks @returns {boolean} whether one opened
-   */
-  function decide(tasks) {
-    if (Panel.what && !Panel.autoOpened) return false;
-    if (String(Panel.what || "").startsWith("item:")) return false;
-    const mine = new Set(tasks.filter(t => t.thread === App.thread && t.waiting_item).map(t => t.waiting_item));
-    const i = needsMe().find(x => x.id && x.can_respond !== false && !offered.has(x.id) && (x.thread === App.thread || mine.has(x.id)));
-    if (!i) return false;
-    offered.add(i.id);
-    openPanel(`item:${i.id}`, { auto: true });
-    setTimeout(refresh, 0);
-    return true;
-  }
-
-  /**
-   * A message that would be a pop-up, taken as a box of the bento instead.
-   * A decision needs no box of its own here: the stage shows it already.
-   * Where no conversation is shown (Settings, say), there is no stage to
-   * show it on, and it is a pop-up as in the other styles. Before the page
-   * is first drawn it is held, and placed once it is (`look`).
+   * A message that would be a pop-up, taken as a box of the composed stage instead.
    * @param {{ key: string, title: string, body: string, href: string }} s
    * @returns {boolean} whether the stage took it
    */
@@ -478,10 +475,29 @@ const AuroraStage = (() => {
     refresh();
   }, true);
 
+  // Inline Stop action directly on an active process tile in the composed stage.
+  document.addEventListener("click", async e => {
+    const stopBtn = /** @type {HTMLElement} */ (e.target).closest?.("[data-stage-stop]");
+    if (!stopBtn || typeof Server === "undefined") return;
+    e.preventDefault();
+    const id = stopBtn.dataset.stageStop || "";
+    if (!id) return;
+    if (typeof ask === "function" && !await ask("Stop this task? What it already did stays done.", "Stop")) return;
+    /** @type {HTMLButtonElement} */ (stopBtn).disabled = true;
+    try {
+      await Server.tasks.cancel(id);
+      if (typeof toast === "function") toast("Stopped.");
+      if (typeof globalThis.refresh === "function") await globalThis.refresh();
+      refresh();
+    } catch (err) {
+      /** @type {HTMLButtonElement} */ (stopBtn).disabled = false;
+      if (typeof toast === "function") toast(err.message);
+    }
+  });
+
   // A message opened, or its place visited, is no longer new.
   document.addEventListener("click", e => {
     const t = /** @type {HTMLElement} */ (e.target);
-    // What happened while away, opened, is seen until the next session.
     if (t.closest?.('.stage-tile[data-tile="away"]') && typeof App !== "undefined") {
       App.feedDismissed = true;
       if (typeof banners === "function") banners();
@@ -502,32 +518,11 @@ const AuroraStage = (() => {
     if (decision === "ask-more") return;
     const said = typeof AuroraAlerts !== "undefined" ? AuroraAlerts.said(decision) : "Done";
     const id = /** @type {HTMLElement} */ (btn).dataset.item || "";
-    held = { box: { key: tile.dataset.tile, item: id, label: "Approvals", icon: "need", href: "#/inbox", tone: "done", open: `item:${id}`, title: tile.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
-    // Its answers become the answer now; the box goes once it has shown.
-    const row = tile.querySelector(".ask-answers");
+    held = { box: { key: tile.dataset.tile, item: id, label: "Needs your decision", icon: "need", href: "#/inbox", tone: "done", open: `item:${id}`, title: tile.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
+    const row = tile.querySelector(".stage-tile-acts-row, .ask-answers");
     if (row) row.outerHTML = `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(said)}</span></div>`;
     tile.dataset.tone = "done";
     setTimeout(refresh, ANSWER_SHOWN_MS + 20);
-  });
-  // Dismiss the Views popover when an item is chosen, on outside click, or on Escape.
-  document.addEventListener("click", e => {
-    const t = /** @type {HTMLElement} */ (e.target);
-    const chosen = t.closest?.(".stage-dock-item");
-    if (chosen) {
-      const m = chosen.closest(".stage-dock-more");
-      if (m instanceof HTMLDetailsElement) m.open = false;
-      return;
-    }
-    if (!t.closest?.(".stage-dock-more")) {
-      document.querySelectorAll(".stage-dock-more[open]").forEach(m => { /** @type {HTMLDetailsElement} */ (m).open = false; });
-    }
-  });
-  document.addEventListener("keydown", e => {
-    if (e.key !== "Escape") return;
-    const openMenu = document.querySelector(".stage-dock-more[open]");
-    if (!(openMenu instanceof HTMLDetailsElement)) return;
-    openMenu.open = false;
-    /** @type {HTMLElement|null} */ (openMenu.querySelector(":scope > summary"))?.focus();
   });
 
   window.addEventListener("hashchange", () => {
@@ -570,7 +565,7 @@ const AuroraStage = (() => {
     if (watched.has(main)) return;
     watched.add(main);
     new MutationObserver(records => {
-      if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .stage-dock, .aurora-canvas-row"))) return;
+      if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .aurora-canvas-row"))) return;
       queued = requestAnimationFrame(() => { queued = 0; refresh(); });
     }).observe(main, { childList: true, subtree: true });
   }
@@ -584,8 +579,7 @@ const AuroraStage = (() => {
 
   /**
    * Adds a quiet "Inspect Canvas →" footer row on completed answers backed by
-   * a finished task or rich artifact so users can reopen work after its bento
-   * tile auto-dismisses.
+   * a finished task or rich artifact so users can reopen work in the right sidebar.
    * @param {Element} conv
    */
   function annotateAnswers(conv) {
@@ -610,7 +604,7 @@ const AuroraStage = (() => {
   }
 
   /**
-   * The bento in its place: after the thread, just above the input.
+   * The autonomous stage canvas inside `section.conv`.
    * @param {Element} conv
    */
   function bentoIn(conv) {
@@ -619,9 +613,8 @@ const AuroraStage = (() => {
       if (!kept) {
         kept = document.createElement("nav");
         kept.className = "stage-bento";
-        kept.setAttribute("aria-label", "What is happening");
+        kept.setAttribute("aria-label", "Live workspace");
         sized.observe(kept);
-        // Boxes the person was on leave SHOWN_FOR_MS after they go.
         const away = () => setTimeout(() => {
           if (!kept || kept.matches(":hover, :focus-within")) return;
           AuroraBoxes.left(boxesIn(kept).map(b => b.dataset.sign || ""));
@@ -641,7 +634,7 @@ const AuroraStage = (() => {
     return bento;
   }
 
-  /** Draws the bento above the conversation's input and the dock in its head. */
+  /** Composes the autonomous stage inside `section.conv`, rearranging layout when active work exists. */
   function refresh() {
     const main = document.getElementById("main");
     if (!main) return Promise.resolve();
@@ -649,8 +642,8 @@ const AuroraStage = (() => {
     const conv = main.querySelector(":scope > section.conv");
     if (!on() || !conv) {
       document.querySelectorAll(".stage-bento").forEach(b => b.remove());
-      document.querySelectorAll(".stage-dock").forEach(d => d.remove());
       document.querySelectorAll(".aurora-canvas-row").forEach(r => r.remove());
+      if (conv instanceof HTMLElement) delete conv.dataset.stageMode;
       return Promise.resolve();
     }
     if (drawing) { rerun = true; return drawing; }
@@ -659,28 +652,24 @@ const AuroraStage = (() => {
       const now = main.querySelector(":scope > section.conv");
       if (!now) return;
       const bento = bentoIn(now);
-      const held = new Set(bento.matches(":hover, :focus-within") ? boxesIn(bento).map(b => b.dataset.sign || "") : []);
-      const list = AuroraBoxes.shown(all, Date.now(), held).slice(0, SHOWN_BOXES);
+      const heldSet = new Set(bento.matches(":hover, :focus-within") ? boxesIn(bento).map(b => b.dataset.sign || "") : []);
+      const visible = AuroraBoxes.shown(all, Date.now(), heldSet);
+      const list = visible.slice(0, SHOWN_BOXES);
+      const extra = Math.max(0, visible.length - list.length);
+      if (now instanceof HTMLElement) now.dataset.stageMode = list.length ? "composed" : "chat";
       place(bento, list);
-      // A box that leaves on its own leaves on time, with nothing else changing.
+      let over = bento.querySelector(":scope > .stage-bento-overflow");
+      if (extra > 0) {
+        if (!over) { over = document.createElement("a"); over.className = "stage-bento-overflow"; over.setAttribute("href", "#/tasks"); over.setAttribute("data-open", "tasks"); bento.append(over); }
+        over.textContent = `+${extra} more active in workspace sidebar →`;
+      } else if (over) {
+        over.remove();
+      }
       clearTimeout(leaving);
       const wait = AuroraBoxes.next(list);
       if (wait !== null) leaving = setTimeout(refresh, wait + LEAVE_SLACK_MS);
-      const row = now.querySelector("#conv-head .row, .conv-head .row");
-      if (row) {
-        let d = row.querySelector(":scope > .stage-dock");
-        if (!d) { d = document.createElement("span"); d.className = "stage-dock"; row.prepend(d); }
-        const markup = dock();
-        if (d._html !== markup) {
-          const wasOpen = Boolean(d.querySelector(".stage-dock-more")?.hasAttribute("open"));
-          d.innerHTML = markup;
-          d._html = markup;
-          if (wasOpen) d.querySelector(".stage-dock-more")?.setAttribute("open", "");
-        }
-      }
       annotateAnswers(now);
-      follow();
-    })().catch(() => { /* The bento waits for the next change. */ }).finally(() => {
+    })().catch(() => { /* The stage waits for the next change. */ }).finally(() => {
       drawing = null;
       if (rerun) { rerun = false; refresh(); }
     });

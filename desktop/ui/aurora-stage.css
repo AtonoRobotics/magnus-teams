@@ -84,9 +84,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has
   }
 }
 
-/* Two columns, as the mockup's bento, just above the input and as wide as
-   it; a lone box, or the most urgent of three, takes the whole row. With
-   nothing relevant the bento folds away. */
+/* Autonomous Self-Composing Stage: when active tasks, approvals, or fresh
+   findings exist, the conversation rearranges into a 2-column live workspace
+   (chat + composer left, composed bento stage right) on wide viewports, and
+   gracefully folds back to calm centered chat when idle. */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
   position: relative;
   flex: none;
@@ -97,18 +98,65 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
   box-sizing: border-box;
   width: 100%;
   max-width: 728px;
+  max-height: 44vh;
+  overflow-y: auto;
   margin: 8px auto 4px;
   padding: 0 16px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento[data-count="0"] {
   height: 0;
+  max-height: 0;
   margin-top: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento:is([data-count="1"], [data-count="3"]) > .stage-tile:first-child {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento:is([data-count="1"], [data-count="3"], [data-count="5"]) > .stage-tile:first-child,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento > .stage-tile:first-child:is([data-tone="needs"], [data-tone="run"]) {
   grid-column: 1 / -1;
+}
+
+@container aurora-conv (min-width: 820px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] {
+    display: grid;
+    grid-template-columns: minmax(340px, 44%) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    align-content: stretch;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .conv-head {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > #banners {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .thread {
+    grid-column: 1;
+    grid-row: 3;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .chat-status {
+    grid-column: 1;
+    grid-row: 4;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .composer-slot {
+    grid-column: 1;
+    grid-row: 5;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento {
+    grid-column: 2;
+    grid-row: 3 / 6;
+    max-width: none;
+    max-height: none;
+    height: auto;
+    margin: 0;
+    padding: 16px 20px 20px;
+    border-left: 1px solid var(--aurora-rim);
+    background: color-mix(in srgb, var(--fg) 1.5%, transparent);
+    gap: 12px;
+  }
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile.stage-tile-enter {
@@ -120,19 +168,12 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile.stage
   animation: stageTileOut .32s var(--ease) both;
 }
 
-/* Every view, always one click away, in the conversation's head. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-right: 6px;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-btn {
+/* Single right-sidebar toggle button badge in the conversation head. */
+.stage-dock-btn {
   position: relative;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-badge {
+.stage-dock-badge {
   position: absolute;
   top: -5px;
   right: -5px;
@@ -146,69 +187,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-badge
   font-weight: 700;
   line-height: 15px;
   text-align: center;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-more {
-  position: relative;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-more > summary {
-  list-style: none;
-  cursor: pointer;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-more > summary::-webkit-details-marker {
-  display: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: var(--z-flyout);
-  min-width: 176px;
-  padding: 6px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--aurora-rim);
-  background: var(--aurora-glass-strong);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 34px;
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-  color: var(--fg2);
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  transition: background-color .15s var(--ease), color .15s var(--ease);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-item:is(:hover, :focus-visible) {
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-  color: var(--fg);
-  text-decoration: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-item svg.ic {
-  width: 15px;
-  height: 15px;
-  flex: none;
-}
-
-@media (any-pointer: coarse) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-item {
-    min-height: 44px;
-  }
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile {
@@ -622,7 +600,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="redu
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .stage-dock-menu, .shell > main:has(> section.conv) > section.conv) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> section.conv) > section.conv) {
     background: Canvas;
     backdrop-filter: none;
     border-color: CanvasText;

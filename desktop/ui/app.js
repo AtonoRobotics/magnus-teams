@@ -407,6 +407,11 @@ const UI = {
   team: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18 14.5a6 6 0 0 1 3 5.5"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+  play: '<polygon points="6 4 20 12 6 20 6 4"/>',
+  expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  brain: '<path d="M9.5 2a3.5 3.5 0 0 0-3.2 4.9A3.5 3.5 0 0 0 5 13.5 3.5 3.5 0 0 0 8.5 17H9v3a1 1 0 0 0 2 0V4.5A2.5 2.5 0 0 0 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 13 4.5V20a1 1 0 0 0 2 0v-3h.5a3.5 3.5 0 0 0 3.5-3.5 3.5 3.5 0 0 0-1.3-6.6A3.5 3.5 0 0 0 14.5 2Z"/>',
 };
 const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0 0 24 24" aria-hidden="true">${UI[k]}</svg>`;
 
@@ -1257,9 +1262,6 @@ function chosenModel(root) {
 async function chatLayout(main, thread, project) {
   const seq = App.seq;
   App.thread = thread;
-  if (!Panel.what && !Panel.userClosed && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000 && !(typeof AuroraStage !== "undefined" && AuroraStage.on())) {
-    openPanel(needsMe().length ? "needs" : "activity", { auto: true });
-  }
   sidebar();
   paint(main, ChatView.layout({ banners: true }));
   convHead(thread, project);
@@ -1276,7 +1278,8 @@ async function chatLayout(main, thread, project) {
   return view || false;
 }
 // Above the conversation: its project (a link to it) and its title, and
-// what can be done to the whole conversation.
+// what can be done to the whole conversation, plus a single toggle for the
+// on-demand right sidebar.
 function convHead(thread, project) {
   const el = $("#conv-head");
   if (!el) return;
@@ -1286,8 +1289,10 @@ function convHead(thread, project) {
   const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
   const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share into a shared project (clean-room)">${icon("team")}<span>Share</span></button>` : "";
+  const pending = needsMe().length;
+  const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${computerChip(App.computers)}${shareBtn}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
+    <div class="row">${computerChip(App.computers)}${shareBtn}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}${sidebarBtn}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -1315,27 +1320,20 @@ function showChat(main, hash, view, panel, panelOptions) {
   return view(main);
 }
 
-// Home is the latest conversation (a new one when there is none), with
-// `panel` open beside it. On wide desktop viewports, open the Worker Companion
-// panel by default unless the person explicitly closed it.
+// Home is the latest conversation (a new one when there is none). The right
+// sidebar stays closed until the user explicitly opens it to look up current
+// or past details.
 async function home(main, panel = App.openAfter) {
   App.openAfter = null;
   const seq = App.seq;
   const threads = (await Server.chat.threads()).threads;
   App.threads = threads;
   if (seq !== App.seq) return;
-  let targetPanel = panel, panelOpts;
-  if (!targetPanel && !Panel.what && !Panel.userClosed && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
-    if (!(typeof AuroraStage !== "undefined" && AuroraStage.on())) {
-      targetPanel = needsMe().length ? "needs" : "activity";
-      panelOpts = { auto: true };
-    }
-  }
   if (threads.length) {
     const id = threads[0].thread;
-    return showChat(main, `#/chat/${enc(id)}`, m => showThread(m, id), targetPanel, panelOpts);
+    return showChat(main, `#/chat/${enc(id)}`, m => showThread(m, id), panel);
   }
-  return showChat(main, "#/chat/new", m => showNewChat(m), targetPanel, panelOpts);
+  return showChat(main, "#/chat/new", m => showNewChat(m), panel);
 }
 
 route(/^#\/(?:home|chat)?$/, main => home(main), true);
@@ -1967,8 +1965,7 @@ function activityView(composed) {
       ${p.recentHtml}
     </section>
     ${p.schedCard}
-    ${p.updates}
-    ${activityLinks("activity")}`;
+    ${p.updates}`;
 }
 
 function needsView(composed) {
@@ -2177,8 +2174,8 @@ async function appsPanelView() {
 const PANELS = {
   activity: (_, composed) => plain(activityView(composed)),
   needs: (_, composed) => plain(needsView(composed)),
-  tasks: () => plain(activityLinks("tasks") + tasksView()),
-  schedules: () => plain(activityLinks("schedules") + schedulesView()),
+  tasks: () => plain(tasksView()),
+  schedules: () => plain(schedulesView()),
   schedule: id => plain(scheduleView(id)),
   rules: () => ({ body: '<div class="rules-host"></div>', after: el => rulesSection($(".rules-host", el)) }),
   item: (id, composed) => {
@@ -3148,7 +3145,7 @@ async function boot() {
       else if (t.closest("[data-toggle-inspector]")) {
         e.preventDefault();
         if (Panel.what) closePanel(true);
-        else openPanel(needsMe().length ? "needs" : "activity", { history: true, focus: true });
+        else openPanel(needsMe().length ? "needs" : App.tasks.some(x => !ENDED.includes(x.status)) ? "tasks" : "activity", { history: true, focus: true });
         convHead(App.thread);
       }
       else if (t.closest("[data-panel-back]")) {
