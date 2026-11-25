@@ -202,7 +202,7 @@ fn request_body(model: &str, settings: &Value, system: &str, messages: &[proto::
     if let Some(b) = last.filter(|b| !matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking")) && b["text"].as_str() != Some("")) {
         b["cache_control"] = cached.clone();
     }
-    let system = if system.is_empty() { json!(system) } else { json!([{ "type": "text", "text": system, "cache_control": cached }]) };
+    let system = if system.is_empty() { json!(system) } else { json!([{ "type": "text", "text": system, "cache_control": cached.clone() }]) };
     let mut body = json!({
         "model": model,
         "max_tokens": max_tokens,
@@ -211,7 +211,11 @@ fn request_body(model: &str, settings: &Value, system: &str, messages: &[proto::
         "stream": true,
     });
     if !tools.is_empty() {
-        body["tools"] = tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.input_schema })).collect();
+        let mut tool_vals: Vec<Value> = tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.input_schema })).collect();
+        if let Some(last_tool) = tool_vals.last_mut().and_then(Value::as_object_mut) {
+            last_tool.insert("cache_control".into(), cached);
+        }
+        body["tools"] = Value::Array(tool_vals);
     }
     const THINKING_BUDGET_LOW_TOKENS: u64 = 2048;
     const THINKING_BUDGET_MEDIUM_TOKENS: u64 = 8192;

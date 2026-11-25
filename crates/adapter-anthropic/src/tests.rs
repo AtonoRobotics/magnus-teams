@@ -78,8 +78,14 @@ async fn a_stream_that_broke_before_any_count_sends_none() {
 fn each_turn_caches_the_instructions_and_the_conversation_so_far() {
     let text = |role, t: &str| proto::Message { role, content: vec![Block::Text { text: t.into() }], state: None };
     let messages = [text(Role::User, "Compare the prices."), text(Role::Assistant, "Looking."), text(Role::User, "And Coda?")];
-    let body = request_body("claude-sonnet-test", &json!({}), "SYS", &messages, &[], 10);
+    let tools = [
+        proto::ToolSpec { name: "a".into(), description: "first".into(), input_schema: json!({"type":"object"}) },
+        proto::ToolSpec { name: "b".into(), description: "second".into(), input_schema: json!({"type":"object"}) },
+    ];
+    let body = request_body("claude-sonnet-test", &json!({}), "SYS", &messages, &tools, 10);
     assert_eq!(body["system"], json!([{ "type": "text", "text": "SYS", "cache_control": { "type": "ephemeral" } }]));
+    assert!(body["tools"][0].get("cache_control").is_none());
+    assert_eq!(body["tools"][1]["cache_control"], json!({ "type": "ephemeral" }));
     let marked: Vec<bool> = body["messages"].as_array().unwrap().iter().map(|m| m["content"][0].get("cache_control").is_some()).collect();
     assert_eq!(marked, [false, false, true], "only the latest message is the cache's end");
     let empty = request_body("claude-sonnet-test", &json!({}), "", &[], &[], 10);

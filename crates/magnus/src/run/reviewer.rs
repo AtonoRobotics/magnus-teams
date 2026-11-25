@@ -82,6 +82,7 @@ impl Kernel {
         tools: Vec<ToolSpec>,
         timeout: Option<std::time::Duration>,
     ) -> Result<Option<Vec<Block>>> {
+        const REVIEWER_MAX_TOKENS: u32 = 2048;
         let independent = self.cfg.safety.independent_reviewer();
         let (adapter, model) = independent.unwrap_or(run.model());
         let call = crate::spend::paid::Call {
@@ -92,7 +93,7 @@ impl Kernel {
             system,
             messages,
             tools,
-            max_tokens: run.config.max_tokens,
+            max_tokens: run.config.max_tokens.min(REVIEWER_MAX_TOKENS),
             servers_model: independent.is_some(),
             timeout,
         };

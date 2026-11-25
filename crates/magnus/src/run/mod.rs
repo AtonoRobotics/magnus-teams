@@ -26,7 +26,10 @@ use std::time::Instant;
 /// every model, and its text is in the instructions version each model call
 /// logs.
 pub const INSTRUCTIONS: &str = concat!(include_str!("../../instructions/agent.md"), "\n", include_str!("../../instructions/character.md"));
-pub(crate) const MAX_RESULT_IN_CONTEXT: usize = 40_000;
+pub(crate) const MAX_RESULT_IN_CONTEXT: usize = 16_000;
+/// Maximum number of tool/browser screenshots retained in model context across
+/// turns (`msgs[1..]`); user-attached images in the first message are always kept.
+const MAX_IMAGES_IN_CONTEXT: usize = 2;
 /// A contract change once work has started: the criteria stand (spec rev 140: checking is internal, never asked).
 /// What a call of the retired task_contract, or an answer to a contract
 /// change asked before rev 147, tells the agent.
@@ -149,6 +152,42 @@ fn clip(s: &str) -> String {
         cut -= 1;
     }
     format!("{}\n[output shortened from {} characters; the full result is in the task log]", &s[..cut], s.len())
+}
+
+/// Keeps at most `keep` recent screenshots/frames in `msgs[1..]` (tool results
+/// and computer frames), replacing older images with a compact placeholder so
+/// long browser/computer runs do not re-send every historical screenshot on
+/// every turn. User-attached images in `msgs[0]` are never removed.
+fn prune_old_images(msgs: &mut [Message], keep: usize) {
+    if msgs.len() <= 1 {
+        return;
+    }
+    let mut kept = 0usize;
+    for msg in msgs[1..].iter_mut().rev() {
+        for block in msg.content.iter_mut().rev() {
+            match block {
+                Block::Image { .. } => {
+                    if kept < keep {
+                        kept += 1;
+                    } else {
+                        *block = Block::Text { text: "[earlier screenshot omitted]".into() };
+                    }
+                }
+                Block::ToolResult { content, .. } => {
+                    for inner in content.iter_mut().rev() {
+                        if matches!(inner, Block::Image { .. }) {
+                            if kept < keep {
+                                kept += 1;
+                            } else {
+                                *inner = Block::Text { text: "[earlier screenshot omitted]".into() };
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 impl Kernel {
@@ -325,6 +364,7 @@ impl Kernel {
                 _ => msgs.push(Message { role: Role::User, content: trailing, state: None }),
             }
         }
+        prune_old_images(&mut msgs, MAX_IMAGES_IN_CONTEXT);
         let system = self.run_kind(&run.id).prompt().text();
         let harness = self.harness_context(run);
         let (person, relationship) = self.person_context(run).await?;
@@ -632,5 +672,28 @@ mod tests {
         let one_off = scope_line(false, "Reads the web.");
         assert_eq!(one_off, "The person approved this task for this scope; keep to it: Reads the web.");
         assert!(!one_off.contains("schedule"), "{one_off}");
+    }
+
+    #[test]
+    fn prune_old_images_keeps_user_attachments_and_latest_screenshots() {
+        use super::{prune_old_images, Block, Message, Role};
+        let img = |id: &str| Block::Image { media_type: "image/png".into(), data_b64: id.into() };
+        let mut msgs = vec![
+            Message { role: Role::User, content: vec![img("user-upload")], state: None },
+            Message { role: Role::User, content: vec![Block::ToolResult { call_id: "c1".into(), content: vec![img("shot-1")], is_error: false }], state: None },
+            Message { role: Role::User, content: vec![img("shot-2")], state: None },
+            Message { role: Role::User, content: vec![Block::ToolResult { call_id: "c3".into(), content: vec![img("shot-3")], is_error: false }], state: None },
+        ];
+        prune_old_images(&mut msgs, 2);
+        assert!(matches!(&msgs[0].content[0], Block::Image { data_b64, .. } if data_b64 == "user-upload"));
+        match &msgs[1].content[0] {
+            Block::ToolResult { content, .. } => assert!(matches!(&content[0], Block::Text { text } if text.contains("omitted"))),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(matches!(&msgs[2].content[0], Block::Image { data_b64, .. } if data_b64 == "shot-2"));
+        match &msgs[3].content[0] {
+            Block::ToolResult { content, .. } => assert!(matches!(&content[0], Block::Image { data_b64, .. } if data_b64 == "shot-3")),
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

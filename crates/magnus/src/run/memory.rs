@@ -83,7 +83,12 @@ impl Kernel {
         let known = if known.is_empty() { "nothing yet".to_string() } else { known.join("\n") };
         let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{text}\n\nAlready remembered:\n{known}") }], state: None };
         let tools: Vec<_> = crate::tools::builtin_specs(false, false, false, false).into_iter().filter(|t| t.name == "memory_write").collect();
-        let (adapter, model) = run.model();
+        const MEMORY_PASS_MAX_TOKENS: u32 = 1024;
+        let worker = self.cfg.model.worker_model();
+        let (adapter, model) = match &worker {
+            Some((a, m)) => (a.as_str(), m.as_str()),
+            None => run.model(),
+        };
         let call = crate::spend::paid::Call {
             payer: crate::spend::paid::Payer::Run(&run, crate::spend::allowance::Spender::Extra),
             purpose: "memory_pass",
@@ -92,8 +97,8 @@ impl Kernel {
             system: MEMORY,
             messages: vec![msg],
             tools,
-            max_tokens: run.config.max_tokens,
-            servers_model: false,
+            max_tokens: run.config.max_tokens.min(MEMORY_PASS_MAX_TOKENS),
+            servers_model: worker.is_some(),
             timeout: None,
         };
         let record = |out: &crate::adapters::TurnOut| {
