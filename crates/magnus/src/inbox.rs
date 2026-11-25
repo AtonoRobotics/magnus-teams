@@ -106,6 +106,18 @@ pub fn render(s: &State, p: &Person, i: &Item) -> Value {
 }
 
 impl Kernel {
+    /// Store a human-edited tool call payload approved via edit-before-approving.
+    pub(crate) fn record_approved_edit(&self, run: &str, call_id: &str, input: Value) {
+        if let Ok(mut m) = self.approved_edits.lock() {
+            m.insert((run.to_string(), call_id.to_string()), input);
+        }
+    }
+
+    /// Take any human-edited payload recorded for `(run, call_id)` before dispatch.
+    pub(crate) fn take_approved_edit(&self, run: &str, call_id: &str) -> Option<Value> {
+        self.approved_edits.lock().ok().and_then(|mut m| m.remove(&(run.to_string(), call_id.to_string())))
+    }
+
     pub async fn respond(self: &Arc<Self>, p: &Person, item_id: &str, body: &Value) -> Result<Answer> {
         let _decide = self.decide.lock().await;
         let Some(item) = self.read(|s| s.inbox.items().get(item_id).cloned()) else { return Ok(Answer::NotFound) };
@@ -153,9 +165,35 @@ impl Kernel {
                 if scope != "once" && !reason.is_some_and(Reason::task_wide) {
                     return Ok(Answer::Invalid("this can only be allowed one action at a time: a payment, or private data going to a new destination".into()));
                 }
-                let dests = crate::asks::item_destinations(&item.details);
                 let tool = item.details["tool"].as_str().unwrap_or_default().to_string();
                 let app = item.details["app"].as_str().unwrap_or_default().to_string();
+                // Optional human edit-before-approving: merge edited fields onto the
+                // pending tool call input, recompute input_hash, and store for dispatch.
+                let (input_hash, dests, edited_keys) = if let Some(patch) = body.get("edited_input").filter(|v| !v.is_null()) {
+                    let Some(patch_obj) = patch.as_object() else {
+                        return Ok(Answer::Invalid("edited_input must be a JSON object".into()));
+                    };
+                    let mut merged = item.details.get("input").cloned().unwrap_or_else(|| json!({}));
+                    let keys: Vec<String> = patch_obj.keys().cloned().collect();
+                    if let Some(base) = merged.as_object_mut() {
+                        for (k, v) in patch_obj {
+                            base.insert(k.clone(), v.clone());
+                        }
+                    } else {
+                        merged = Value::Object(patch_obj.clone());
+                    }
+                    let new_hash = crate::boundary::input_hash(&tool, &merged);
+                    let mut new_dests = crate::asks::item_destinations(&item.details);
+                    for a in crate::tools::addresses_in(&merged.to_string()) {
+                        if !new_dests.contains(&a) {
+                            new_dests.push(a);
+                        }
+                    }
+                    self.record_approved_edit(&run, &call_id, merged);
+                    (Some(new_hash), new_dests, keys)
+                } else {
+                    (item.details["input_hash"].as_str().map(String::from), crate::asks::item_destinations(&item.details), Vec::new())
+                };
                 if scope == "always" {
                     if !reason.is_some_and(Reason::always) || p.id != item.person || dests.is_empty() || app.is_empty() {
                         return Ok(Answer::Invalid("Allow always is not offered for this".into()));
@@ -178,7 +216,7 @@ impl Kernel {
                         person: item.person.clone(),
                         task: item.task.clone().unwrap_or_default(),
                         tool,
-                        input_hash: item.details["input_hash"].as_str().map(String::from),
+                        input_hash,
                         scope: if scope == "always" { "once".into() } else { scope },
                         until: None,
                         reason: rule,
@@ -186,8 +224,12 @@ impl Kernel {
                         destinations: Some(dests),
                     },
                 ));
-                // Unwatched work went on without this (`unattended.rs`): it is told.
                 let (answered, step) = self.read(|st| st.runs.get(&run).map_or((false, 0), |r| (r.results.contains_key(&call_id), r.replies.len() as u32)));
+                if !edited_keys.is_empty() {
+                    let said = format!("The person edited {} before allowing this action; the edited payload will run.", edited_keys.join(", "));
+                    evs.push(("kernel", Ev::Notice { run: run.clone(), step, text: said }));
+                }
+                // Unwatched work went on without this (`unattended.rs`): it is told.
                 if answered {
                     let said = format!("The person allowed what waited for them: {} Do it now if it is still needed.", item.summary);
                     evs.push(("kernel", Ev::Notice { run: run.clone(), step, text: said }));

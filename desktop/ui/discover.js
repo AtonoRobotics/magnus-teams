@@ -37,7 +37,7 @@ const Discover = (() => {
         "Approval Gate: Pauses for your 1-click OK before sending or moving invites.",
         "Outcome: Updates calendar & sends confirmed replies.",
       ],
-      schedule: { daily_at: "07:45" },
+      schedule: { weekdays_at: "07:45" },
       prompt: "Every weekday at 7:45 AM, check my overnight emails for meeting requests, spot any calendar conflicts, propose two conflict-free time slots, and draft replies for my approval.",
     },
     {
@@ -95,7 +95,7 @@ const Discover = (() => {
         "Read: Checks open PRs requesting your review & recent CI logs.",
         "Deliver: Sends a prioritized queue with blocker summaries.",
       ],
-      schedule: { daily_at: "09:00" },
+      schedule: { weekdays_at: "09:00" },
       prompt: "Every weekday at 9:00 AM, triage pull requests waiting for my review on GitHub, rank them by age and release impact, and summarize any CI blockers.",
     },
     {
@@ -149,7 +149,7 @@ const Discover = (() => {
         "Scan: Reads project threads for shipped work & stalled items.",
         "Approval Gate: Drafts the weekly summary for your review before sharing.",
       ],
-      schedule: { daily_at: "16:00" },
+      schedule: { weekly_at: { days: ["fri"], at: "16:00" } },
       prompt: "Every Friday at 4:00 PM, gather updates from my active project threads, highlight overdue items and risks, and draft a concise weekly status brief for my approval.",
     },
     {
@@ -279,6 +279,8 @@ const Discover = (() => {
     }) || null;
   }
 
+  const scheduleTime = s => s?.daily_at || s?.weekdays_at || s?.weekly_at?.at || "";
+
   /** @param {Playbook} p */
   function buildPrompt(p) {
     let out = p.prompt;
@@ -286,8 +288,9 @@ const Discover = (() => {
       const val = (state.fieldValues[`${p.id}:${f.key}`] || "").trim();
       if (val) out = out.replace(f.token, val);
     }
-    const time = (state.timeValues[p.id] || p.schedule?.daily_at || "").trim();
-    if (time && p.schedule?.daily_at && time !== p.schedule.daily_at) {
+    const baseTime = scheduleTime(p.schedule);
+    const time = (state.timeValues[p.id] || baseTime).trim();
+    if (time && baseTime && time !== baseTime) {
       out = out.replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/i, time);
     }
     return out;
@@ -323,9 +326,10 @@ const Discover = (() => {
         : !ready && connectedNames.length > 0
           ? `<span class="chip warn">Needs ${esc(p.needsLabel || "app")}</span>`
           : "";
+    const baseTime = scheduleTime(p.schedule);
     const inlineHtml = configOpen ? `<div class="explore-inline" data-inline-for="${esc(p.id)}">
       ${(p.fields || []).map(f => `<label class="small"><span>${esc(f.label)}</span><input type="text" data-explore-field="${esc(p.id)}:${esc(f.key)}" placeholder="${esc(f.placeholder)}" value="${esc(state.fieldValues[`${p.id}:${f.key}`] || "")}"></label>`).join("")}
-      ${p.schedule?.daily_at ? `<label class="small"><span>Daily time</span><input type="time" data-explore-time="${esc(p.id)}" value="${esc(state.timeValues[p.id] || p.schedule.daily_at)}"></label>` : ""}
+      ${baseTime ? `<label class="small"><span>Run time</span><input type="time" data-explore-time="${esc(p.id)}" value="${esc(state.timeValues[p.id] || baseTime)}"></label>` : ""}
       <div class="explore-inline-actions">
         ${p.schedule ? `<button type="button" class="primary" data-explore-schedule="${esc(p.id)}">Create schedule</button>` : ""}
         <button type="button" class="${p.schedule ? "" : "primary"}" data-explore-launch="${esc(p.id)}">${p.schedule ? "Run once in chat" : "Start now"}</button>
@@ -555,7 +559,11 @@ const Discover = (() => {
         if (!p) return;
         const prompt = buildPrompt(p);
         const sched = { ...(p.schedule || {}) };
-        if (sched.daily_at && state.timeValues[id]) sched.daily_at = state.timeValues[id];
+        if (state.timeValues[id]) {
+          if (sched.daily_at) sched.daily_at = state.timeValues[id];
+          else if (sched.weekdays_at) sched.weekdays_at = state.timeValues[id];
+          else if (sched.weekly_at) sched.weekly_at = { ...sched.weekly_at, at: state.timeValues[id] };
+        }
         if (typeof Server !== "undefined" && Server.schedules?.create) {
           try {
             await Server.schedules.create({ text: `${p.title}: ${prompt}`, ...sched });

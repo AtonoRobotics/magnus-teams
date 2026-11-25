@@ -1166,7 +1166,10 @@ async function refresh() {
           App.serverVersion = v.version;
         }, () => {})
       : Promise.resolve();
-    const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version]);
+    const staged = typeof Server !== "undefined" && Server.staged?.list
+      ? Server.staged.list().then(r => { App.staged = r?.items || []; }, () => {})
+      : Promise.resolve();
+    const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version, staged]);
     if (!App.me) return;
     // Magnus's own background reviews are plumbing, not the person's tasks
     // (owner, 2026-11-07): developers see them in the run inspector.
@@ -1369,7 +1372,21 @@ function rule(e) {
     }
     return m === 1 ? "Every minute" : `Every ${m} minutes`;
   }
-  if (e.daily_at) return `Every day at ${e.daily_at}`;
+  if (e.daily_at) {
+    const raw = String(e.daily_at).trim();
+    const wd = raw.match(/^weekdays\s+(\d{1,2}:\d{2})$/i);
+    if (wd) return `Weekdays at ${wd[1]}`;
+    const wk = raw.match(/^weekly\s+([a-z,]+)\s+(\d{1,2}:\d{2})$/i);
+    if (wk) {
+      const days = wk[1].split(",").map(d => d.trim().slice(0, 3)).filter(Boolean).map(d => d[0].toUpperCase() + d.slice(1).toLowerCase()).join(", ");
+      return `Weekly (${days}) at ${wk[2]}`;
+    }
+    const mo = raw.match(/^monthly\s+(\d{1,2})\s+(\d{1,2}:\d{2})$/i);
+    if (mo) return `Monthly on day ${mo[1]} at ${mo[2]}`;
+    const once = raw.match(/^once\s+(.+)$/i);
+    if (once) return `Once on ${once[1].replace("T", " ")}`;
+    return `Every day at ${raw}`;
+  }
   return "";
 }
 // The decision an entry waits on, as its card, where the person can make it:
@@ -1767,6 +1784,16 @@ async function respond(btn, root) {
   const box = $(`[data-draft="ans-${CSS.escape(id)}"]`, root) || $(`[data-draft="rev-${CSS.escape(id)}"]`, root);
   if (btn.dataset.text) body.text = btn.dataset.text;
   else if (box && box.value.trim()) body.text = box.value.trim();
+  if (decision === "approve") {
+    const editBox = $(`[data-ask-edit="${CSS.escape(id)}"]`, root);
+    if (editBox) {
+      const edited = {};
+      for (const inp of $$("[data-edit-field]", editBox)) {
+        if (inp.value !== (inp.dataset.orig ?? "")) edited[inp.dataset.editField] = inp.value;
+      }
+      if (Object.keys(edited).length) body.edited_input = edited;
+    }
+  }
   if (decision === "answer" && !body.text) { toast("Write an answer first."); return; }
   btn.disabled = true;
   try {
@@ -1973,8 +2000,33 @@ function activityView(composed) {
     ${p.updates}`;
 }
 
+function stagedDraftCard(st) {
+  const inp = st.input && typeof st.input === "object" ? st.input : {};
+  const editable = Object.entries(inp).filter(([k, v]) => /^(to|cc|subject|title|body|message|text|content|channel)$/i.test(k) && typeof v === "string");
+  const fieldsHtml = editable.map(([k, v]) => {
+    const label = esc(k.replace(/_/g, " "));
+    const multi = /^(body|message|text|content)$/i.test(k) || v.length > 80 || v.includes("\n");
+    return multi
+      ? `<label class="small">${label}<textarea data-staged-field="${esc(k)}" data-orig="${esc(v)}" rows="3">${esc(v)}</textarea></label>`
+      : `<label class="small">${label}<input type="text" data-staged-field="${esc(k)}" data-orig="${esc(v)}" value="${esc(v)}"></label>`;
+  }).join("");
+  const scopes = Array.isArray(st.offered_scopes) && st.offered_scopes.length ? st.offered_scopes : ["once"];
+  const scopeLabels = { once: "Just this once", recipient: "Always allow this recipient", domain: "Always allow this domain" };
+  return `<article class="card item" data-staged="${esc(st.id)}">
+    <div class="spread"><span class="kind">Staged draft · ${esc(st.app_title || st.app)}</span><span class="small faint">${esc(when(st.created_at))}</span></div>
+    <p class="ask-sentence">${esc(st.sentence || st.tool)}</p>
+    ${fieldsHtml ? `<details class="ask-edit" data-staged-edit><summary class="small">Edit draft before sending</summary><div class="stack" style="margin-top:6px">${fieldsHtml}</div></details>` : ""}
+    <div class="row" style="margin-top:8px;flex-wrap:wrap">
+      ${scopes.length > 1 ? `<select data-staged-scope aria-label="Future scope">${scopes.map(s => `<option value="${esc(s)}">${esc(scopeLabels[s] || s)}</option>`).join("")}</select>` : ""}
+      <button type="button" class="primary" data-staged-act="sent" data-id="${esc(st.id)}">Send</button>
+      <button type="button" data-staged-act="discarded" data-id="${esc(st.id)}">Discard</button>
+    </div>
+  </article>`;
+}
+
 function needsView(composed) {
   const open=needsMe();
+  const staged = Array.isArray(App.staged) ? App.staged : [];
   const now=open.filter(i=>i.blocking), later=open.filter(i=>!i.blocking);
   const where = i => {
     const t = i.thread && App.threads.find(x => x.thread === i.thread);
@@ -1987,10 +2039,16 @@ function needsView(composed) {
     if (/mail|gmail|email/.test(hay)) return `<span class="appr-ic mail" aria-hidden="true">M</span>`;
     return `<span class="appr-ic" aria-hidden="true">${icon("globe")}</span>`;
   };
+  const batchable = open.filter(i => i.kind === "approval" && i.can_respond);
+  const batchBar = batchable.length >= 2 ? `<div class="card flat spread" data-batch-bar style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
+    <label class="row small"><input type="checkbox" data-batch-all> Select all (${batchable.length})</label>
+    <div class="row"><button type="button" class="primary small" data-batch-decide="approve">Allow selected</button><button type="button" class="small" data-batch-decide="reject">Don't allow selected</button></div>
+  </div>` : "";
   const list = items => `<div class="appr-list">${items.map(i => `<div class="needs-item" data-needs="${esc(i.id)}">
-    ${where(i)}
+    <div class="spread">${where(i)}${batchable.length >= 2 && i.kind === "approval" && i.can_respond ? `<label class="row small muted"><input type="checkbox" data-batch-id="${esc(i.id)}"> Select</label>` : ""}</div>
     ${card(i, composed)}
   </div>`).join("")}</div>`;
+  const stagedHtml = staged.length ? `<section data-staged-section style="margin-top:12px"><div class="companion-sec-head"><span>Staged drafts</span><span class="count">${staged.length}</span></div><div class="appr-list">${staged.map(stagedDraftCard).join("")}</div></section>` : "";
   const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
   const resText = i => {
     const d = i.resolution?.decision || i.status || "decided";
@@ -2006,9 +2064,8 @@ function needsView(composed) {
       </div></div>
     </div>`).join("")}</div></section>` : "";
   const guardrails = guardrailsRow();
-  if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
-  return `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>
-    ${list([...now, ...later])}${guardrails}${historyHtml}`;
+  if (!open.length && !staged.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
+  return `${open.length ? `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>${batchBar}${list([...now, ...later])}` : ""}${stagedHtml}${guardrails}${historyHtml}`;
 }
 
 // ---------- The panel beside the conversation ----------
@@ -2683,6 +2740,14 @@ function wirePanel() {
           if (r?.task_id) await openPanel(`task:${r.task_id}`);
           return;
         }
+        case "dry-run-schedule": {
+          a.disabled = true;
+          const r = await Server.schedules.run(id, { dry_run: true });
+          const nextText = r?.next_due ? `Next due: ${new Date(r.next_due).toLocaleString()}` : "Not scheduled";
+          toast(`Dry run preview · ${r?.would_run ? "Would run" : "Paused"} · ${nextText}`, 6000);
+          a.disabled = false;
+          return;
+        }
         case "stop-schedule":
           if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
           await Server.schedules.remove(id);
@@ -2717,6 +2782,44 @@ function wirePanel() {
       await refresh();
     } catch (err) { toast(err.message); }
   });
+  // Batch approvals & staged draft actions inside the right sidebar panel.
+  el.addEventListener("click", async e => {
+    const batchBtn = e.target.closest("button[data-batch-decide]");
+    if (batchBtn) {
+      const ids = $$("input[data-batch-id]:checked", el).map(c => c.dataset.batchId).filter(Boolean);
+      if (!ids.length) { toast("Select at least one approval first."); return; }
+      const decision = batchBtn.dataset.batchDecide;
+      batchBtn.disabled = true;
+      try {
+        const res = await Server.inbox.batch(ids, { decision, scope: decision === "approve" ? "once" : undefined });
+        const okCount = (res?.results || []).filter(r => r.ok).length;
+        toast(`${decision === "approve" ? "Allowed" : "Declined"} ${okCount} of ${ids.length} item${ids.length === 1 ? "" : "s"}.`);
+        await refresh();
+      } catch (err) { toast(err.message); batchBtn.disabled = false; }
+      return;
+    }
+    const stagedBtn = e.target.closest("button[data-staged-act]");
+    if (stagedBtn) {
+      const stId = stagedBtn.dataset.id;
+      const cardEl = stagedBtn.closest("[data-staged]");
+      const rawAct = stagedBtn.dataset.stagedAct;
+      const scope = cardEl?.querySelector("[data-staged-scope]")?.value || "once";
+      const edited = {};
+      if (cardEl) {
+        for (const inp of $$("[data-staged-field]", cardEl)) {
+          if (inp.value !== (inp.dataset.orig ?? "")) edited[inp.dataset.stagedField] = inp.value;
+        }
+      }
+      const hasEdits = Object.keys(edited).length > 0;
+      const outcome = rawAct === "sent" && hasEdits ? "edited" : rawAct;
+      stagedBtn.disabled = true;
+      try {
+        const res = await Server.staged.resolve(stId, { outcome, scope, ...(hasEdits ? { edited_input: edited } : {}) });
+        toast(rawAct === "discarded" ? "Draft discarded." : res?.executed ? "Draft sent." : "Draft resolved.");
+        await refresh();
+      } catch (err) { toast(err.message); stagedBtn.disabled = false; }
+    }
+  });
   let t;
   el.addEventListener("input", e => {
     if (e.target.id !== "lq") return;
@@ -2724,6 +2827,11 @@ function wirePanel() {
     t = setTimeout(() => { Panel.lib.q = e.target.value.trim(); drawPanel(); }, 200);
   });
   el.addEventListener("change", async e => {
+    if (e.target.matches("[data-batch-all]")) {
+      const checked = e.target.checked;
+      $$("input[data-batch-id]", el).forEach(c => { c.checked = checked; });
+      return;
+    }
     if (e.target.id === "lp") { Panel.lib.project = e.target.value; return drawPanel(); }
     if (!e.target.matches("[data-attach]")) return;
     const project = Panel.what.startsWith("project:") ? Panel.what.slice(8) : Panel.lib.project && Panel.lib.project !== "none" ? Panel.lib.project : null;
@@ -2731,20 +2839,42 @@ function wirePanel() {
     e.target.value = "";
     refresh();
   });
+  const schedulePayloadFromForm = form => {
+    const fd = new FormData(form);
+    const kind = String(fd.get("kind") || "daily");
+    const body = { text: String(fd.get("text") || "").trim() };
+    const at = String(fd.get("daily_at") || "08:00");
+    if (kind === "daily") body.daily_at = at;
+    else if (kind === "weekdays") body.weekdays_at = at;
+    else if (kind === "weekly") {
+      const days = fd.getAll("days").map(String).filter(Boolean);
+      body.weekly_at = { days: days.length ? days : ["mon"], at };
+    } else if (kind === "monthly") body.monthly_at = { day: Math.min(31, Math.max(1, Number(fd.get("month_day")) || 1)), at };
+    else if (kind === "once") body.once_at = String(fd.get("once_at") || "");
+    else body.every_minutes = Math.max(5, Number(fd.get("every_minutes")) || 60);
+    const mr = String(fd.get("max_runs") || "").trim();
+    if (mr) body.max_runs = Math.max(1, Number(mr) || 1);
+    return body;
+  };
   el.addEventListener("submit", async e => {
+    const createSched = e.target.closest("form[data-create-schedule]");
+    if (createSched) {
+      e.preventDefault();
+      const body = schedulePayloadFromForm(createSched);
+      if (!body.text) { toast("Describe what this routine should do."); return; }
+      try {
+        await Server.schedules.create(body);
+        toast("Routine created.");
+        await refresh();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const editSched = e.target.closest("form[data-edit-schedule]");
     if (editSched) {
       e.preventDefault();
       const sid = editSched.dataset.editSchedule;
-      const fd = new FormData(editSched);
-      const kind = String(fd.get("kind") || "daily");
-      const patch = { text: String(fd.get("text") || "").trim() };
-      if (kind === "daily") patch.daily_at = String(fd.get("daily_at") || "08:00");
-      else patch.every_minutes = Math.max(5, Number(fd.get("every_minutes")) || 60);
-      const mr = String(fd.get("max_runs") || "").trim();
-      if (mr) patch.max_runs = Math.max(1, Number(mr) || 1);
       try {
-        await Server.schedules.edit(sid, patch);
+        await Server.schedules.edit(sid, schedulePayloadFromForm(editSched));
         toast("Schedule updated.");
         await refresh();
       } catch (err) { toast(err.message); }

@@ -153,6 +153,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/inbox", get(inbox_list))
         .route("/v1/inbox/{id}", post(respond))
         .route("/v1/inbox/opened", post(inbox_opened))
+        .route("/v1/inbox/batch", post(inbox_batch))
         .route("/v1/staged", get(crate::staging::list_route))
         .route("/v1/staged/{id}", post(crate::staging::resolve_route))
         .route("/v1/explore/scan", post(explore_scan))
@@ -347,8 +348,42 @@ async fn playbook_retire(State(k): K, Caller(p): Caller, Path(id): Path<String>)
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// Fire a schedule immediately on demand ("Run now").
-async fn run_schedule_now(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+/// Maximum inbox items resolved in one batch call.
+const MAX_BATCH_INBOX_ITEMS: usize = 50;
+
+/// Resolve multiple inbox items at once (e.g. approve/dismiss selected).
+async fn inbox_batch(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> ApiResult {
+    let Some(ids) = b["ids"].as_array() else {
+        return refuse(StatusCode::BAD_REQUEST, "ids array is required");
+    };
+    if ids.is_empty() || ids.len() > MAX_BATCH_INBOX_ITEMS {
+        return refuse(StatusCode::BAD_REQUEST, format!("provide between 1 and {MAX_BATCH_INBOX_ITEMS} ids"));
+    }
+    let decision = b["decision"].as_str().unwrap_or_default();
+    if decision.is_empty() {
+        return refuse(StatusCode::BAD_REQUEST, "decision is required");
+    }
+    let item_body = json!({
+        "decision": decision,
+        "scope": b.get("scope").cloned().unwrap_or(Value::Null),
+        "text": b.get("text").cloned().unwrap_or(Value::Null),
+    });
+    let mut results = Vec::with_capacity(ids.len());
+    for raw in ids {
+        let Some(id) = raw.as_str() else { continue };
+        match k.respond(&p, id, &item_body).await {
+            Ok(crate::inbox::Answer::Ok) => results.push(json!({ "id": id, "ok": true })),
+            Ok(crate::inbox::Answer::Forbidden(m)) | Ok(crate::inbox::Answer::Conflict(m)) => results.push(json!({ "id": id, "ok": false, "error": m })),
+            Ok(crate::inbox::Answer::NotFound) => results.push(json!({ "id": id, "ok": false, "error": "not found" })),
+            Ok(crate::inbox::Answer::Invalid(m)) => results.push(json!({ "id": id, "ok": false, "error": m })),
+            Err(e) => results.push(json!({ "id": id, "ok": false, "error": e.to_string() })),
+        }
+    }
+    Ok(Json(json!({ "results": results })).into_response())
+}
+
+/// Fire a schedule immediately on demand ("Run now"), or preview it when `{ "dry_run": true }`.
+async fn run_schedule_now(State(k): K, Caller(p): Caller, Path(id): Path<String>, body: Option<Json<Value>>) -> ApiResult {
     let Some(sc) = k.read(|s| s.arrangements.schedules().get(&id).cloned()) else {
         return refuse(StatusCode::NOT_FOUND, "no such schedule");
     };
@@ -357,6 +392,22 @@ async fn run_schedule_now(State(k): K, Caller(p): Caller, Path(id): Path<String>
     }
     if sc.ended.is_some() {
         return refuse(StatusCode::CONFLICT, "this schedule has ended");
+    }
+    let dry_run = body.as_ref().is_some_and(|Json(v)| v["dry_run"].as_bool().unwrap_or(false));
+    if dry_run {
+        let words = k.words(vec![(sc.person.clone(), sc.seq)]).await.ok();
+        let prompt = words.as_ref().map(|w| w.text(sc.seq).to_string()).unwrap_or_default();
+        return Ok(Json(json!({
+            "dry_run": true,
+            "schedule_id": sc.id,
+            "every_minutes": sc.every_minutes,
+            "daily_at": sc.daily_at,
+            "next_due": sc.next_due(),
+            "paused": sc.paused,
+            "prompt_preview": prompt,
+            "would_run": sc.paused.is_none() && sc.ended.is_none(),
+        }))
+        .into_response());
     }
     match k.fire_schedule_now(sc).await {
         Ok(task) => Ok((StatusCode::CREATED, Json(json!({ "task_id": task }))).into_response()),

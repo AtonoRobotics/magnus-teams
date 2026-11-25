@@ -238,6 +238,7 @@ impl Kernel {
             }
             if let Some((index, call_id, name, input)) = pending.into_iter().next() {
                 let step_id = format!("s{step}.{index}");
+                let input = self.take_approved_edit(run_id, &call_id).unwrap_or(input);
                 let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
                 let v = match self.watched(&run, &action).await? {
                     Some(v) => v,

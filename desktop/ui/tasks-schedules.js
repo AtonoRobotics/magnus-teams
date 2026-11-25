@@ -109,14 +109,52 @@ function scheduleButtons(sc) {
   return `${runNow}${toggle}<button type="button" class="danger" data-act="delete-schedule" data-id="${esc(sc.id)}">Delete</button>`;
 }
 
+const WEEKDAY_OPTS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+
+function parseScheduleCadence(sc) {
+  const raw = String(sc?.daily_at || "").trim();
+  if (sc?.every_minutes) return { kind: "every", at: "08:00", days: ["mon"], monthDay: 1, onceAt: "", every: sc.every_minutes };
+  const wd = raw.match(/^weekdays\s+(\d{1,2}:\d{2})$/i);
+  if (wd) return { kind: "weekdays", at: wd[1], days: ["mon", "tue", "wed", "thu", "fri"], monthDay: 1, onceAt: "", every: 60 };
+  const wk = raw.match(/^weekly\s+([a-z,]+)\s+(\d{1,2}:\d{2})$/i);
+  if (wk) return { kind: "weekly", at: wk[2], days: wk[1].toLowerCase().split(",").map(s => s.trim()), monthDay: 1, onceAt: "", every: 60 };
+  const mo = raw.match(/^monthly\s+(\d{1,2})\s+(\d{1,2}:\d{2})$/i);
+  if (mo) return { kind: "monthly", at: mo[2], days: ["mon"], monthDay: Number(mo[1]) || 1, onceAt: "", every: 60 };
+  const once = raw.match(/^once\s+(.+)$/i);
+  if (once) return { kind: "once", at: "08:00", days: ["mon"], monthDay: 1, onceAt: once[1].slice(0, 16), every: 60 };
+  return { kind: "daily", at: raw || "08:00", days: ["mon"], monthDay: 1, onceAt: "", every: 60 };
+}
+
+function scheduleCadenceFields(sc) {
+  const c = parseScheduleCadence(sc);
+  const opt = (v, label) => `<option value="${v}"${c.kind === v ? " selected" : ""}>${label}</option>`;
+  return `<div class="row" style="flex-wrap:wrap">
+      <label class="small">Cadence<select name="kind">${opt("weekdays", "Weekdays (Mon–Fri)")}${opt("daily", "Every day")}${opt("weekly", "Specific days")}${opt("monthly", "Monthly")}${opt("every", "Every N minutes")}${opt("once", "One-time")}</select></label>
+      <label class="small">Time<input type="time" name="daily_at" value="${esc(c.at)}"></label>
+      <label class="small">Every (min)<input type="number" name="every_minutes" min="5" max="10080" value="${esc(String(c.every))}" style="width:5.5em"></label>
+      <label class="small">Day of month<input type="number" name="month_day" min="1" max="31" value="${esc(String(c.monthDay))}" style="width:4.5em"></label>
+      <label class="small">One-time date<input type="datetime-local" name="once_at" value="${esc(c.onceAt)}"></label>
+      <label class="small">Max runs<input type="number" name="max_runs" min="0" placeholder="Unlimited" value="${esc(sc?.max_runs ? String(sc.max_runs) : "")}" style="width:6em"></label>
+    </div>
+    <div class="row small" style="flex-wrap:wrap;gap:6px" aria-label="Weekly days">${WEEKDAY_OPTS.map(([k, lbl]) => `<label class="row" style="gap:3px"><input type="checkbox" name="days" value="${k}"${c.days.includes(k) ? " checked" : ""}>${lbl}</label>`).join("")}</div>`;
+}
+
 // Schedules, soonest first, ended last: each opens beside the conversation.
 function schedulesView() {
   const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
   const list = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
   const hb = list.find(sc => !sc.ended && /heartbeat/i.test(sc.title || sc.text || ""));
   const hbCard = `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong><div class="small muted">${hb ? `Every 30 min · ${hb.paused ? "Paused" : `Next run ${esc(until(hb.next))}`}` : "Proactive 30-min check-in for urgent emails, conflicts, or stalled threads."}</div></div>${hb ? `<div class="row"><span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span><button type="button" class="danger small" data-act="delete-schedule" data-id="${esc(hb.id)}">Delete</button></div>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
+  const creator = `<details class="card flat" data-key="sched-new" style="margin-bottom:10px">
+      <summary class="small"><strong>+ New routine</strong></summary>
+      <form data-create-schedule style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+        <label class="small">What should Magnus do?<textarea name="text" rows="2" placeholder="e.g. Every weekday morning, summarize urgent emails and flag calendar conflicts" style="width:100%"></textarea></label>
+        ${scheduleCadenceFields({ daily_at: "weekdays 08:30" })}
+        <div class="row"><button type="submit" class="primary">Create routine</button></div>
+      </form>
+    </details>`;
   const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past schedule${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
-  return header + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
+  return header + creator + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
       <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
       ${scheduleFacts(sc)}
       <div class="small muted" data-last>${scheduleState(sc)}</div>
@@ -128,28 +166,18 @@ function schedulesView() {
 function scheduleView(id) {
   const sc = App.schedules.find(x => x.id === id);
   if (!sc) return `<p class="empty">Schedule details are not available.</p>`;
-  const cadenceMode = sc.daily_at ? "daily" : "every";
   const editForm = !sc.ended ? `<details class="card flat" data-key="sched-edit:${esc(sc.id)}" style="margin:10px 0">
       <summary class="small"><strong>Edit schedule</strong></summary>
       <form class="sched-edit-form" data-edit-schedule="${esc(sc.id)}" style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
         <label class="small">Instructions<textarea name="text" rows="3" style="width:100%">${esc(sc.text)}</textarea></label>
-        <div class="row" style="flex-wrap:wrap">
-          <label class="small">Cadence
-            <select name="kind">
-              <option value="daily"${cadenceMode === "daily" ? " selected" : ""}>Daily at time</option>
-              <option value="every"${cadenceMode === "every" ? " selected" : ""}>Every N minutes</option>
-            </select>
-          </label>
-          <label class="small">Time (HH:MM)<input type="time" name="daily_at" value="${esc(sc.daily_at || "08:00")}"></label>
-          <label class="small">Minutes<input type="number" name="every_minutes" min="5" max="10080" value="${esc(String(sc.every_minutes || 60))}" style="width:6em"></label>
-          <label class="small">Max runs<input type="number" name="max_runs" min="0" placeholder="Unlimited" value="${esc(sc.max_runs ? String(sc.max_runs) : "")}" style="width:6em"></label>
-        </div>
+        ${scheduleCadenceFields(sc)}
         <div class="row"><button type="submit" class="primary">Save changes</button></div>
       </form>
     </details>` : "";
+  const dryRun = !sc.ended ? `<button type="button" data-act="dry-run-schedule" data-id="${esc(sc.id)}">Dry run</button>` : "";
   return `<h2 class="ptitle">${esc(sc.title)}</h2><p class="small muted">${esc(rule(sc))}</p>
     <div class="card flat sched" data-schedule="${esc(sc.id)}"><p>${esc(sc.text)}</p>${scheduleFacts(sc)}<div class="small" data-last>${scheduleState(sc)}</div></div>
-    <div class="row">${moveControl(sc.id, sc.project, App.projects)}${scheduleButtons(sc)}</div>
+    <div class="row" style="flex-wrap:wrap">${moveControl(sc.id, sc.project, App.projects)}${dryRun}${scheduleButtons(sc)}</div>
     ${editForm}
     <h3>Runs</h3>${sc.runs.length ? `<ul class="tlist">${sc.runs.map(taskRow).join("")}</ul>` : `<p class="empty">None yet.</p>`}
     ${sc.failures?.length ? `<h3>Firings that could not start</h3><ul class="small">${sc.failures.map(f => `<li>${esc(when(f.at))}: ${esc(f.error)}</li>`).join("")}</ul>` : ""}`;

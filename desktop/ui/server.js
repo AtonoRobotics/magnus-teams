@@ -125,6 +125,8 @@ const Server = (() => {
       /** Say which items the person has now seen. */
       opened: (/** @type {Id[]} */ ids) => post("/v1/inbox/opened", { ids }),
       answer: (/** @type {Id} */ id, /** @type {any} */ body) => post(`/v1/inbox/${enc(id)}`, body),
+      /** Resolve multiple inbox items at once. @param {Id[]} ids @param {{decision: string, scope?: string, text?: string}} body */
+      batch: (ids, body) => post("/v1/inbox/batch", { ids, ...body }),
     },
 
     staged: {
@@ -217,8 +219,8 @@ const Server = (() => {
       create: (/** @type {{text: string, every_minutes?: number, daily_at?: string, until?: string, max_runs?: number, project?: Id}} */ body) => post("/v1/schedules", body),
       /** Edits an existing schedule's prompt, cadence, or bounds. */
       edit: (/** @type {Id} */ id, /** @type {any} */ body) => patch(`/v1/schedules/${enc(id)}`, body),
-      /** Fires a schedule immediately on demand. */
-      run: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/run`),
+      /** Fires a schedule immediately on demand, or previews when `{ dry_run: true }`. */
+      run: (/** @type {Id} */ id, /** @type {any} */ body = {}) => post(`/v1/schedules/${enc(id)}/run`, body),
       /** Stops a schedule that is running; deletes one that has ended. */
       remove: (/** @type {Id} */ id) => del(`/v1/schedules/${enc(id)}`),
       resume: (/** @type {Id} */ id) => post(`/v1/schedules/${enc(id)}/resume`),
@@ -242,6 +244,8 @@ const Server = (() => {
     /** The person's own rules for their agent. */
     rules: {
       list: () => get("/v1/rules"),
+      /** Repeated approvals that can graduate into standing rules. */
+      suggestions: () => get("/v1/rules/suggestions"),
       /** Accept a rule the agent proposed. */
       accept: (/** @type {Id} */ id) => call("POST", `/v1/rules/${enc(id)}/accept`),
       remove: (/** @type {Id} */ id) => del(`/v1/rules/${enc(id)}`),

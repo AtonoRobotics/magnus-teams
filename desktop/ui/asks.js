@@ -117,11 +117,29 @@ function askPreview(i) {
   return `<div class="ask-preview" data-ask-preview>${rowsHtml}${bodyHtml}</div>`;
 }
 
+const ASK_EDITABLE_KEY_RE = /^(to|cc|bcc|subject|title|body|message|text|content|note|description|summary|channel)$/i;
+
+function askEditFields(i, d) {
+  const inp = d.input && typeof d.input === "object" && !Array.isArray(d.input) ? d.input : {};
+  const editable = Object.entries(inp).filter(([k, v]) => ASK_EDITABLE_KEY_RE.test(k) && typeof v === "string");
+  if (!editable.length) return "";
+  const controls = editable.map(([k, v]) => {
+    const label = esc(k.replace(/_/g, " "));
+    const multiline = ASK_PREVIEW_BODY_RE.test(k) || v.length > 80 || v.includes("\n");
+    return multiline
+      ? `<label class="small">${label}<textarea data-edit-field="${esc(k)}" data-orig="${esc(v)}" rows="3">${esc(v)}</textarea></label>`
+      : `<label class="small">${label}<input type="text" data-edit-field="${esc(k)}" data-orig="${esc(v)}" value="${esc(v)}"></label>`;
+  }).join("");
+  return `<details class="ask-edit" data-ask-edit="${esc(i.id)}"><summary class="small">Edit before allowing</summary><div class="stack" style="margin-top:6px">${controls}</div></details>`;
+}
+
 // The card. `canRespond` is whether this person may answer it.
 function askCard(i, canRespond) {
   const a = i.ask || {};
   const d = i.details || {};
   const scope = { allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
+  const editBlock = canRespond ? askEditFields(i, d) : "";
+  const declineNote = canRespond ? `<input type="text" class="ask-decline-note" data-draft="rev-${esc(i.id)}" placeholder="Optional note if declining (tells Magnus what to change)…" aria-label="Optional note">` : "";
   const buttons = canRespond
     ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(ASK_LABELS[o])}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
@@ -132,6 +150,8 @@ function askCard(i, canRespond) {
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}
     ${askPreview(i)}
     <details class="ask-content" data-ask-content><summary>See exactly what it would do</summary>${askContent(d)}</details>
+    ${editBlock}
+    ${declineNote}
     ${buttons}</div>`;
 }
 

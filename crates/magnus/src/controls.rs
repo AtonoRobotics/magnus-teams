@@ -340,7 +340,7 @@ impl Kernel {
     /// stays: to change that, cancel it and set up another.
     pub async fn edit_schedule(&self, who: &Person, id: &str, b: &Value, turn: Option<&str>) -> Result<Value, Refused> {
         let sc = self.schedule_owned(who, id, "edit_schedule").await?;
-        let timing = b.get("every_minutes").is_some_and(|v| !v.is_null()) || b.get("daily_at").is_some_and(|v| !v.is_null());
+        let timing = ["every_minutes", "daily_at", "weekdays_at", "weekly_at", "monthly_at", "once_at"].iter().any(|k| b.get(*k).is_some_and(|v| !v.is_null()));
         let (every_minutes, daily_at) =
             if timing { crate::cadence::rule_of(b, self.cfg.schedules.min_every_minutes).map_err(Refused::Invalid)? } else { (sc.every_minutes, sc.daily_at.clone()) };
         let (until, max_runs) = crate::api::end_for(b).map_err(Refused::Invalid)?;

@@ -218,11 +218,26 @@ impl Kernel {
     }
 
     /// Resolve a staged item (sent, discarded, edited, or reconciled after
-    /// external Gmail/Outlook draft send/delete).
-    pub async fn resolve_staged(&self, id: &str, outcome: Resolution, by: &str, scope: Option<GrantScope>) -> Result<Value> {
+    /// external Gmail/Outlook draft send/delete). When `outcome` is `Sent` or
+    /// `Edited`, executes the underlying tool call through the boundary with
+    /// the person's explicit one-time approval (applying `edited_input` if given).
+    pub async fn resolve_staged(self: &std::sync::Arc<Self>, id: &str, outcome: Resolution, by: &str, scope: Option<GrantScope>, edited_input: Option<Value>) -> Result<Value> {
         let item = self.read(|s| s.staged.get(id).cloned()).ok_or_else(|| anyhow::anyhow!("unknown staged item {id}"))?;
+        let mut final_input = item.input.clone();
+        if let Some(Value::Object(patch)) = edited_input {
+            if let Some(base) = final_input.as_object_mut() {
+                for (k, v) in patch {
+                    base.insert(k, v);
+                }
+            } else {
+                final_input = Value::Object(patch);
+            }
+        }
         let mut grant_id = None;
-        if outcome == Resolution::Sent {
+        let mut executed = false;
+        let mut exec_text: Option<String> = None;
+        if matches!(outcome, Resolution::Sent | Resolution::Edited) {
+            let dests: Vec<String> = item.provenance.iter().map(|p| p.destination.clone()).collect();
             if let Some(sc) = scope.filter(|s| *s != GrantScope::Once) {
                 let target_dests: Vec<String> = item
                     .provenance
@@ -257,9 +272,47 @@ impl Kernel {
                     }
                 }
             }
+            // Execute the staged action through the boundary with the person's explicit approval.
+            if self.read(|s| s.runs.contains_key(&item.run)) {
+                let hash = crate::boundary::input_hash(&item.tool, &final_input);
+                self.emit(
+                    by,
+                    Ev::Approval {
+                        id: new_id("appr"),
+                        item: item.id.clone(),
+                        person: item.person.clone(),
+                        task: item.task.clone(),
+                        tool: item.tool.clone(),
+                        input_hash: Some(hash),
+                        scope: "once".into(),
+                        until: None,
+                        reason: Some("staged_draft_sent".into()),
+                        risk: Some("irreversible".into()),
+                        destinations: Some(dests),
+                    },
+                )
+                .await?;
+                let action = Action {
+                    run: item.run.clone(),
+                    call_id: new_id("staged_call"),
+                    step_id: format!("staged:{}", item.id),
+                    tool: item.tool.clone(),
+                    input: final_input,
+                    issuer: crate::boundary::Issuer::Model,
+                };
+                match self.execute(action).await? {
+                    crate::boundary::Verdict::Done { text, is_error, .. } => {
+                        executed = !is_error;
+                        exec_text = Some(text);
+                    }
+                    crate::boundary::Verdict::Suspended => {
+                        exec_text = Some("Action requires additional confirmation.".into());
+                    }
+                }
+            }
         }
         self.emit("kernel", Ev::Staged(Change::Resolved { id: id.to_string(), outcome, by: by.to_string(), grant_id: grant_id.clone() })).await?;
-        Ok(json!({ "id": id, "outcome": outcome, "grant_id": grant_id }))
+        Ok(json!({ "id": id, "outcome": outcome, "grant_id": grant_id, "executed": executed, "result": exec_text }))
     }
 }
 
@@ -268,6 +321,8 @@ pub struct ResolveBody {
     pub outcome: Resolution,
     #[serde(default)]
     pub scope: Option<GrantScope>,
+    #[serde(default)]
+    pub edited_input: Option<Value>,
 }
 
 /// `GET /v1/staged`: open staged drafts/actions for the signed-in person,
@@ -289,6 +344,7 @@ pub async fn list_route(axum::extract::State(k): axum::extract::State<std::sync:
                     "app_title": item.app_title,
                     "kind": item.kind,
                     "sentence": item.sentence,
+                    "input": item.input,
                     "shown": item.shown,
                     "provenance": item.provenance,
                     "offered_scopes": offered_scopes(&dests),
@@ -317,7 +373,7 @@ pub async fn resolve_route(
         Some((_, true)) => return (StatusCode::CONFLICT, axum::Json(json!({ "error": "staged item already resolved" }))).into_response(),
         Some((_, false)) => {}
     }
-    match k.resolve_staged(&id, body.outcome, &format!("person:{}", p.id), body.scope).await {
+    match k.resolve_staged(&id, body.outcome, &format!("person:{}", p.id), body.scope, body.edited_input).await {
         Ok(v) => axum::Json(v).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(json!({ "error": e.to_string() }))).into_response(),
     }

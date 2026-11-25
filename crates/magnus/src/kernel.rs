@@ -63,6 +63,8 @@ pub struct Kernel {
     pub knowledge: crate::knowledge_index::Index,
     /// People's content, read for one person at a time (recall only).
     pub recall: crate::recall::Recall,
+    /// Human-edited tool call inputs approved via edit-before-approving, keyed by `(run_id, call_id)`.
+    pub(crate) approved_edits: Mutex<HashMap<(String, String), serde_json::Value>>,
     /// How long each log append took since boot, in microseconds (V6).
     pub capture: Mutex<Capture>,
 }
@@ -179,6 +181,7 @@ impl Kernel {
             spend_holds: Default::default(),
             knowledge: crate::knowledge_index::Index::new(&cfg.database.url),
             recall: crate::recall::Recall::new(&cfg.database.url),
+            approved_edits: Mutex::new(HashMap::new()),
             capture: Mutex::new(Capture::default()),
             cfg,
         });

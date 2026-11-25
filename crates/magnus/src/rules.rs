@@ -193,8 +193,20 @@ pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String
     let scope = if tool.is_empty() { format!("resource in App::{}", quoted(connector)?) } else { format!("resource == Tool::{}", quoted(tool)?) };
     let mut when = vec![format!("resource in App::{}", quoted(connector)?)];
     if !destinations.is_empty() {
-        let list = destinations.iter().map(|d| quoted(d)).collect::<Result<Vec<_>, _>>()?.join(", ");
-        when.push(format!("[{list}].contains(context.destination)"));
+        let mut clauses = Vec::new();
+        let mut exact = Vec::new();
+        for d in &destinations {
+            if let Some(domain) = d.strip_prefix('@').filter(|dom| !dom.is_empty() && !dom.contains('*') && !dom.contains('@') && dom.contains('.')) {
+                clauses.push(format!("context.destination like {}", quoted(&format!("*@{domain}"))?));
+            } else {
+                exact.push(d.as_str());
+            }
+        }
+        if !exact.is_empty() {
+            let list = exact.iter().map(|d| quoted(d)).collect::<Result<Vec<_>, _>>()?.join(", ");
+            clauses.push(format!("[{list}].contains(context.destination)"));
+        }
+        when.push(if clauses.len() == 1 { clauses.remove(0) } else { format!("({})", clauses.join(" || ")) });
     }
     let cedar = format!("permit(principal == Person::{}, action == Action::\"execute\", {scope}) when {{ {} }};", quoted(person)?, when.join(" && "));
     policy::validate(&cedar).map_err(|e| e.to_string())?;
@@ -317,8 +329,15 @@ impl NewRule {
     }
 }
 
+/// Minimum identical approvals before suggesting a standing allow rule.
+const TRUST_GRADUATION_MIN_APPROVALS: usize = 3;
+
 pub fn router() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/rules", get(list).post(add)).route("/v1/rules/{id}", put(edit).delete(remove)).route("/v1/rules/{id}/accept", post(accept))
+    Router::new()
+        .route("/v1/rules", get(list).post(add))
+        .route("/v1/rules/suggestions", get(suggestions))
+        .route("/v1/rules/{id}", put(edit).delete(remove))
+        .route("/v1/rules/{id}/accept", post(accept))
 }
 
 async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
@@ -326,6 +345,44 @@ async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
         Ok(p) => Json(json!({ "rules": k.read(|s| s.rules.of(&p.id)) })).into_response(),
         Err(r) => *r,
     }
+}
+
+/// Suggest graduating repeated identical non-financial approvals (>= 3) into a standing allow rule.
+async fn suggestions(State(k): State<Arc<Kernel>>, Caller(p): Caller) -> Response {
+    let items: Vec<Value> = k.read(|s| {
+        let existing: Vec<Rule> = s.rules.of(&p.id).into_iter().filter(|r| r.live() && r.effect() == Effect::Allow).collect();
+        let mut counts: BTreeMap<(String, String, String), usize> = BTreeMap::new();
+        for ap in s.inbox.approvals().iter().filter(|a| a.person == p.id) {
+            if matches!(ap.risk.as_deref(), Some("financial" | "payment")) {
+                continue;
+            }
+            let Some((connector, _)) = ap.tool.split_once("__") else { continue };
+            for d in ap.destinations.as_deref().unwrap_or(&[]) {
+                let norm = normalized(d);
+                if norm.is_empty() {
+                    continue;
+                }
+                let covered = existing.iter().any(|r| {
+                    r.compiled.as_ref().is_some_and(|c| {
+                        c.connector == connector && c.tool == ap.tool && c.destinations.iter().any(|rd| rd == &norm || (rd.starts_with('@') && norm.ends_with(rd)))
+                    })
+                });
+                if !covered {
+                    *counts.entry((connector.to_string(), ap.tool.clone(), norm)).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut out: Vec<((String, String, String), usize)> = counts.into_iter().filter(|(_, n)| *n >= TRUST_GRADUATION_MIN_APPROVALS).collect();
+        out.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+        out.into_iter()
+            .take(8)
+            .map(|((connector, tool, destination), count)| {
+                let words = format!("Allow {tool} to {destination} (approved {count} times)");
+                json!({ "connector": connector, "tool": tool, "destination": destination, "count": count, "words": words })
+            })
+            .collect()
+    });
+    Json(json!({ "suggestions": items })).into_response()
 }
 
 /// Words alone are recorded with nothing compiled, and so cover nothing.
@@ -466,5 +523,15 @@ mod tests {
         assert!(!discloses("a test of the word", "test"));
         assert!(discloses("key=sk-long-secret-value", "sk-long-secret-value"));
         assert!(secret_values(r#"{"access_token":"tok-abc","expires_at":1}"#).contains(&"tok-abc".to_string()));
+    }
+
+    #[test]
+    fn domain_wildcard_rule_matches_only_that_domain() {
+        let c = compile("alice", "gmail", "gmail__send", &["@acme.example".to_string()], false, Effect::Allow).unwrap();
+        let alice = person("alice");
+        assert!(policy::rule_covers(&c.cedar, &alice, &facts("gmail__send", "gmail"), "bob@acme.example").unwrap());
+        assert!(policy::rule_covers(&c.cedar, &alice, &facts("gmail__send", "gmail"), "carol@acme.example").unwrap());
+        assert!(!policy::rule_covers(&c.cedar, &alice, &facts("gmail__send", "gmail"), "bob@evil-acme.example").unwrap());
+        assert!(!policy::rule_covers(&c.cedar, &alice, &facts("gmail__send", "gmail"), "bob@acme.example.evil.org").unwrap());
     }
 }
