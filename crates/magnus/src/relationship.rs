@@ -213,7 +213,7 @@ impl Kernel {
     pub async fn relationship_tool(&self, run: &str, input: &Value) -> anyhow::Result<(String, bool, Option<Value>)> {
         let Some(r) = self.read(|s| s.runs.get(run).cloned()) else { anyhow::bail!("no such run") };
         if r.untrusted || r.private {
-            let why = "Not recorded: this run has read content from outside the conversation (untrusted or private), and a note enters every later run as the person's own words. Ask the person to say it again in a new conversation, or to add it themselves in Settings, Data and privacy.";
+            let why = "Not recorded: this run has read content from outside the conversation (untrusted or private), and a relationship note enters every later run as the person's own words. You can still store a general fact with memory_write, or ask the person to repeat this preference in a new conversation or add it in Settings → Memory & Promises.";
             return Ok((why.into(), true, None));
         }
         let edit = match Edit::from(input) {

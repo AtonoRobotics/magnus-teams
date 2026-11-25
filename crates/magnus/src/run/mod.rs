@@ -352,7 +352,16 @@ impl Kernel {
             vec![]
         };
         watched.sort();
-        harness_text(&who, self.web.can_search(), self.sandboxes.available(), self.browser.available(), &watched)
+        let zone = self.read(|s| s.identity.zone(&run.person));
+        let zone_name = zone.name(&self.cfg.server_zone);
+        let local_now = zone.local(run.created_at);
+        let utc_now = run.created_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let mut text = harness_text(&who, self.web.can_search(), self.sandboxes.available(), self.browser.available(), &watched);
+        text.push_str(&format!(
+            "\nCurrent local time for {who} when this run started: {} ({zone_name}; UTC: {utc_now}). Use this to resolve relative dates and times such as \"today\" or \"tomorrow at 9:00 AM\".\n",
+            local_now.format("%A, %Y-%m-%d %H:%M")
+        ));
+        text
     }
 
     /// Tools offered to the run's next model call: its catalog, as far as

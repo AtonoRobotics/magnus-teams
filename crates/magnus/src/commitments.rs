@@ -57,6 +57,88 @@ pub fn parse_by(s: &str) -> Result<Option<String>, String> {
     Err(format!("by is a date (YYYY-MM-DD) or a time (RFC 3339), not {s:?}"))
 }
 
+/// Parses `by` accepting RFC 3339, `YYYY-MM-DD`, naive local ISO datetimes,
+/// and natural relative phrases (`today`, `tomorrow`, optionally followed by
+/// `at H[:MM] [am|pm]`) resolved in the person's `zone` relative to `now`.
+pub fn parse_by_in_zone(s: &str, zone: Zone, now: DateTime<Utc>) -> Result<Option<String>, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(Some(ok)) = parse_by(s) {
+        return Ok(Some(ok));
+    }
+    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
+        if let Ok(wall) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
+            if let Some(utc) = zone.earliest(&wall) {
+                return Ok(Some(utc.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)));
+            }
+        }
+    }
+    let lower = s.to_ascii_lowercase().replace('.', "");
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    if let Some((offset_days, rest)) = match words.first().copied() {
+        Some("today") => Some((0i64, &words[1..])),
+        Some("tomorrow") => Some((1i64, &words[1..])),
+        _ => None,
+    } {
+        let base_date = zone.local(now).date() + chrono::Duration::days(offset_days);
+        let rest = if rest.first() == Some(&"at") { &rest[1..] } else { rest };
+        if rest.is_empty() {
+            return Ok(Some(base_date.format("%Y-%m-%d").to_string()));
+        }
+        if let Some((h, m)) = parse_clock_words(rest) {
+            if let Some(wall) = base_date.and_hms_opt(h, m, 0) {
+                if let Some(utc) = zone.earliest(&wall) {
+                    return Ok(Some(utc.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)));
+                }
+            }
+        }
+    }
+    Err(format!("by is a date (YYYY-MM-DD) or a time (RFC 3339), not {s:?}"))
+}
+
+fn parse_clock_words(words: &[&str]) -> Option<(u32, u32)> {
+    let joined = words.join(" ");
+    let (time_part, meridiem) = if let Some(t) = joined.strip_suffix("am") {
+        (t.trim(), Some("am"))
+    } else if let Some(t) = joined.strip_suffix("pm") {
+        (t.trim(), Some("pm"))
+    } else {
+        (joined.trim(), None)
+    };
+    let (h_str, m_str) = time_part.split_once(':').unwrap_or((time_part, "0"));
+    let mut h: u32 = h_str.trim().parse().ok()?;
+    let m: u32 = m_str.trim().parse().ok()?;
+    if m >= 60 {
+        return None;
+    }
+    match meridiem {
+        Some("am") => {
+            if !(1..=12).contains(&h) {
+                return None;
+            }
+            if h == 12 {
+                h = 0;
+            }
+        }
+        Some("pm") => {
+            if !(1..=12).contains(&h) {
+                return None;
+            }
+            if h < 12 {
+                h += 12;
+            }
+        }
+        _ => {
+            if h >= 24 {
+                return None;
+            }
+        }
+    }
+    Some((h, m))
+}
+
 /// The most a zone's clocks skip at a change: a day that ends inside the
 /// skip ends this long after its midnight, past it.
 const CLOCK_SKIP_MOST_MINUTES: i64 = 60;
@@ -242,7 +324,8 @@ impl Kernel {
         let Some(quote) = s("quote").filter(|q| q.chars().count() >= MIN_QUOTE) else {
             return no(format!("quote is needed: the exact words it was said in, at least {MIN_QUOTE} characters"));
         };
-        let by = match parse_by(a.input["by"].as_str().unwrap_or_default()) {
+        let zone = self.read(|s| s.identity.zone(&run.person));
+        let by = match parse_by_in_zone(a.input["by"].as_str().unwrap_or_default(), zone, run.created_at) {
             Ok(b) => b,
             Err(why) => return no(why),
         };
@@ -496,5 +579,16 @@ mod tests {
         assert_eq!((w.what.as_str(), w.to.as_deref(), w.quote.as_str()), ("b", Some("Dana"), "q"));
         let w = wording(&[1, 3, 5], &c);
         assert_eq!((w.to, w.note.as_deref()), (None, Some("n")));
+    }
+
+    #[test]
+    fn parse_by_in_zone_resolves_relative_and_local_deadlines() {
+        let now = DateTime::parse_from_rfc3339("2026-11-24T21:40:00-08:00").unwrap().to_utc();
+        let la = crate::cadence::zone_of(Some(&json!({ "timezone": "America/Los_Angeles" })));
+        assert_eq!(parse_by_in_zone("tomorrow at 9:00 AM", la, now).unwrap().as_deref(), Some("2026-11-25T17:00:00Z"));
+        assert_eq!(parse_by_in_zone("today at 11:30 p.m.", la, now).unwrap().as_deref(), Some("2026-11-25T07:30:00Z"));
+        assert_eq!(parse_by_in_zone("tomorrow", la, now).unwrap().as_deref(), Some("2026-11-25"));
+        assert_eq!(parse_by_in_zone("2026-11-25T09:00", la, now).unwrap().as_deref(), Some("2026-11-25T17:00:00Z"));
+        assert!(parse_by_in_zone("sometime next month", la, now).is_err());
     }
 }
