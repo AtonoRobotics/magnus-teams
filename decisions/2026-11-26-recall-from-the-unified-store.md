@@ -1,7 +1,7 @@
 # Everyone recalls from the unified store, which every memory write updates directly
 
 Date: 2026-11-26
-Status: Accepted. Decided by the owner. This replaces:
+Status: Superseded the same day by `2026-11-26-recall-searches-memory-where-it-is-kept.md`. It replaced:
 - the modes in `2026-11-25-unified-memory-rollout.md` (Legacy, Shadow, V2, `person_modes`);
 - `2026-11-25-memory-background-sync.md` and its amendment;
 - part 2 of `2026-11-25-shadow-read-only-and-erasure-by-presence.md` (the Shadow comparison).

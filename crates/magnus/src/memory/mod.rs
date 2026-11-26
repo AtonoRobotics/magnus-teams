@@ -1,7 +1,6 @@
 //! Unified Rust + Postgres memory engine (Phase 1-2: core schema, tenant+CNF
 //! RLS store, sync ingest, fenced enrichment, and 0-LLM hybrid+graph retrieval).
 
-pub mod bridge;
 pub mod curator;
 pub mod enrich;
 pub mod erasure;
@@ -10,7 +9,6 @@ pub mod ingest;
 pub mod retrieve;
 pub mod schema;
 pub mod store;
-pub mod sync;
 
 #[cfg(test)]
 mod bench_tests;
@@ -20,8 +18,6 @@ mod curator_tests;
 mod erasure_tests;
 #[cfg(test)]
 mod live_pg_test;
-#[cfg(test)]
-mod sync_tests;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

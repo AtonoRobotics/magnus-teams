@@ -1,10 +1,9 @@
 //! Generalised Postgres hybrid memory index, deterministic RRF ranking,
-//! write caps, deduplication, and single rollback switch (W2.1, W2.4, M6, M7, N11, N13, O1).
+//! write caps and deduplication (W2.1, M6, M7, N11, O1).
 //!
 //! Reuses the same Postgres `tsvector` + untyped `vector` + `model` + forced RLS
-//! architecture established in `knowledge.rs`. The event log stays the record:
-//! the unified store is a copy of everyone's current memory kept in step by
-//! `memory::sync`, and recall is served from it for everyone.
+//! architecture established in `knowledge.rs`. Recall does not read it: it
+//! searches each person's memory where it is kept (`recall::Recall::search`).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

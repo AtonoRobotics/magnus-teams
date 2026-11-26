@@ -208,8 +208,6 @@ impl Kernel {
         // write, a new embedding model) without holding up the boot, and
         // retries what it could not take.
         crate::knowledge_index::schedule(&k);
-        // Recall's store level with everyone's memory, once, before serving.
-        k.mirror_all_memory().await.context("bring the memory store level with the state (has `magnus migrate` run?)")?;
         // Guest processes did not survive the restart; tell runs that used a sandbox (K20).
         let restarted: Vec<(String, u32)> = k.read(|s| {
             s.runs.values().filter(|r| !r.status.terminal() && r.intents.values().any(|i| i.tool.starts_with("sandbox_"))).map(|r| (r.id.clone(), r.replies.len() as u32)).collect()
@@ -276,8 +274,6 @@ impl Kernel {
         self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
         // The knowledge index follows what this write changed.
         self.follow_index(&es).await;
-        // Recall's store holds exactly people's current memory.
-        self.mirror_memory(&es).await.context("update the memory store")?;
         Ok(es)
     }
 

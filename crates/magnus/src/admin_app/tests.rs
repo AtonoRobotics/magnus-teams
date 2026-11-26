@@ -68,10 +68,9 @@ pub(crate) async fn server_with(more: &str, extra: impl FnOnce(Arc<Kernel>) -> R
     )
     .unwrap();
     let cfg = crate::config::Config::load(&p).unwrap();
-    // As `magnus migrate` leaves it: the content walled by person, and the
-    // memory tables recall is served from.
+    // As `magnus migrate` leaves it: the content walled by person, which
+    // recall searches through.
     crate::log::connect(&url).await.unwrap().batch_execute(&crate::log::content_walls_sql("postgres")).await.unwrap();
-    crate::memory::schema::migrate(&url, &url, &cfg.memory).await.unwrap();
     let k = Kernel::boot(cfg).await.unwrap();
     k.accounts.add_person("lee", "Lee", None).await.unwrap();
     k.accounts.set_role("lee", Role::Admin).await.unwrap();

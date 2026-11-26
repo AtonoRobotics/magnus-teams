@@ -39,6 +39,46 @@ impl Recall {
         if seqs.is_empty() {
             return Ok(HashMap::new());
         }
+        let rows = match fields {
+            None => self.walled(person, "SELECT seq, body FROM public.content WHERE seq = ANY($1)", &[&seqs]).await?,
+            Some(f) => {
+                let f: Vec<String> = f.iter().map(|x| x.to_string()).collect();
+                self.walled(
+                    person,
+                    "SELECT seq, COALESCE((SELECT jsonb_object_agg(k, body->k) FROM unnest($2::text[]) AS k WHERE body ? k), '{}'::jsonb) FROM public.content WHERE seq = ANY($1)",
+                    &[&seqs, &f],
+                )
+                .await?
+            }
+        };
+        Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
+    }
+
+    /// Of these memory events, those whose fact or topic matches `tsquery`
+    /// (made by `tsquery`), best match first, with their content: searched
+    /// in the database, through `person`'s wall.
+    pub async fn search(&self, person: &str, seqs: &[i64], tsquery: &str) -> Result<Vec<(i64, Value)>> {
+        if seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = self
+            .walled(
+                person,
+                "SELECT c.seq, c.body
+                 FROM public.content c,
+                      to_tsquery('simple', $2) AS q,
+                      to_tsvector('simple', coalesce(c.body->>'fact', '') || ' ' || coalesce(c.body->>'topic', '')) AS v
+                 WHERE c.seq = ANY($1) AND v @@ q
+                 ORDER BY ts_rank_cd(v, q) DESC, c.seq DESC",
+                &[&seqs, &tsquery],
+            )
+            .await?;
+        Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
+    }
+
+    /// One statement in a transaction as `person`, so the content walls
+    /// return only their rows.
+    async fn walled(&self, person: &str, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
         let mut g = self.client.lock().await;
         if g.as_ref().is_none_or(|c| c.is_closed()) {
             *g = Some(crate::log::connect(&self.url).await?);
@@ -47,20 +87,36 @@ impl Recall {
         let tx = c.transaction().await?;
         tx.batch_execute(&format!("SET LOCAL ROLE {}", self.reader)).await.context("recall as the person (has `magnus migrate` run since this release was installed?)")?;
         tx.execute("SELECT set_config('magnus.person', $1, true)", &[&person]).await?;
-        let rows = match fields {
-            None => tx.query("SELECT seq, body FROM public.content WHERE seq = ANY($1)", &[&seqs]).await?,
-            Some(f) => {
-                let f: Vec<String> = f.iter().map(|x| x.to_string()).collect();
-                tx.query(
-                    "SELECT seq, COALESCE((SELECT jsonb_object_agg(k, body->k) FROM unnest($2::text[]) AS k WHERE body ? k), '{}'::jsonb) FROM public.content WHERE seq = ANY($1)",
-                    &[&seqs, &f],
-                )
-                .await?
-            }
-        };
+        let rows = tx.query(sql, params).await?;
         tx.commit().await?;
-        Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
+        Ok(rows)
     }
+}
+
+/// Most facts one memory search returns.
+pub const MAX_MEMORY_HITS: usize = 20;
+/// Shortest word searched for; shorter ones ("is", "my") match nearly
+/// everything.
+pub const SEARCH_WORD_MIN_CHARS: usize = 3;
+/// Words longer than this match by their stem: their first two thirds, never
+/// shorter than this ("allergy" finds "allergic", "schedules" "scheduled").
+pub const STEM_MIN_CHARS: usize = 4;
+
+/// A search's words as a `to_tsquery('simple', ...)`: each word, by its stem
+/// when long, matched as a prefix, any of them. None when there is no word to
+/// search for. Words are runs of letters and digits, so no query syntax gets
+/// through; the database lowercases them as it does the text.
+pub fn tsquery(query: &str) -> Option<String> {
+    let terms: Vec<String> = query
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= SEARCH_WORD_MIN_CHARS)
+        .map(|w| {
+            let n = w.chars().count();
+            let keep = if n > STEM_MIN_CHARS { (n * 2 / 3).max(STEM_MIN_CHARS) } else { n };
+            format!("{}:*", w.chars().take(keep).collect::<String>())
+        })
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" | "))
 }
 
 /// A remembered fact as it is shown: its record and what it says.
@@ -68,6 +124,15 @@ pub struct Remembered {
     pub entry: crate::state::MemoryEntry,
     pub fact: String,
     pub topic: Option<String>,
+}
+
+impl Remembered {
+    /// A memory with what its content says; None when the content has no fact.
+    pub fn from_content(entry: crate::state::MemoryEntry, content: &Value) -> Option<Remembered> {
+        let fact = content["fact"].as_str()?.to_string();
+        let topic = content["topic"].as_str().map(String::from);
+        Some(Remembered { entry, fact, topic })
+    }
 }
 
 impl crate::kernel::Kernel {
@@ -78,15 +143,7 @@ impl crate::kernel::Kernel {
         let entries: Vec<crate::state::MemoryEntry> = self.read(|s| s.library.memory().iter().filter(|m| m.person == person && keep(m)).cloned().collect());
         let seqs: Vec<i64> = entries.iter().map(|m| m.seq).collect();
         let content = self.recall.content(person, &seqs).await?;
-        Ok(entries
-            .into_iter()
-            .filter_map(|entry| {
-                let c = content.get(&entry.seq)?;
-                let fact = c["fact"].as_str()?.to_string();
-                let topic = c["topic"].as_str().map(String::from);
-                Some(Remembered { entry, fact, topic })
-            })
-            .collect())
+        Ok(entries.into_iter().filter_map(|entry| content.get(&entry.seq).and_then(|c| Remembered::from_content(entry, c))).collect())
     }
 }
 
@@ -223,3 +280,7 @@ impl crate::kernel::Kernel {
         self.words([(person.to_string(), seq)]).await
     }
 }
+
+#[cfg(test)]
+#[path = "recall_tests.rs"]
+mod tests;

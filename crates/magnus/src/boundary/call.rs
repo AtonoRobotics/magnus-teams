@@ -174,18 +174,42 @@ impl Kernel {
         self.carry_out(a, key).await.map_err(|e| CallFailure::NotDone(format!("{e:#}")))
     }
 
-    /// The person's facts that best match the query, recalled for them from
-    /// the unified store, whose readers wall decides what they may read. Only
-    /// memories current in the state are served (`bridge::cited_current`).
+    /// The person's current facts that best match the query, searched where
+    /// they are kept, through the person's content wall (`Recall::search`),
+    /// ranked by match, recency and trust. No words to match ("what do you
+    /// remember?"): the newest.
     pub(crate) async fn memory_hits(&self, run: &str, query: &str) -> Result<Vec<crate::recall::Remembered>> {
         let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
-        let hits = crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true).await?;
-        // The store ranks; what is served is each cited memory as the record
-        // holds it, so its provenance, taint and read copies are its own.
-        let ranked = crate::memory::bridge::cited_current(&hits, &self.current_memory_ids(&person));
-        let mut by_id: std::collections::HashMap<String, crate::recall::Remembered> =
-            self.remembered(&person, |m| ranked.contains(&m.id)).await?.into_iter().map(|m| (m.entry.id.clone(), m)).collect();
-        Ok(ranked.iter().filter_map(|id| by_id.remove(id)).take(crate::memory::bridge::MAX_MEMORY_HITS_RETURNED).collect())
+        let current = self.read(|s| s.current_memory(&person));
+        let Some(q) = crate::recall::tsquery(query) else {
+            let newest: Vec<String> = current.iter().rev().take(crate::recall::MAX_MEMORY_HITS).map(|m| m.id.clone()).collect();
+            let mut hits = self.remembered(&person, |m| newest.contains(&m.id)).await?;
+            hits.reverse();
+            return Ok(hits);
+        };
+        let mut by_seq: std::collections::HashMap<i64, crate::state::MemoryEntry> = current.into_iter().map(|m| (m.seq, m)).collect();
+        let seqs: Vec<i64> = by_seq.keys().copied().collect();
+        let matched = self.recall.search(&person, &seqs, &q).await?;
+        let now = chrono::Utc::now();
+        let mut scored: Vec<(f64, crate::recall::Remembered)> = matched
+            .into_iter()
+            .enumerate()
+            .filter_map(|(rank, (seq, content))| {
+                let m = crate::recall::Remembered::from_content(by_seq.remove(&seq)?, &content)?;
+                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / crate::memory::retrieve::SECONDS_PER_DAY;
+                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate {
+                    id: m.entry.id.clone(),
+                    fts_rank: Some(rank),
+                    vec_rank: None,
+                    untrusted: m.entry.label.untrusted,
+                    age_days,
+                    access_count: 0,
+                });
+                Some((score, m))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
+        Ok(scored.into_iter().take(crate::recall::MAX_MEMORY_HITS).map(|(_, m)| m).collect())
     }
 }
 

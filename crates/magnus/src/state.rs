@@ -113,6 +113,12 @@ pub fn search_text(media_type: &str, data_b64: &str) -> String {
 }
 
 impl State {
+    /// `person`'s current memory, oldest first: in the library (not trashed
+    /// or forgotten), not archived, not superseded. What recall searches.
+    pub fn current_memory(&self, person: &str) -> Vec<MemoryEntry> {
+        self.library.memory().iter().filter(|m| m.person == person && !self.memory_archived.contains(&m.id) && !self.memory_superseded.contains_key(&m.id)).cloned().collect()
+    }
+
     pub fn apply(&mut self, e: &Event) {
         self.last_seq = e.seq;
         if let Some(r) = e.ev.run().and_then(|id| self.runs.get_mut(id)) {
