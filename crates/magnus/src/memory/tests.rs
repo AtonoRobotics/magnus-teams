@@ -488,3 +488,61 @@ async fn selective_rls_iterative_hnsw_returns_authorized_top_k() {
 
     s.done().await;
 }
+
+/// Regression test: Postgres `to_tsvector('simple', ...)` keeps emails, phone numbers,
+/// and URLs whole unless non-alphanumeric runs are split first. Verify partial queries
+/// for `acme`, `1234`, `portal`, and accented `Émile` all match.
+#[tokio::test(flavor = "multi_thread")]
+async fn partial_email_phone_url_and_unicode_terms_match() {
+    let (s, engine) = setup_engine().await;
+    let now = Utc::now();
+    let ing = engine
+        .ingest_source(&SourceInput {
+            tenant_id: DEFAULT_TENANT_ID.into(),
+            source_id: "src_supplier_contact".into(),
+            rev: 1,
+            owner_id: Some("alice".into()),
+            readers: vec![vec!["person:alice".into()]],
+            label: TrustLabel { untrusted: false, private: true },
+            kind: "fact".into(),
+            text: "Supplier contact Émile: orders@acme.com, phone 555-1234, acme.com/portal".into(),
+            metadata: json!({}),
+            occurred_at: now,
+        })
+        .await
+        .unwrap();
+
+    engine
+        .commit_enrichment(
+            DEFAULT_TENANT_ID,
+            "src_supplier_contact",
+            1,
+            ing.job_id,
+            &EnrichmentPayload {
+                source_embedding: None,
+                model: None,
+                entities: vec![],
+                assertions: vec![AssertionInput {
+                    assertion_id: "assert_supplier_contact".into(),
+                    kind: "fact".into(),
+                    statement: "Supplier contact Émile: orders@acme.com, phone 555-1234, acme.com/portal".into(),
+                    valid_from: Some(now),
+                    valid_to: None,
+                    confidence: 1.0,
+                    embedding: None,
+                    model: None,
+                }],
+                edges: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+    let alice = ReaderContext::for_person(DEFAULT_TENANT_ID, "alice", &[]);
+    for query in ["acme", "1234", "portal", "Émile"] {
+        let res = engine.retrieve(&alice, &RetrieveQuery::new(query)).await.unwrap();
+        assert!(res.hits.iter().any(|h| h.id == "assert_supplier_contact"), "query {query:?} must match supplier contact assertion, got {:?}", res.hits);
+    }
+
+    s.done().await;
+}

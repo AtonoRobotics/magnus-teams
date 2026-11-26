@@ -233,7 +233,7 @@ impl MemoryEngine {
                      statement, valid_from, valid_to, confidence, tsv, embedding, model
                  ) VALUES (
                      $1, $2, $3, $4, $5, $6, $7,
-                     $8, $9, $10, $11, to_tsvector('simple', $8), $12::text::vector, $13
+                     $8, $9, $10, $11, to_tsvector('simple', regexp_replace($8, '[^[:alnum:]]+', ' ', 'g')), $12::text::vector, $13
                  )
                  ON CONFLICT (tenant_id, assertion_id) DO UPDATE SET
                      statement = EXCLUDED.statement,

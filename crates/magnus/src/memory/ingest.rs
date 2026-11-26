@@ -61,7 +61,7 @@ impl MemoryEngine {
                  kind, content_hash, text, metadata, tsv, occurred_at
              ) VALUES (
                  $1, $2, $3, $4, $5, $6, $7,
-                 $8, $9, $10, $11, to_tsvector('simple', $10), $12
+                 $8, $9, $10, $11, to_tsvector('simple', regexp_replace($10, '[^[:alnum:]]+', ' ', 'g')), $12
              )
              ON CONFLICT (tenant_id, source_id, rev) DO NOTHING",
             &[
