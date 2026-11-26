@@ -206,6 +206,33 @@ impl MemoryStore {
         Ok(deleted)
     }
 
+    /// Hard-delete every revision of `(tenant_id, source_id)` via `hard_delete_source_rev`.
+    pub async fn hard_delete_source_all_revs(&mut self, tenant_id: &str, source_id: &str) -> Result<u64> {
+        let revs: Vec<i64> = self
+            .client
+            .query("SELECT rev FROM public.memory_sources WHERE tenant_id = $1 AND source_id = $2", &[&tenant_id, &source_id])
+            .await
+            .context("list revisions for source deletion")?
+            .into_iter()
+            .map(|r| r.get(0))
+            .collect();
+        let mut total = 0u64;
+        for rev in revs {
+            total += self.hard_delete_source_rev(tenant_id, source_id, rev).await?;
+        }
+        Ok(total)
+    }
+
+    /// True if at least one `memory_sources` row exists for `(tenant_id, owner_id)`.
+    pub async fn has_any_sources_for_owner(&self, tenant_id: &str, owner_id: &str) -> Result<bool> {
+        let row = self
+            .client
+            .query_opt("SELECT 1 FROM public.memory_sources WHERE tenant_id = $1 AND owner_id = $2 LIMIT 1", &[&tenant_id, &owner_id])
+            .await
+            .context("check existing sources for owner")?;
+        Ok(row.is_some())
+    }
+
     /// Explicitly increment `access_count` and `last_accessed_at` for assertions
     /// returned to a caller (used by cold-archival and lesson-cap ranking).
     pub async fn record_access(&mut self, tenant_id: &str, assertion_ids: &[String]) -> Result<u64> {

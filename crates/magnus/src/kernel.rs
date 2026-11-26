@@ -274,6 +274,7 @@ impl Kernel {
         self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
         // The knowledge index follows what this write changed.
         self.follow_index(&es).await;
+        crate::memory::bridge::follow_events(&self.cfg.database.url, &self.cfg.memory, &es).await;
         Ok(es)
     }
 
