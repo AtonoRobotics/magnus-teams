@@ -63,6 +63,8 @@ pub struct Kernel {
     pub(crate) spend_holds: crate::spend::holds::Holds,
     /// The knowledge base's search index.
     pub knowledge: crate::knowledge_index::Index,
+    /// Unified Postgres memory engine (sources, assertions, entities, edges, evidence, RLS).
+    pub memory: crate::memory::MemoryEngine,
     /// People's content, read for one person at a time (recall only).
     pub recall: crate::recall::Recall,
     /// Human-edited tool call inputs approved via edit-before-approving, keyed by `(run_id, call_id)`.
@@ -183,6 +185,7 @@ impl Kernel {
             live_text,
             spend_holds: Default::default(),
             knowledge: crate::knowledge_index::Index::new(&cfg.database.url),
+            memory: crate::memory::MemoryEngine::new(&cfg.database.url),
             recall: crate::recall::Recall::new(&cfg.database.url),
             approved_edits: Mutex::new(HashMap::new()),
             capture: Mutex::new(Capture::default()),
@@ -208,6 +211,7 @@ impl Kernel {
         // write, a new embedding model) without holding up the boot, and
         // retries what it could not take.
         crate::knowledge_index::schedule(&k);
+        crate::memory::worker::schedule(&k);
         // Guest processes did not survive the restart; tell runs that used a sandbox (K20).
         let restarted: Vec<(String, u32)> = k.read(|s| {
             s.runs.values().filter(|r| !r.status.terminal() && r.intents.values().any(|i| i.tool.starts_with("sandbox_"))).map(|r| (r.id.clone(), r.replies.len() as u32)).collect()
@@ -272,8 +276,9 @@ impl Kernel {
             })
             .await?;
         self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
-        // The knowledge index follows what this write changed.
+        // The knowledge index and unified memory engine follow what this write changed.
         self.follow_index(&es).await;
+        self.follow_memory(&es).await;
         Ok(es)
     }
 

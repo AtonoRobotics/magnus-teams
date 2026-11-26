@@ -92,6 +92,8 @@ pub async fn migrate(admin_url: &str, kernel_url: &str, root_url: Option<&str>) 
     admin.batch_execute(&content_walls_sql(&role)).await.context("wall the content store by person")?;
     // The knowledge base's index, filtered for each reader by row security.
     admin.batch_execute(&crate::knowledge::migrate_sql(&role)).await.context("create the knowledge index (pgvector must be installed)")?;
+    // Unified memory engine tables, indexes, and forced RLS policies.
+    admin.batch_execute(&crate::memory::schema::migrate_sql(&role)).await.context("create the unified memory engine tables")?;
     admin.batch_execute(&crate::computer::migrate_sql(&role)).await.context("create the computers' egress audit table")?;
     admin.batch_execute(&crate::accounts::migrate_sql(&role)).await.context("create the accounts tables")?;
     // Append-only is the database's to enforce: whatever grants or

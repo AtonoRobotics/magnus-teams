@@ -273,6 +273,9 @@ impl Kernel {
             self.emit(actor, Ev::Removed { item: format!("person:{person}"), seqs: seqs.clone() }).await.map_err(failed)?;
             self.log.delete_content(&seqs).await.map_err(failed)?;
         }
+        if let Err(e) = self.memory.erase_person(crate::memory::DEFAULT_TENANT_ID, person).await {
+            tracing::warn!("erasing unified memory for {person}: {e:#}");
+        }
         let runs: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.person == person).map(|r| r.id.clone()).collect());
         crate::ui::images::forget_runs(&self.cfg.appliance.state_dir, &runs);
         // Files still held for any run of theirs go with them.

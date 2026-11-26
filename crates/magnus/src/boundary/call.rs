@@ -174,53 +174,55 @@ impl Kernel {
         self.carry_out(a, key).await.map_err(|e| CallFailure::NotDone(format!("{e:#}")))
     }
 
-    /// The person's facts that best match the query, recalled for them
-    /// (the content store's wall decides what they may read).
+    /// The person's facts that best match the query, recalled through the
+    /// unified Postgres memory engine (hybrid FTS + pgvector + temporal + graph,
+    /// filtered by forced Postgres RLS and visibility-scoped supersession).
     pub(crate) async fn memory_hits(&self, run: &str, query: &str) -> Result<Vec<crate::recall::Remembered>> {
-        // Each word by its stem (its first two thirds, at least four
-        // letters), so "allergy" finds "allergic" and "schedules" "scheduled".
-        let terms: Vec<String> = query
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| w.chars().count() >= 3)
-            .map(|w| {
-                let n = w.chars().count();
-                w.chars().take(if n > 4 { (n * 2 / 3).max(4) } else { n }).collect()
-            })
-            .collect();
-        let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
-        let now = chrono::Utc::now();
-        let mut matched: Vec<(usize, crate::recall::Remembered)> = self
-            .remembered(&person, |_| true)
-            .await?
-            .into_iter()
-            .map(|m| {
-                let hay = format!("{} {}", m.fact, m.topic.clone().unwrap_or_default()).to_lowercase();
-                (terms.iter().filter(|t| hay.contains(t.as_str())).count(), m)
-            })
-            // No words to match ("what do you remember?" searched with
-            // nothing): everything kept, newest first.
-            .filter(|(n, _)| *n > 0 || terms.is_empty())
-            .collect();
-        matched.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        let mut scored: Vec<(f64, crate::recall::Remembered)> = matched
-            .into_iter()
-            .enumerate()
-            .map(|(rank, (_, m))| {
-                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / 86_400.0;
-                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate {
-                    id: m.entry.id.clone(),
-                    fts_rank: Some(rank),
-                    vec_rank: None,
-                    untrusted: m.entry.label.untrusted,
-                    age_days,
-                    access_count: 0,
+        let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else {
+            return Ok(vec![]);
+        };
+        let groups = self.person(&person).map(|p| p.groups).unwrap_or_default();
+        let ctx = crate::memory::ReaderContext::for_person(crate::memory::DEFAULT_TENANT_ID, &person, &groups);
+        let mut q = crate::memory::retrieve::RetrieveQuery::new(query);
+        q.limit = 20;
+        q.kind_filter = Some("fact".into());
+        if !query.trim().is_empty() {
+            if let Ok(Some((model, lit))) = self.embed(crate::spend::allowance::Owner::Person(person.clone()), query).await {
+                if let Some(vec) = crate::memory::worker::parse_vector_literal(&lit) {
+                    q.model = Some(model);
+                    q.embedding = Some(vec);
+                }
+            }
+        }
+        let resp = self.memory.retrieve(&ctx, &q).await?;
+        let hit_ids: Vec<String> = resp.hits.iter().map(|h| h.id.clone()).collect();
+        if !hit_ids.is_empty() {
+            let _ = self.memory.bump_access_counts(crate::memory::DEFAULT_TENANT_ID, &hit_ids).await;
+        }
+        let entries_by_id: std::collections::HashMap<String, crate::state::MemoryEntry> =
+            self.read(|s| s.library.memory().iter().filter(|m| m.person == person).map(|m| (m.id.clone(), m.clone())).collect());
+        let mut out = Vec::with_capacity(resp.hits.len());
+        for hit in resp.hits {
+            if let Some(entry) = entries_by_id.get(&hit.id) {
+                out.push(crate::recall::Remembered { entry: entry.clone(), fact: hit.text, topic: None });
+            } else {
+                out.push(crate::recall::Remembered {
+                    entry: crate::state::MemoryEntry {
+                        id: hit.id,
+                        person: person.clone(),
+                        run: String::new(),
+                        label: Label { untrusted: hit.label.untrusted, private: hit.label.private },
+                        sources: hit.citations,
+                        by: None,
+                        at: hit.valid_from.unwrap_or_else(chrono::Utc::now),
+                        seq: 0,
+                    },
+                    fact: hit.text,
+                    topic: None,
                 });
-                (score, m)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        Ok(scored.into_iter().take(20).map(|(_, m)| m).collect())
+            }
+        }
+        Ok(out)
     }
 }
 

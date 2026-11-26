@@ -43,6 +43,7 @@ async fn database() -> (String, String) {
     .await
     .unwrap();
     c.batch_execute(&crate::accounts::migrate_sql("postgres")).await.unwrap();
+    c.batch_execute(&crate::memory::schema::migrate_sql("postgres")).await.unwrap();
     (url, name)
 }
 
