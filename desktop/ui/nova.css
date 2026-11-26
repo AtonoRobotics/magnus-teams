@@ -595,163 +595,48 @@ html[data-style="nova"] .stage-tile[data-tier="irreversible"] .stage-tile-previe
   background: transparent;
 }
 
-.conv-more-del:hover {
-  background: var(--bad-soft);
-}
+.conv-more-del:hover { background: var(--bad-soft); }
 
 /* ---------- 7b. Morning Briefing & Quiet Routines (#/briefing) ---------- */
-.nova-briefing-page {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 36px 28px 64px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.nova-brief-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.nova-brief-head h1 {
-  margin: 4px 0 0;
-  font-size: clamp(24px, 3vw, 32px);
-  letter-spacing: -0.02em;
-}
-
-.nova-brief-summary p {
-  margin: 0;
-  line-height: 1.55;
-}
-
-.nova-brief-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.nova-brief-metrics > .card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 16px 18px;
-}
-
-.nova-metric-val {
-  font-size: 28px;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-}
-
-.nova-brief-sec {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.nova-brief-sec h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.nova-routine-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.nova-routine-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--hair);
-  background: var(--surface);
-}
-
-.nova-routine-main {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
+.nova-briefing-page { max-width: 900px; margin: 0 auto; padding: 36px 28px 64px; display: flex; flex-direction: column; gap: 24px; }
+.nova-brief-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.nova-brief-head h1 { margin: 4px 0 0; font-size: clamp(24px, 3vw, 32px); letter-spacing: -0.02em; }
+.nova-brief-summary p { margin: 0; line-height: 1.55; }
+.nova-brief-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.nova-brief-metrics > .card { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; }
+.nova-metric-val { font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; }
+.nova-brief-sec { display: flex; flex-direction: column; gap: 12px; }
+.nova-brief-sec h2 { margin: 0; font-size: 16px; }
+.nova-routine-list { display: flex; flex-direction: column; gap: 10px; }
+.nova-routine-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border-radius: var(--r-md); border: 1px solid var(--hair); background: var(--surface); }
+.nova-routine-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 
 @media (max-width: 960px) {
-  html[data-style="nova"] .explore-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  html[data-style="nova"] .explore-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
-  .nova-featured,
-  .nova-companion-studio,
-  .nova-brief-metrics,
-  html[data-style="nova"] .lgrid,
-  html[data-style="nova"] .explore-grid {
-    grid-template-columns: 1fr;
-  }
+  .nova-featured, .nova-companion-studio, .nova-brief-metrics,
+  html[data-style="nova"] .lgrid, html[data-style="nova"] .explore-grid { grid-template-columns: 1fr; }
 }
 
 /* ---------- 8. Project Hub 2.0 (Inline Composer + 2-Column Workspace) ---------- */
-.project-hero-composer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 14px;
-  margin-bottom: 22px;
-  border-radius: var(--r-composer);
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-}
-
-.project-hero-composer input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 6px 2px;
-}
-
-.project-hero-composer input:focus {
-  outline: none;
-}
-
-.project-hub-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 62%) minmax(0, 38%);
-  gap: 24px;
-  align-items: start;
-}
-
-.project-hub-main,
-.project-hub-side {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
-
-html[data-style="nova"] .project-page {
-  max-width: 960px;
-}
-
-html[data-style="nova"] .project-page-head {
-  padding: 20px 22px;
-  border-radius: var(--r-xl);
-  background: linear-gradient(125deg, color-mix(in srgb, var(--accent) 18%, var(--surface)) 0%, var(--surface) 75%);
-  border: 1px solid var(--hair);
-}
+.project-hero-composer { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; margin-bottom: 22px; border-radius: var(--r-composer); border: 1px solid var(--line-strong); background: var(--surface); }
+.project-hero-composer input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 6px 2px; }
+.project-hero-composer input:focus { outline: none; }
+.project-hub-grid { display: grid; grid-template-columns: minmax(0, 62%) minmax(0, 38%); gap: 24px; align-items: start; }
+.project-hub-main, .project-hub-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+html[data-style="nova"] .project-page { max-width: 960px; }
+html[data-style="nova"] .project-page-head { padding: 20px 22px; border-radius: var(--r-xl); background: linear-gradient(125deg, color-mix(in srgb, var(--accent) 18%, var(--surface)) 0%, var(--surface) 75%); border: 1px solid var(--hair); }
+html[data-style="nova"] .project-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+html[data-style="nova"] .project-list > .project-row { padding: 14px 16px; border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); }
+html[data-style="nova"] .project-list > .project-row .project-row-del { opacity: 0; transition: opacity 0.16s var(--ease); }
+html[data-style="nova"] .project-list > .project-row:is(:hover, :focus-within) .project-row-del { opacity: 1; }
+body[data-navigation="compact"] .nav-inbox { position: relative; }
+body[data-navigation="compact"] .nav-inbox .nav-inbox-count { position: absolute; top: 3px; right: 3px; margin-left: 0; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; line-height: 16px; }
 
 @media (max-width: 860px) {
-  .project-hub-grid {
-    grid-template-columns: 1fr;
-  }
+  .project-hub-grid, html[data-style="nova"] .project-list { grid-template-columns: 1fr; }
 }
 
 /* ---------- 9. Companion canvas & accessibility floors ---------- */

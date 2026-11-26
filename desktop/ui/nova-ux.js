@@ -237,7 +237,7 @@ const NovaUx = (() => {
     }
   });
 
-  // Keyboard-first approval triage: A = Allow, D = open decline note drawer.
+  // Keyboard-first approval triage: A = Allow, E = Edit before allowing, D = open decline note drawer.
   document.addEventListener("keydown", e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const active = document.activeElement;
@@ -249,6 +249,13 @@ const NovaUx = (() => {
     if (key === "a") {
       const allowBtn = /** @type {?HTMLButtonElement} */ (ask.querySelector('button[data-offer="allow"]'));
       if (allowBtn) { e.preventDefault(); allowBtn.click(); }
+    } else if (key === "e") {
+      const edit = /** @type {?HTMLDetailsElement} */ (ask.querySelector("[data-ask-edit]"));
+      if (edit) {
+        e.preventDefault();
+        edit.open = true;
+        /** @type {?HTMLElement} */ (edit.querySelector("[data-edit-field]"))?.focus();
+      }
     } else if (key === "d") {
       const dec = /** @type {?HTMLDetailsElement} */ (ask.querySelector("[data-ask-decline]"));
       if (dec) {

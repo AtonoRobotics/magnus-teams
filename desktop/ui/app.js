@@ -634,12 +634,20 @@ const Workspace = (() => {
     const workspaceActions = (App.shared && typeof Team !== "undefined" && Team.home && typeof commandsFor === "function" && typeof TeamCommand !== "undefined")
       ? commandsFor(Team.home, Team.place || { kind: "home" }, raw || "").filter(c => c.group === "Create" || c.group === "Actions").slice(0, 6).map(c => ({ label: c.label, kind: c.group, run: () => TeamCommand.run(c.run) }))
       : [];
+    const pending = typeof needsMe === "function" ? needsMe() : [];
+    const batchable = pending.filter(x => x.kind === "approval" && x.can_respond && x.tier !== "financial").map(x => x.id);
     const list = [
       ...workspaceActions,
+      ...(batchable.length >= 2 ? [{ label: `Approve all ${batchable.length} pending`, kind: "Approval", run: async () => { try { await Server.inbox.batch({ ids: batchable, decision: "approve", scope: "once" }); toast(`Allowed ${batchable.length} requests.`); await refresh(); } catch (err) { toast(err.message); } } }] : []),
       { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
+      { label: `Approvals & Inbox${pending.length ? ` (${pending.length} waiting)` : ""}`, kind: "Page", run: () => { location.hash = "#/inbox"; } },
+      { label: "Morning Briefing & Routines", kind: "Page", run: () => { location.hash = "#/briefing"; } },
+      { label: "Projects", kind: "Page", run: () => { location.hash = "#/projects"; } },
       { label: "Explore playbooks", kind: "Page", run: () => { location.hash = "#/explore"; } },
       { label: "Apps & connectors", kind: "Page", run: () => { location.hash = "#/library"; } },
       { label: "Shared projects", kind: "Page", run: () => { location.hash = "#/teams"; } },
+      { label: "Toggle Dark / Light mode", kind: "Action", run: () => { const cur = Theme.effective(Theme.prefs(), Theme.os()).mode; Theme.set({ mode: cur === "dark" ? "light" : "dark" }); } },
+      { label: "Appearance & Companion", kind: "Page", run: () => { location.hash = "#/settings/appearance"; } },
       { label: "Trash", kind: "Page", run: () => { location.hash = "#/trash"; } },
       { label: "Settings", kind: "Page", run: () => { location.hash = "#/settings"; } },
       ...(administers() ? [{ label: "Admin & Operations", kind: "Page", run: () => { location.hash = "#/admin/operations"; } }] : []),
