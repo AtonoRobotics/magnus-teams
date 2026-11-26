@@ -3,6 +3,7 @@
 
 pub mod curator;
 pub mod enrich;
+pub mod erasure;
 pub mod graph;
 pub mod ingest;
 pub mod retrieve;
@@ -13,6 +14,8 @@ pub mod store;
 mod bench_tests;
 #[cfg(test)]
 mod curator_tests;
+#[cfg(test)]
+mod erasure_tests;
 #[cfg(test)]
 mod live_pg_test;
 
