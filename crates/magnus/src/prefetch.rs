@@ -37,13 +37,10 @@ pub fn format_prefetch_pointers(entries: &[WorldMapEntry], user_prompt: &str) ->
 }
 
 impl Kernel {
-    /// Emit `Ev::PrefetchRecorded` for `run_id` when `[memory] mode` is `V2`.
+    /// Emit `Ev::PrefetchRecorded` for `run_id`.
     /// Payload `pointers` is automatically split into `public.content` via
     /// `events::CONTENT` (`"prefetch_recorded"`) and owned by `person`.
     pub async fn record_prefetch(&self, run_id: &str, person: &str, entries: &[WorldMapEntry], user_prompt: &str) -> Result<Option<String>> {
-        if self.cfg.memory.mode_for(person) != crate::memory_index::MemoryMode::V2 {
-            return Ok(None);
-        }
         let Some((pointers, label)) = format_prefetch_pointers(entries, user_prompt) else {
             return Ok(None);
         };

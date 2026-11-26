@@ -5,7 +5,7 @@ use crate::memory::erasure::{erase_owner, erase_owner_across_tenants, erase_pers
 use crate::memory::ingest::{ingest_source, IngestOutcome};
 use crate::memory::live_pg_test::{LiveDb, TEST_EMBEDDING_DIM};
 use crate::memory::{AssertionInput, AssertionKind, EdgeInput, EntityInput, SourceInput, TaintLabel};
-use crate::memory_index::{MemoryConfig, MemoryMode};
+use crate::memory_index::MemoryConfig;
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
@@ -156,40 +156,14 @@ async fn erase_owner_removes_all_person_data_cascades_supersessions_and_leaves_o
     assert_eq!(bob_stats.entities_deleted, 2);
 }
 
-/// Rolled back to Legacy after a Shadow/V2 period: the tables still hold the
-/// person's rows, and erasing them must not depend on the configured mode.
-#[tokio::test]
-async fn erase_person_removes_unified_rows_after_rollback_to_legacy() {
-    let db = LiveDb::create().await;
-    let mut store = db.store().await;
-    let src = SourceInput {
-        tenant_id: "default".into(),
-        source_id: "alice_note".into(),
-        rev: 1,
-        owner_id: "alice".into(),
-        readers: vec![vec!["user:alice".into()]],
-        label: TaintLabel { untrusted: false, private: true },
-        text: "Alice's private note from the canary period.".into(),
-        occurred_at: Utc::now(),
-    };
-    assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
-
-    let legacy = MemoryConfig { mode: MemoryMode::Legacy, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
-    assert!(!legacy.is_unified_enabled());
-    let stats = erase_person_if_present(&db.kernel_url, &legacy, "alice").await.unwrap();
-    assert_eq!(stats.sources_deleted, 1);
-    let left: i64 = store.client().query_one("SELECT count(*) FROM public.memory_sources WHERE owner_id = 'alice'", &[]).await.unwrap().get(0);
-    assert_eq!(left, 0, "Legacy config must not leave the person's unified memory behind");
-}
-
 /// A database never migrated for unified memory has nothing to erase.
 #[tokio::test]
 async fn erase_person_is_a_no_op_without_unified_tables() {
     let db = LiveDb::create().await;
     let admin = crate::log::connect(&db.admin_url).await.unwrap();
     admin.batch_execute("DROP TABLE public.memory_sources CASCADE").await.unwrap();
-    let legacy = MemoryConfig { mode: MemoryMode::Legacy, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
-    assert_eq!(erase_person_if_present(&db.kernel_url, &legacy, "alice").await.unwrap(), ErasureStats::default());
+    let cfg = MemoryConfig { embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
+    assert_eq!(erase_person_if_present(&db.kernel_url, &cfg, "alice").await.unwrap(), ErasureStats::default());
 }
 
 /// An ingest whose transaction is still open when erasure starts: erasure
@@ -211,7 +185,7 @@ async fn erasure_waits_for_an_in_flight_ingest_and_removes_its_source() {
     .await
     .unwrap();
 
-    let cfg = MemoryConfig { mode: MemoryMode::V2, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
+    let cfg = MemoryConfig { embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
     let url = db.kernel_url.clone();
     let erasure = tokio::spawn(async move { erase_person_if_present(&url, &cfg, "alice").await });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -222,22 +196,4 @@ async fn erasure_waits_for_an_in_flight_ingest_and_removes_its_source() {
     assert_eq!(stats.sources_deleted, 1, "the source committed by the in-flight ingest is erased");
     let left: i64 = reader.client().query_one("SELECT count(*) FROM public.memory_sources WHERE owner_id = 'alice'", &[]).await.unwrap().get(0);
     assert_eq!(left, 0);
-}
-
-/// A person's sync holds their erasure lock shared from reading their content
-/// to copying it, so an erasure waits for the copy and then removes it.
-#[tokio::test(flavor = "multi_thread")]
-async fn erasure_waits_for_a_sync_holding_the_owner() {
-    let db = LiveDb::create().await;
-    let syncing = db.store().await;
-    crate::memory::erasure::hold_owner_for_sync(syncing.client(), "alice").await.unwrap();
-
-    let cfg = MemoryConfig { mode: MemoryMode::V2, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
-    let url = db.kernel_url.clone();
-    let erasure = tokio::spawn(async move { erase_person_if_present(&url, &cfg, "alice").await });
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert!(!erasure.is_finished(), "erasure must wait for a sync holding the owner");
-
-    crate::memory::erasure::release_owner_for_sync(syncing.client(), "alice").await.unwrap();
-    erasure.await.unwrap().unwrap();
 }

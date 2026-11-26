@@ -1,39 +1,16 @@
-//! Kernel bridge routing `MemoryMode::Shadow` and `MemoryMode::V2` searches
-//! to the unified Postgres memory retriever and mapping results to `Remembered`.
+//! Kernel bridge serving every person's memory recall from the unified
+//! Postgres store, and mapping its results to `Remembered`.
 
-use crate::memory::retrieve::{retrieve, HitOrigin, RetrieveRequest, RetrieveResponse};
+use crate::memory::retrieve::{recent_sources, retrieve, HitOrigin, RetrieveRequest, RetrieveResponse};
 use crate::memory::store::MemoryStore;
 use crate::memory_index::MemoryConfig;
 use crate::recall::Remembered;
 use crate::state::MemoryEntry;
 use crate::tools::Label;
 use anyhow::Result;
-use std::time::{Duration, Instant};
 
 /// Maximum memory hits returned to `Kernel::memory_hits`.
 pub const MAX_MEMORY_HITS_RETURNED: usize = 20;
-/// Longest a `MemoryMode::Shadow` comparison may run before it is abandoned.
-/// It runs detached from the live request, so this bounds the background work
-/// only; the person's answer never waits on it.
-pub const SHADOW_RECALL_TIMEOUT_MS: Duration = Duration::from_millis(5_000);
-
-/// Whether a retrieval counts as the person using the returned assertions.
-/// Only recall that is served to the model raises `access_count`; a Shadow
-/// comparison must leave the curator's ranking and cold-archival inputs alone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AccessTracking {
-    Record,
-    Skip,
-}
-
-/// How a detached Shadow comparison ended.
-#[derive(Debug)]
-pub enum ShadowOutcome {
-    Compared { v2_count: usize, v2_elapsed_ms: u64 },
-    Failed(String),
-    TimedOut,
-}
-
 /// Build the RLS principal set for a person's personal memory recall.
 pub fn person_principals(person: &str) -> Vec<String> {
     vec![format!("user:{person}"), format!("person:{person}")]
@@ -66,79 +43,40 @@ pub fn response_to_remembered(person: &str, resp: &RetrieveResponse) -> Vec<Reme
         .collect()
 }
 
-/// Execute unified Postgres retrieval for `person`, recording access counts for
-/// returned assertions only when `tracking` is `AccessTracking::Record`.
-pub async fn retrieve_for_person(kernel_url: &str, cfg: &MemoryConfig, person: &str, query: &str, allow_untrusted: bool, tracking: AccessTracking) -> Result<Vec<Remembered>> {
+/// Recall `person`'s memory matching `query` from the unified store, recording
+/// access for the assertions returned. A query with no words to match ("what
+/// do you remember?") lists their memories newest first.
+pub async fn retrieve_for_person(kernel_url: &str, cfg: &MemoryConfig, person: &str, query: &str, allow_untrusted: bool) -> Result<Vec<Remembered>> {
     let mut store = MemoryStore::connect(kernel_url, cfg).await?;
     let mut req = RetrieveRequest::new(&cfg.tenant_id, person_principals(person), query);
     req.allow_untrusted = allow_untrusted;
     req.limit = MAX_MEMORY_HITS_RETURNED;
 
-    let resp = retrieve(&mut store, &req).await?;
-    if tracking == AccessTracking::Skip {
-        return Ok(response_to_remembered(person, &resp));
-    }
+    let resp = if crate::memory::retrieve::has_terms(query) { retrieve(&mut store, &req).await? } else { recent_sources(&mut store, &req).await? };
     let accessed: Vec<String> = resp.hits.iter().filter(|h| h.origin == HitOrigin::Assertion).map(|h| h.id.clone()).collect();
-    if let Err(e) = store.record_access(&cfg.tenant_id, &accessed).await {
-        tracing::warn!("memory::bridge record_access failed for {person}: {e:#}");
-    }
+    store.record_access(&cfg.tenant_id, &accessed).await?;
     Ok(response_to_remembered(person, &resp))
 }
 
-/// Keep only hits whose every cited source is one of the person's current
-/// memories (`current`, as the state has them when the answer is served). A
-/// memory forgotten, trashed, archived or superseded after the in-step check
-/// is never served, whatever the store still holds. Citations are `id@rev`.
-pub fn only_current(hits: Vec<Remembered>, current: &std::collections::HashSet<String>) -> Vec<Remembered> {
-    hits.into_iter().filter(|h| !h.entry.sources.is_empty() && h.entry.sources.iter().all(|s| current.contains(s.rsplit_once('@').map_or(s.as_str(), |(id, _)| id)))).collect()
-}
-
-/// What `MemoryMode::V2` serves: the v2 hits when there are any. No hits, or
-/// an error, falls back to legacy (`None`). The unified store only holds what
-/// has been ingested into it, so an empty answer must not hide the facts the
-/// person has in legacy memory.
-pub fn v2_hits_or_fallback(person: &str, result: Result<Vec<Remembered>>) -> Option<Vec<Remembered>> {
-    match result {
-        Ok(hits) if !hits.is_empty() => Some(hits),
-        Ok(_) => {
-            tracing::info!(person = %person, "memory v2 recall found nothing; falling back to legacy");
-            None
+/// The memories `hits` cite, in rank order and each once, from hits whose
+/// every cited source is one of the person's current memories (`current`, as
+/// the state has them when the answer is served). A memory forgotten, trashed,
+/// archived, superseded or erased is never served, whatever the store still
+/// holds. Citations are `id@rev`.
+pub fn cited_current(hits: &[Remembered], current: &std::collections::HashSet<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for h in hits {
+        let ids: Vec<&str> = h.entry.sources.iter().map(|s| s.rsplit_once('@').map_or(s.as_str(), |(id, _)| id)).collect();
+        if ids.is_empty() || !ids.iter().all(|id| current.contains(*id)) {
+            continue;
         }
-        Err(e) => {
-            tracing::warn!(person = %person, "memory v2 recall failed; falling back to legacy: {e:#}");
-            None
+        for id in ids {
+            if !out.iter().any(|o| o == id) {
+                out.push(id.to_string());
+            }
         }
     }
-}
-
-/// Run the `MemoryMode::Shadow` v2 retrieval detached from the live request,
-/// bounded by `timeout`, read-only (`AccessTracking::Skip`), and log how it
-/// compared with the `legacy_count` hits already returned. The caller does not
-/// await the handle; it exists for tests.
-pub fn spawn_shadow_comparison(
-    kernel_url: String,
-    cfg: MemoryConfig,
-    person: String,
-    query: String,
-    legacy_count: usize,
-    timeout: Duration,
-) -> tokio::task::JoinHandle<ShadowOutcome> {
-    tokio::spawn(async move {
-        let t0 = Instant::now();
-        let outcome = match tokio::time::timeout(timeout, retrieve_for_person(&kernel_url, &cfg, &person, &query, true, AccessTracking::Skip)).await {
-            Ok(Ok(v2_hits)) => ShadowOutcome::Compared { v2_count: v2_hits.len(), v2_elapsed_ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX) },
-            Ok(Err(e)) => ShadowOutcome::Failed(format!("{e:#}")),
-            Err(_) => ShadowOutcome::TimedOut,
-        };
-        match &outcome {
-            ShadowOutcome::Compared { v2_count, v2_elapsed_ms } => {
-                tracing::info!(person = %person, legacy_count, v2_count, v2_elapsed_ms, "memory shadow recall comparison")
-            }
-            ShadowOutcome::Failed(e) => tracing::warn!(person = %person, "memory shadow recall failed: {e}"),
-            ShadowOutcome::TimedOut => tracing::warn!(person = %person, timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX), "memory shadow recall timed out"),
-        }
-        outcome
-    })
+    out
 }
 
 #[cfg(test)]
@@ -152,7 +90,7 @@ mod tests {
     use chrono::Utc;
 
     #[test]
-    fn only_hits_citing_current_memories_are_served() {
+    fn only_memories_cited_by_wholly_current_hits_are_served() {
         let hit = |id: &str, sources: &[&str]| Remembered {
             entry: MemoryEntry {
                 id: id.into(),
@@ -167,24 +105,9 @@ mod tests {
             fact: "a fact".into(),
             topic: None,
         };
-        let current: std::collections::HashSet<String> = ["mem_a".to_string(), "mem_b".to_string()].into();
-        let kept =
-            only_current(vec![hit("x1", &["mem_a@3"]), hit("x2", &["mem_a@3", "mem_gone@4"]), hit("x3", &["mem_gone@4"]), hit("x4", &[]), hit("x5", &["mem_b@9"])], &current);
-        let ids: Vec<&str> = kept.iter().map(|h| h.entry.id.as_str()).collect();
-        assert_eq!(ids, vec!["x1", "x5"], "a hit citing any non-current memory, or none, is dropped");
-    }
-
-    #[test]
-    fn v2_serves_its_hits_and_falls_back_to_legacy_when_empty_or_failed() {
-        let hit = |id: &str| Remembered {
-            entry: MemoryEntry { id: id.into(), person: "alice".into(), run: String::new(), label: Label::default(), sources: vec![], by: None, at: Utc::now(), seq: 0 },
-            fact: "a fact".into(),
-            topic: None,
-        };
-        let served = v2_hits_or_fallback("alice", Ok(vec![hit("a1")])).expect("v2 hits are served");
-        assert_eq!(served[0].entry.id, "a1");
-        assert!(v2_hits_or_fallback("alice", Ok(vec![])).is_none(), "an empty v2 answer falls back to legacy");
-        assert!(v2_hits_or_fallback("alice", Err(anyhow::anyhow!("db down"))).is_none());
+        let current: std::collections::HashSet<String> = ["mem_a".to_string(), "mem_b".to_string(), "mem_c".to_string()].into();
+        let hits = [hit("x1", &["mem_a@3"]), hit("x2", &["mem_c@3", "mem_gone@4"]), hit("x3", &["mem_gone@4"]), hit("x4", &[]), hit("x5", &["mem_b@9", "mem_a@3"])];
+        assert_eq!(cited_current(&hits, &current), vec!["mem_a", "mem_b"], "a hit citing any non-current memory, or none, is dropped; each memory once, in rank order");
     }
 
     #[tokio::test]
@@ -219,10 +142,10 @@ mod tests {
         };
         assert_eq!(commit_enrichment(&mut store, &job, &out).await.unwrap(), EnrichCommit::Committed);
 
-        let default_tenant = retrieve_for_person(&db.kernel_url, &test_config(), "alice", "offsite venue", true, AccessTracking::Skip).await.unwrap();
+        let default_tenant = retrieve_for_person(&db.kernel_url, &test_config(), "alice", "offsite venue", true).await.unwrap();
         assert!(default_tenant.is_empty(), "another tenant's memory is not recalled");
         let acme = MemoryConfig { tenant_id: "acme".into(), ..test_config() };
-        let hits = retrieve_for_person(&db.kernel_url, &acme, "alice", "offsite venue", true, AccessTracking::Skip).await.unwrap();
+        let hits = retrieve_for_person(&db.kernel_url, &acme, "alice", "offsite venue", true).await.unwrap();
         assert_eq!(hits.len(), 1);
     }
 
@@ -267,12 +190,7 @@ mod tests {
         };
         assert_eq!(commit_enrichment(&mut store, &job, &out).await.unwrap(), EnrichCommit::Committed);
 
-        // A Shadow comparison reads the same hits but is not the person using them.
-        let shadow = retrieve_for_person(&db.kernel_url, &test_config(), "alice", "deployment summaries", true, AccessTracking::Skip).await.unwrap();
-        assert_eq!(shadow.len(), 1);
-        assert_eq!(access_count(&store, "a_bridge").await, 0, "a Skip retrieval must not raise access_count");
-
-        let hits = retrieve_for_person(&db.kernel_url, &test_config(), "alice", "deployment summaries", true, AccessTracking::Record).await.unwrap();
+        let hits = retrieve_for_person(&db.kernel_url, &test_config(), "alice", "deployment summaries", true).await.unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].entry.id, "a_bridge");
         assert!(hits[0].entry.label.private);
@@ -281,63 +199,52 @@ mod tests {
         assert_eq!(access_count(&store, "a_bridge").await, 1, "bridge must record_access for returned assertions");
     }
 
+    /// A query with no words lists the person's memories newest first, and
+    /// only theirs.
     #[tokio::test]
-    async fn shadow_comparison_is_read_only() {
+    async fn a_query_with_no_words_lists_the_newest_memories() {
         let db = LiveDb::create().await;
         let mut store = db.store().await;
         let now = Utc::now();
+        for (id, owner, text, age_min) in
+            [("m_old", "alice", "Alice parks on level two.", 10), ("m_new", "alice", "Alice moved desks.", 1), ("m_bob", "bob", "Bob's locker is 14.", 0)]
+        {
+            let src = SourceInput {
+                tenant_id: DEFAULT_TENANT_ID.into(),
+                source_id: id.into(),
+                rev: 1,
+                owner_id: owner.into(),
+                readers: vec![vec![format!("user:{owner}")]],
+                label: TaintLabel { untrusted: false, private: true },
+                text: text.into(),
+                occurred_at: now - chrono::Duration::minutes(age_min),
+            };
+            assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
+        }
+        let hits = retrieve_for_person(&db.kernel_url, &test_config(), "alice", "  ?  ", true).await.unwrap();
+        let ids: Vec<&str> = hits.iter().map(|h| h.entry.sources[0].as_str()).collect();
+        assert_eq!(ids, vec!["m_new@1", "m_old@1"], "alice's memories, newest first, and not bob's");
+    }
+
+    /// A word's stem finds its other forms, as recall did before the store.
+    #[tokio::test]
+    async fn a_word_finds_its_other_forms() {
+        let db = LiveDb::create().await;
+        let mut store = db.store().await;
         let src = SourceInput {
             tenant_id: DEFAULT_TENANT_ID.into(),
-            source_id: "note_shadow".into(),
+            source_id: "m_allergy".into(),
             rev: 1,
             owner_id: "alice".into(),
             readers: vec![vec!["user:alice".into()]],
-            label: TaintLabel { untrusted: false, private: false },
-            text: "Alice reviews vendor invoices every Monday.".into(),
-            occurred_at: now,
+            label: TaintLabel { untrusted: false, private: true },
+            text: "Alice is allergic to peanuts; meetings are scheduled after ten.".into(),
+            occurred_at: Utc::now(),
         };
         assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
-        let job = claim_next_job(&mut store).await.unwrap().expect("job");
-        let out = EnrichmentOutput {
-            assertions: vec![AssertionInput {
-                assertion_id: "a_shadow".into(),
-                kind: AssertionKind::Fact,
-                owner_id: "alice".into(),
-                statement: "Alice reviews vendor invoices every Monday".into(),
-                valid_from: now,
-                valid_to: None,
-                confidence: 1.0,
-                embedding: None,
-            }],
-            edges: vec![],
-        };
-        assert_eq!(commit_enrichment(&mut store, &job, &out).await.unwrap(), EnrichCommit::Committed);
-
-        let outcome = spawn_shadow_comparison(db.kernel_url.clone(), test_config(), "alice".into(), "vendor invoices".into(), 0, SHADOW_RECALL_TIMEOUT_MS).await.unwrap();
-        assert!(matches!(outcome, ShadowOutcome::Compared { v2_count: 1, .. }), "{outcome:?}");
-        assert_eq!(access_count(&store, "a_shadow").await, 0, "Shadow must not raise access_count");
-    }
-
-    /// A database that accepts the connection and never answers: the Shadow
-    /// comparison must neither hold the caller nor run past its timeout.
-    #[tokio::test]
-    async fn shadow_comparison_does_not_block_the_caller_and_times_out() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let _hold = tokio::spawn(async move {
-            let mut held = Vec::new();
-            while let Ok((sock, _)) = listener.accept().await {
-                held.push(sock);
-            }
-        });
-        let url = format!("postgres://k:pw@127.0.0.1:{port}/db");
-        let timeout = std::time::Duration::from_millis(300);
-
-        let started = std::time::Instant::now();
-        let handle = spawn_shadow_comparison(url, test_config(), "alice".into(), "anything".into(), 3, timeout);
-        assert!(started.elapsed() < std::time::Duration::from_millis(50), "spawning must not wait on the database");
-
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await.expect("shadow comparison must honour its timeout").unwrap();
-        assert!(matches!(outcome, ShadowOutcome::TimedOut), "{outcome:?}");
+        for q in ["allergy", "schedules"] {
+            let hits = retrieve_for_person(&db.kernel_url, &test_config(), "alice", q, true).await.unwrap();
+            assert_eq!(hits.len(), 1, "{q} did not find its other form");
+        }
     }
 }

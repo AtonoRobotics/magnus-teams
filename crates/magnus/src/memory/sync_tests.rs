@@ -1,26 +1,14 @@
-//! The unified memory store follows people's memory through `memory::sync`,
-//! against a kernel booted on a fresh database given the memory tables.
+//! Recall's store follows people's memory as each write lands, against a
+//! kernel booted on a fresh database as `magnus migrate` leaves it.
 
 use crate::admin_app::tests::{server_with, Server};
 use crate::events::{Ev, MemoryArchivedPayload, MemorySupersededPayload};
-use crate::log::Event;
-use crate::memory::bridge::{retrieve_for_person, AccessTracking};
-use crate::memory::schema::migrate_if_enabled;
-use crate::memory::sync::MemorySync;
+use crate::memory::bridge::retrieve_for_person;
 use crate::tools::Label;
 use axum::Router;
 
-const V2_FOR_MO: &str = "[memory]\nembedding_dim = 4\n[memory.person_modes]\nmo = \"v2\"\n";
-const LEGACY_MO_V2_ANA: &str = "[memory]\nembedding_dim = 4\n[memory.person_modes]\nana = \"v2\"\n";
-
-async fn boot(config: &str) -> Server {
-    let s = server_with(config, |_| Router::new()).await;
-    // Copies read the person's content the way recall does, behind the walls.
-    s.store().await.batch_execute(&crate::log::content_walls_sql("postgres")).await.unwrap();
-    let url = s.k.cfg.database.url.clone();
-    migrate_if_enabled(&url, &url, &s.k.cfg.memory).await.unwrap();
-    s.k.memory_sync.mark_everything();
-    s
+async fn boot() -> Server {
+    server_with("[memory]\nembedding_dim = 4\n", |_| Router::new()).await
 }
 
 fn memory(id: &str, person: &str, fact: &str) -> Ev {
@@ -38,63 +26,41 @@ async fn sources(s: &Server, person: &str) -> Vec<String> {
         .collect()
 }
 
-/// The memory ids recalled; a not-yet-enriched source is named `id@rev`.
-async fn recalled(s: &Server, person: &str, query: &str) -> Vec<String> {
-    let hits = retrieve_for_person(&s.k.cfg.database.url, &s.k.cfg.memory, person, query, true, AccessTracking::Skip).await.unwrap();
-    hits.into_iter().map(|m| m.entry.id.split('@').next().unwrap_or_default().to_string()).collect()
+/// What the store finds for `query`, by memory id.
+async fn in_store(s: &Server, person: &str, query: &str) -> Vec<String> {
+    let hits = retrieve_for_person(&s.k.cfg.database.url, &s.k.cfg.memory, person, query, true).await.unwrap();
+    hits.into_iter().map(|m| m.entry.sources[0].split('@').next().unwrap_or_default().to_string()).collect()
 }
 
-/// History and a new save arrive in either order; after one pass the store
-/// holds all of it, and only then does it serve the person.
+/// What `memory_search` serves mo for `query`, by memory id.
+async fn served(s: &Server, query: &str) -> Vec<String> {
+    let run = crate::tools_core::tests::idle_run(s).await;
+    s.k.memory_hits(&run, query).await.unwrap().into_iter().map(|m| m.entry.id).collect()
+}
+
+/// A saved memory is found by the very next search.
 #[tokio::test(flavor = "multi_thread")]
-async fn history_and_a_save_before_the_first_search_are_both_synced() {
-    let s = boot(V2_FOR_MO).await;
-    s.k.emit("person:mo", memory("m_old", "mo", "The pump spare is in bay four")).await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    s.k.emit("person:mo", memory("m_new", "mo", "The forklift battery is charged on Fridays")).await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert!(s.k.memory_sync.is_synced("mo"));
-    assert_eq!(sources(&s, "mo").await, vec!["m_new".to_string(), "m_old".to_string()]);
-    assert_eq!(recalled(&s, "mo", "pump spare").await, vec!["m_old".to_string()]);
+async fn a_saved_memory_is_found_at_once() {
+    let s = boot().await;
+    s.k.emit("person:mo", memory("m_pump", "mo", "The pump spare is in bay four")).await.unwrap();
+    assert_eq!(served(&s, "pump spares").await, vec!["m_pump".to_string()]);
+    assert_eq!(served(&s, "").await, vec!["m_pump".to_string()], "an empty search lists what is remembered");
     s.done().await;
 }
 
-/// A memory forgotten while its owner is on Legacy still leaves the store,
-/// so it cannot come back when they are moved to V2 again.
+/// Forgetting, trashing, archiving and superseding each take the copy out of
+/// the store as the write lands; restoring puts it back.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_forget_while_the_person_is_on_legacy_still_deletes_the_copy() {
-    let s = boot(LEGACY_MO_V2_ANA).await;
-    s.k.emit("person:mo", memory("m_secret", "mo", "Mo's private note")).await.unwrap();
-    // Left over from an earlier V2 period: a copy written while mo was on V2.
-    s.store()
-        .await
-        .execute(
-            "INSERT INTO public.memory_sources (tenant_id, source_id, rev, owner_id, readers, untrusted, private, content_hash, text, tsv, occurred_at)
-             VALUES ('default', 'm_secret', 1, 'mo', '[[\"user:mo\"]]', FALSE, TRUE, 'h', 'Mo''s private note', to_tsvector('simple', 'Mo''s private note'), now())",
-            &[],
-        )
-        .await
-        .unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert_eq!(sources(&s, "mo").await, vec!["m_secret".to_string()], "a Legacy person's current memory is not deleted");
+async fn each_change_reaches_the_store_with_its_write() {
+    let s = boot().await;
+    for (id, fact) in [("m_forget", "Forget me"), ("m_trash", "The gate code is 4512"), ("m_rumour", "Acme might move"), ("m_lead_4", "Acme lead time is 4 weeks")] {
+        s.k.emit("person:mo", memory(id, "mo", fact)).await.unwrap();
+    }
+    assert_eq!(sources(&s, "mo").await.len(), 4);
 
-    let id = "m_secret".to_string();
-    s.k.emit("person:mo", Ev::MemoryForgotten { id }).await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert!(sources(&s, "mo").await.is_empty(), "the forgotten memory's copy stayed in the store");
-    s.done().await;
-}
-
-/// Archived and superseded memories are no longer current, so they leave
-/// the store and V2 cannot serve them.
-#[tokio::test(flavor = "multi_thread")]
-async fn archived_and_superseded_memories_leave_the_store() {
-    let s = boot(V2_FOR_MO).await;
-    s.k.emit("person:mo", memory("m_lead_4", "mo", "Acme lead time is 4 weeks")).await.unwrap();
-    s.k.emit("person:mo", memory("m_rumour", "mo", "Acme might move offices")).await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert_eq!(sources(&s, "mo").await.len(), 2);
-
+    s.k.emit("person:mo", Ev::MemoryForgotten { id: "m_forget".into() }).await.unwrap();
+    assert_eq!(s.k.trash("mo", false, "m_trash").await.unwrap(), Ok(()));
+    s.k.emit("curator", Ev::MemoryArchived(MemoryArchivedPayload { id: "m_rumour".into(), person: "mo".into(), reason: "cold".into() })).await.unwrap();
     s.k.emit("person:mo", memory("m_lead_6", "mo", "Acme lead time is 6 weeks")).await.unwrap();
     s.k.emit(
         "curator",
@@ -108,156 +74,62 @@ async fn archived_and_superseded_memories_leave_the_store() {
     )
     .await
     .unwrap();
-    s.k.emit("curator", Ev::MemoryArchived(MemoryArchivedPayload { id: "m_rumour".into(), person: "mo".into(), reason: "cold".into() })).await.unwrap();
-    s.k.sync_memory().await.unwrap();
     assert_eq!(sources(&s, "mo").await, vec!["m_lead_6".to_string()]);
-    assert_eq!(recalled(&s, "mo", "Acme lead time").await, vec!["m_lead_6".to_string()]);
-    s.done().await;
-}
-
-/// With the store failing, the person is not served from it, and the next
-/// pass copies what was missed.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_failed_copy_is_retried() {
-    let s = boot(V2_FOR_MO).await;
-    s.k.sync_memory().await.unwrap();
-    let db = s.store().await;
-    // Every copy fails: ingest cannot queue its enrichment job.
-    db.batch_execute("ALTER TABLE public.memory_enrichment_jobs RENAME TO memory_enrichment_jobs_away").await.unwrap();
-
-    s.k.emit("person:mo", memory("m_during", "mo", "The dock door code changed")).await.unwrap();
-    assert!(s.k.sync_memory().await.is_err(), "the copy could not be made");
-    assert!(s.k.memory_sync.behind(), "a failed pass keeps its marks");
-    assert!(s.k.memory_sync.failure().is_some(), "the failure is kept to be shown");
-    assert!(!s.k.memory_sync.is_synced("mo"));
-
-    db.batch_execute("ALTER TABLE public.memory_enrichment_jobs_away RENAME TO memory_enrichment_jobs").await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert!(s.k.memory_sync.is_synced("mo"));
-    assert!(s.k.memory_sync.failure().is_none());
-    assert_eq!(sources(&s, "mo").await, vec!["m_during".to_string()]);
-    s.done().await;
-}
-
-/// A save never waits on the unified store: here its table is locked by
-/// another transaction for the whole save.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_save_does_not_wait_on_the_unified_store() {
-    let s = boot(V2_FOR_MO).await;
-    let mut locker = s.store().await;
-    let tx = locker.transaction().await.unwrap();
-    tx.batch_execute("LOCK TABLE public.memory_sources IN ACCESS EXCLUSIVE MODE").await.unwrap();
-
-    let save = s.k.emit("person:mo", memory("m_locked", "mo", "Saved while the store was locked"));
-    tokio::time::timeout(std::time::Duration::from_secs(3), save).await.expect("the save waited on the unified store").unwrap();
-    assert!(!s.k.memory_sync.is_synced("mo"));
-
-    tx.rollback().await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert_eq!(sources(&s, "mo").await, vec!["m_locked".to_string()]);
-    s.done().await;
-}
-
-/// A trashed memory leaves the store at once, and comes back when restored.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_trashed_memory_leaves_the_store_and_a_restored_one_returns() {
-    let s = boot(V2_FOR_MO).await;
-    s.k.emit("person:mo", memory("m_trash", "mo", "The gate code is 4512")).await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert_eq!(sources(&s, "mo").await, vec!["m_trash".to_string()]);
-
-    assert_eq!(s.k.trash("mo", false, "m_trash").await.unwrap(), Ok(()));
-    assert!(!s.k.memory_sync.is_synced("mo"), "a trash takes the person out of step");
-    s.k.sync_memory().await.unwrap();
-    assert!(sources(&s, "mo").await.is_empty(), "the trashed memory's copy stayed in the store");
+    assert_eq!(served(&s, "Acme lead time").await, vec!["m_lead_6".to_string()]);
 
     assert!(s.k.restore("mo", "m_trash").await.unwrap());
-    s.k.sync_memory().await.unwrap();
-    assert_eq!(sources(&s, "mo").await, vec!["m_trash".to_string()], "a restored memory was not copied back");
+    assert_eq!(sources(&s, "mo").await, vec!["m_lead_6".to_string(), "m_trash".to_string()], "a restored memory was not copied back");
     s.done().await;
 }
 
-/// One person whose copy keeps failing does not hold up anyone else.
+/// At boot the store is brought level with the state: memory from before the
+/// store is copied in, and a copy of nothing current is deleted.
 #[tokio::test(flavor = "multi_thread")]
-async fn one_failing_person_does_not_hold_up_the_rest() {
-    let s = boot("[memory]\nembedding_dim = 4\n[memory.person_modes]\nmo = \"v2\"\nana = \"v2\"\n").await;
+async fn boot_brings_the_store_level() {
+    let s = boot().await;
+    s.k.emit("person:mo", memory("m_history", "mo", "The forklift battery is charged on Fridays")).await.unwrap();
     let db = s.store().await;
-    db.batch_execute(
-        "CREATE FUNCTION refuse_ana() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-             IF NEW.owner_id = 'ana' THEN RAISE EXCEPTION 'ana refused'; END IF; RETURN NEW; END $$;
-         CREATE TRIGGER refuse_ana BEFORE INSERT ON public.memory_sources FOR EACH ROW EXECUTE FUNCTION refuse_ana();",
+    // As if saved before the store existed, and a stale copy of a memory gone.
+    db.batch_execute("DELETE FROM public.memory_enrichment_jobs; DELETE FROM public.memory_sources").await.unwrap();
+    db.execute(
+        "INSERT INTO public.memory_sources (tenant_id, source_id, rev, owner_id, readers, untrusted, private, content_hash, text, tsv, occurred_at)
+         VALUES ('default', 'm_gone', 1, 'ana', '[[\"user:ana\"]]', FALSE, TRUE, 'h', 'gone', to_tsvector('simple', 'gone'), now())",
+        &[],
     )
     .await
     .unwrap();
-    s.k.emit("person:mo", memory("m_mo", "mo", "Mo's fact")).await.unwrap();
-    s.k.emit("person:ana", memory("m_ana", "ana", "Ana's fact")).await.unwrap();
-
-    assert!(s.k.sync_memory().await.is_err());
-    assert!(s.k.memory_sync.is_synced("mo"), "mo was held up by ana's failure");
-    assert_eq!(sources(&s, "mo").await, vec!["m_mo".to_string()]);
-    assert!(!s.k.memory_sync.is_synced("ana"));
-
-    db.batch_execute("DROP TRIGGER refuse_ana ON public.memory_sources").await.unwrap();
-    s.k.sync_memory().await.unwrap();
-    assert!(s.k.memory_sync.is_synced("ana"));
+    s.k.mirror_all_memory().await.unwrap();
+    assert_eq!(sources(&s, "mo").await, vec!["m_history".to_string()]);
+    assert!(sources(&s, "ana").await.is_empty(), "a copy of nothing current stayed");
     s.done().await;
 }
 
-fn event(ev: Ev) -> Event {
-    Event { seq: 1, at: chrono::Utc::now(), actor: "person:mo".into(), ev }
+/// A copy left in the store for a memory no longer current is never served.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stale_copy_is_never_served() {
+    let s = boot().await;
+    s.k.emit("person:mo", memory("m_secret", "mo", "The safe code is 7731")).await.unwrap();
+    s.k.emit("person:mo", Ev::MemoryForgotten { id: "m_secret".into() }).await.unwrap();
+    s.store()
+        .await
+        .execute(
+            "INSERT INTO public.memory_sources (tenant_id, source_id, rev, owner_id, readers, untrusted, private, content_hash, text, tsv, occurred_at)
+             VALUES ('default', 'm_secret', 1, 'mo', '[[\"user:mo\"]]', FALSE, TRUE, 'h', 'The safe code is 7731', to_tsvector('simple', 'The safe code is 7731'), now())",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(in_store(&s, "mo", "safe code").await, vec!["m_secret".to_string()], "the planted copy should be in the store");
+    assert!(served(&s, "safe code").await.is_empty(), "a forgotten memory was served from a stale copy");
+    s.done().await;
 }
 
-fn no_owner(_: &str) -> Option<String> {
-    None
-}
-
-/// Bring `sync` to "mo is in step": a pass that took the start marks and settled mo.
-fn in_step(sync: &MemorySync) {
-    sync.begin_for_test();
-    sync.settle_for_test("mo");
-    sync.finish_for_test();
-}
-
-#[test]
-fn nobody_is_in_step_until_a_pass_and_a_write_takes_them_out() {
-    let sync = MemorySync::new();
-    assert!(!sync.is_synced("mo"), "everyone is behind at start");
-    in_step(&sync);
-    assert!(sync.is_synced("mo"));
-
-    sync.follow(&[event(memory("m1", "mo", "a fact"))], no_owner);
-    assert!(!sync.is_synced("mo"), "a save takes the person out of step");
-    in_step(&sync);
-    assert!(sync.is_synced("mo"));
-
-    sync.follow(&[event(Ev::Trashed { item: "m1".into(), person: "mo".into() })], no_owner);
-    assert!(!sync.is_synced("mo"), "a trash takes the person out of step");
-    in_step(&sync);
-    sync.follow(&[event(Ev::Restored { item: "m1".into() })], |_| Some("mo".into()));
-    assert!(!sync.is_synced("mo"), "a restore takes the memory's owner out of step");
-}
-
-/// A forget keeps everyone out of step until the pass that deletes it has
-/// finished, not merely started.
-#[test]
-fn a_forget_holds_everyone_back_until_its_pass_has_finished() {
-    let sync = MemorySync::new();
-    in_step(&sync);
-    sync.follow(&[event(Ev::MemoryForgotten { id: "m1".into() })], no_owner);
-    assert!(!sync.is_synced("mo"));
-    sync.begin_for_test();
-    assert!(!sync.is_synced("mo"), "a forget being deleted by a running pass was served around");
-    sync.finish_for_test();
-    assert!(sync.is_synced("mo"));
-}
-
-#[test]
-fn a_write_during_a_pass_keeps_the_person_out_of_step() {
-    let sync = MemorySync::new();
-    sync.begin_for_test();
-    // The pass is working on mo when another save for mo lands.
-    sync.follow(&[event(memory("m2", "mo", "another fact"))], no_owner);
-    sync.settle_for_test("mo");
-    sync.finish_for_test();
-    assert!(!sync.is_synced("mo"), "the pass finished before the new save was copied");
+/// A store that cannot take the copy fails the save, instead of leaving
+/// recall silently behind.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_store_failure_fails_the_save() {
+    let s = boot().await;
+    s.store().await.batch_execute("ALTER TABLE public.memory_enrichment_jobs RENAME TO memory_enrichment_jobs_away").await.unwrap();
+    assert!(s.k.emit("person:mo", memory("m_lost", "mo", "Saved with the store broken")).await.is_err());
+    s.done().await;
 }

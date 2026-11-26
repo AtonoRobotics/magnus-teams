@@ -96,7 +96,6 @@ impl Kernel {
                 .collect();
             json!({
                 "person": person,
-                "mode": self.cfg.memory.mode_for(person),
                 "clean_facts": clean_facts,
                 "untrusted_facts": untrusted_facts,
                 "archived_facts": archived_facts,

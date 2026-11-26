@@ -52,7 +52,9 @@ pub(super) async fn server() -> Server {
         ),
     )
     .unwrap();
-    let k = Kernel::boot(crate::config::Config::load(&p).unwrap()).await.unwrap();
+    let cfg = crate::config::Config::load(&p).unwrap();
+    crate::memory::schema::migrate(&url, &url, &cfg.memory).await.unwrap();
+    let k = Kernel::boot(cfg).await.unwrap();
     Server { k, fake, db: name, _dir: dir }
 }
 

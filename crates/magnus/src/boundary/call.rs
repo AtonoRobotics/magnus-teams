@@ -174,78 +174,18 @@ impl Kernel {
         self.carry_out(a, key).await.map_err(|e| CallFailure::NotDone(format!("{e:#}")))
     }
 
-    /// The person's facts that best match the query, recalled for them
-    /// (the content store's wall decides what they may read).
+    /// The person's facts that best match the query, recalled for them from
+    /// the unified store, whose readers wall decides what they may read. Only
+    /// memories current in the state are served (`bridge::cited_current`).
     pub(crate) async fn memory_hits(&self, run: &str, query: &str) -> Result<Vec<crate::recall::Remembered>> {
-        // Each word by its stem (its first two thirds, at least four
-        // letters), so "allergy" finds "allergic" and "schedules" "scheduled".
-        let terms: Vec<String> = query
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| w.chars().count() >= 3)
-            .map(|w| {
-                let n = w.chars().count();
-                w.chars().take(if n > 4 { (n * 2 / 3).max(4) } else { n }).collect()
-            })
-            .collect();
         let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
-        let mode = self.cfg.memory.mode_for(&person);
-        // The unified store serves a person only once it holds exactly their
-        // current memory (`memory::sync`); until then legacy recall answers.
-        let in_step = !query.trim().is_empty() && self.memory_sync.is_synced(&person);
-        if mode == crate::memory_index::MemoryMode::V2 && in_step {
-            let v2 = crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true, crate::memory::bridge::AccessTracking::Record)
-                .await
-                .map(|hits| crate::memory::bridge::only_current(hits, &self.current_memory_ids(&person)));
-            if let Some(hits) = crate::memory::bridge::v2_hits_or_fallback(&person, v2) {
-                return Ok(hits);
-            }
-        }
-        let now = chrono::Utc::now();
-        let mut matched: Vec<(usize, crate::recall::Remembered)> = self
-            .remembered(&person, |_| true)
-            .await?
-            .into_iter()
-            .map(|m| {
-                let hay = format!("{} {}", m.fact, m.topic.clone().unwrap_or_default()).to_lowercase();
-                (terms.iter().filter(|t| hay.contains(t.as_str())).count(), m)
-            })
-            // No words to match ("what do you remember?" searched with
-            // nothing): everything kept, newest first.
-            .filter(|(n, _)| *n > 0 || terms.is_empty())
-            .collect();
-        matched.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        let mut scored: Vec<(f64, crate::recall::Remembered)> = matched
-            .into_iter()
-            .enumerate()
-            .map(|(rank, (_, m))| {
-                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / 86_400.0;
-                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate {
-                    id: m.entry.id.clone(),
-                    fts_rank: Some(rank),
-                    vec_rank: None,
-                    untrusted: m.entry.label.untrusted,
-                    age_days,
-                    access_count: 0,
-                });
-                (score, m)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        let legacy: Vec<crate::recall::Remembered> = scored.into_iter().take(crate::memory::bridge::MAX_MEMORY_HITS_RETURNED).map(|(_, m)| m).collect();
-        // Shadow is benchmarked off the request: detached, time-limited and
-        // read-only, so the person's answer never waits on it.
-        if mode == crate::memory_index::MemoryMode::Shadow && in_step {
-            drop(crate::memory::bridge::spawn_shadow_comparison(
-                self.cfg.database.url.clone(),
-                self.cfg.memory.clone(),
-                person,
-                query.to_string(),
-                legacy.len(),
-                crate::memory::bridge::SHADOW_RECALL_TIMEOUT_MS,
-            ));
-        }
-        Ok(legacy)
+        let hits = crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true).await?;
+        // The store ranks; what is served is each cited memory as the record
+        // holds it, so its provenance, taint and read copies are its own.
+        let ranked = crate::memory::bridge::cited_current(&hits, &self.current_memory_ids(&person));
+        let mut by_id: std::collections::HashMap<String, crate::recall::Remembered> =
+            self.remembered(&person, |m| ranked.contains(&m.id)).await?.into_iter().map(|m| (m.entry.id.clone(), m)).collect();
+        Ok(ranked.iter().filter_map(|id| by_id.remove(id)).take(crate::memory::bridge::MAX_MEMORY_HITS_RETURNED).collect())
     }
 }
 

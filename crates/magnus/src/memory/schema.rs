@@ -1,5 +1,6 @@
 //! Additive Postgres DDL for the unified memory engine (`pgvector >= 0.8.0`).
-//! Mode-gated via `migrate_if_enabled` so `MemoryMode::Legacy` stays zero-risk.
+//! Applied by `magnus migrate` (and a restore) for every appliance: recall is
+//! served from these tables for everyone.
 
 use crate::memory_index::{MemoryConfig, PROFILE_MAX_BYTES};
 use anyhow::{Context, Result};
@@ -21,14 +22,10 @@ const MIGRATE_ADVISORY_LOCK_KEY: i64 = 0x4D45_4D5F_4D49_4752;
 /// per-assertion `collision_pending` flag and drops the table.
 pub const MEMORY_SCHEMA_VERSION: i32 = 3;
 
-/// Apply unified memory migrations only when `cfg.is_unified_enabled()` is true.
-/// Verifies `cfg.check()` and `pgvector >= 0.8.0` before running DDL with the
+/// Apply the unified memory migrations. Verifies `cfg.check()` and `pgvector >= 0.8.0` before running DDL with the
 /// configured `cfg.embedding_dim`.
-pub async fn migrate_if_enabled(admin_url: &str, kernel_url: &str, cfg: &MemoryConfig) -> Result<()> {
+pub async fn migrate(admin_url: &str, kernel_url: &str, cfg: &MemoryConfig) -> Result<()> {
     cfg.check()?;
-    if !cfg.is_unified_enabled() {
-        return Ok(());
-    }
     let parsed = url::Url::parse(kernel_url).context("parse kernel database url")?;
     let role = crate::log::ident(parsed.username())?;
     let mut admin = crate::log::connect(admin_url).await?;

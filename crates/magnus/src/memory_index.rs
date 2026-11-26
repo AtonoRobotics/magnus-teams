@@ -2,23 +2,13 @@
 //! write caps, deduplication, and single rollback switch (W2.1, W2.4, M6, M7, N11, N13, O1).
 //!
 //! Reuses the same Postgres `tsvector` + untyped `vector` + `model` + forced RLS
-//! architecture established in `knowledge.rs`, while keeping `public.events` and
-//! `public.content` untouched so flipping `[memory] mode = "legacy"` rolls back
-//! instantly with zero data loss.
+//! architecture established in `knowledge.rs`. The event log stays the record:
+//! the unified store is a copy of everyone's current memory kept in step by
+//! `memory::sync`, and recall is served from it for everyone.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::time::Duration;
-
-/// Single rollback switch for Wave 2/3 memory upgrades (W2.4, N13).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MemoryMode {
-    #[default]
-    Legacy,
-    Shadow,
-    V2,
-}
 
 /// Default fixed `halfvec(N)` dimension for the unified Postgres HNSW index.
 pub const DEFAULT_EMBEDDING_DIM: usize = 1536;
@@ -60,15 +50,10 @@ fn default_max_lessons_per_scope() -> usize {
 /// Typed startup `[memory]` configuration (validated at startup, takes effect on restart).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MemoryConfig {
-    #[serde(default)]
-    pub mode: MemoryMode,
     /// O1: Personal memory defaults to Postgres FTS-only (`false`) unless the owner
     /// configures a local/self-hosted embedding server or explicitly opts in.
     #[serde(default)]
     pub personal_embeddings: bool,
-    /// Optional per-person canary overrides in config file (takes effect on restart, N13).
-    #[serde(default)]
-    pub person_modes: BTreeMap<String, MemoryMode>,
     /// Fixed `halfvec(N)` embedding dimension for `memory_assertions`.
     #[serde(default = "default_embedding_dim")]
     pub embedding_dim: usize,
@@ -97,9 +82,7 @@ fn default_tenant_id() -> String {
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            mode: MemoryMode::default(),
             personal_embeddings: false,
-            person_modes: BTreeMap::new(),
             embedding_dim: default_embedding_dim(),
             hnsw_iterative_scan: HnswIterativeScan::default(),
             max_lessons_per_scope: default_max_lessons_per_scope(),
@@ -109,16 +92,6 @@ impl Default for MemoryConfig {
 }
 
 impl MemoryConfig {
-    pub fn mode_for(&self, person: &str) -> MemoryMode {
-        self.person_modes.get(person).copied().unwrap_or(self.mode)
-    }
-
-    /// True when the unified Postgres memory engine is enabled globally or for
-    /// at least one canary person.
-    pub fn is_unified_enabled(&self) -> bool {
-        self.mode != MemoryMode::Legacy || self.person_modes.values().any(|m| *m != MemoryMode::Legacy)
-    }
-
     /// Validate `[memory]` settings at startup (`Config::load`).
     pub fn check(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -284,13 +257,10 @@ mod tests {
         assert!(!is_near_duplicate("a", "b", Some(&[1.0, 0.0]), Some(&[0.0, 1.0])));
     }
 
+    /// A config written before recall moved to the store still loads.
     #[test]
-    fn config_mode_supports_per_person_canary_and_defaults_legacy() {
-        let mut cfg = MemoryConfig::default();
-        assert_eq!(cfg.mode_for("alice"), MemoryMode::Legacy);
+    fn an_old_memory_mode_setting_still_loads() {
+        let cfg: MemoryConfig = toml::from_str("mode = \"legacy\"\n[person_modes]\nalice = \"v2\"\n").unwrap();
         assert!(!cfg.personal_embeddings);
-        cfg.person_modes.insert("alice".into(), MemoryMode::V2);
-        assert_eq!(cfg.mode_for("alice"), MemoryMode::V2);
-        assert_eq!(cfg.mode_for("bob"), MemoryMode::Legacy);
     }
 }

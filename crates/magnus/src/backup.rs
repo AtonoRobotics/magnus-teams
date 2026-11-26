@@ -473,7 +473,7 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
         bail!("{} already holds secrets; restore into an empty state directory", vault_dir.display());
     }
     crate::log::migrate(admin_url, &cfg.database.url, None).await?;
-    crate::memory::schema::migrate_if_enabled(admin_url, &cfg.database.url, &cfg.memory).await?;
+    crate::memory::schema::migrate(admin_url, &cfg.database.url, &cfg.memory).await?;
     let admin = crate::log::connect(admin_url).await?;
     let mut db = admin;
     // No kernel may run on the log while it is restored: it would keep its

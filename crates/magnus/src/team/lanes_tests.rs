@@ -191,6 +191,7 @@ async fn restarted(s: &Server) -> (Arc<Kernel>, String, tempfile::TempDir) {
     let mut cfg = s.k.cfg.clone();
     cfg.database.url = u.to_string();
     cfg.appliance.state_dir = dir.path().join("state");
+    crate::memory::schema::migrate(&cfg.database.url, &cfg.database.url, &cfg.memory).await.unwrap();
     (Kernel::boot(cfg).await.unwrap(), name, dir)
 }
 

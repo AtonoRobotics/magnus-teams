@@ -4,15 +4,15 @@
 //! production. Without a reachable server the test fails rather than passing
 //! silently. Both are dropped when the test ends.
 
-use crate::memory::schema::migrate_if_enabled;
+use crate::memory::schema::migrate;
 use crate::memory::store::MemoryStore;
-use crate::memory_index::{HnswIterativeScan, MemoryConfig, MemoryMode};
+use crate::memory_index::{HnswIterativeScan, MemoryConfig};
 
 pub(crate) const TEST_EMBEDDING_DIM: usize = 4;
 const TEST_KERNEL_PASSWORD: &str = "memtestpw";
 
 pub(crate) fn test_config() -> MemoryConfig {
-    MemoryConfig { mode: MemoryMode::V2, embedding_dim: TEST_EMBEDDING_DIM, hnsw_iterative_scan: HnswIterativeScan::RelaxedOrder, ..Default::default() }
+    MemoryConfig { embedding_dim: TEST_EMBEDDING_DIM, hnsw_iterative_scan: HnswIterativeScan::RelaxedOrder, ..Default::default() }
 }
 
 fn server_url() -> String {
@@ -29,7 +29,7 @@ impl LiveDb {
     /// Create the database and kernel role, and migrate with `test_config()`.
     pub(crate) async fn create() -> Self {
         let db = Self::create_unmigrated().await;
-        migrate_if_enabled(&db.admin_url, &db.kernel_url, &test_config()).await.expect("migrate unified memory schema");
+        migrate(&db.admin_url, &db.kernel_url, &test_config()).await.expect("migrate unified memory schema");
         db
     }
 

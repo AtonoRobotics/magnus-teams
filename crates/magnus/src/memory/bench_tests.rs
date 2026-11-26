@@ -5,9 +5,9 @@ use super::*;
 use crate::memory::enrich::{claim_next_job, commit_enrichment, EnrichCommit, EnrichmentOutput};
 use crate::memory::ingest::{ingest_source, IngestOutcome};
 use crate::memory::live_pg_test::{test_config, LiveDb};
-use crate::memory::schema::{check_pgvector_version, migrate_if_enabled, migrate_sql};
+use crate::memory::schema::{check_pgvector_version, migrate, migrate_sql};
 use crate::memory::store::{SupersessionOutcome, SupersessionRefusal};
-use crate::memory_index::{HnswIterativeScan, MemoryConfig, MemoryMode, PROFILE_MAX_BYTES};
+use crate::memory_index::{HnswIterativeScan, MemoryConfig, PROFILE_MAX_BYTES};
 use chrono::Utc;
 use serde_json::json;
 
@@ -72,14 +72,9 @@ fn migrate_sql_enforces_forced_rls_on_all_tables_and_profile_size_cap() {
 #[tokio::test(flavor = "multi_thread")]
 async fn phase1_live_rls_erasure_taint_merge_dedup_and_fencing() {
     let db = LiveDb::create().await;
-    let (admin_url, kernel_url) = (db.admin_url.clone(), db.kernel_url.clone());
     let mut store = db.store().await;
     let tenant = format!("t_{}", Uuid::new_v4());
     let now = Utc::now();
-
-    // 0. Legacy mode migration is a no-op even with arbitrary dim.
-    let legacy_cfg = MemoryConfig { mode: MemoryMode::Legacy, embedding_dim: 128, ..Default::default() };
-    migrate_if_enabled(&admin_url, &kernel_url, &legacy_cfg).await.unwrap();
 
     // 1. Order-independent readers dedup on same source_id, while different source_id stays independent.
     let src_a = SourceInput {
@@ -553,17 +548,17 @@ async fn phase2_review_fixes_tenant_rls_supersession_guards_advisory_lock_and_mu
     let (admin_url, kernel_url) = (db.admin_url.clone(), db.kernel_url.clone());
     let mut store = db.store().await;
 
-    // 1. Concurrent migrate_if_enabled must succeed without pg_type catalog race.
+    // 1. Concurrent migrate must succeed without pg_type catalog race.
     let cfg = test_config();
     let mut handles = Vec::new();
     for _ in 0..4 {
         let a = admin_url.clone();
         let k = kernel_url.clone();
         let c = cfg.clone();
-        handles.push(tokio::spawn(async move { migrate_if_enabled(&a, &k, &c).await }));
+        handles.push(tokio::spawn(async move { migrate(&a, &k, &c).await }));
     }
     for h in handles {
-        h.await.unwrap().expect("concurrent migrate_if_enabled must serialize via advisory lock");
+        h.await.unwrap().expect("concurrent migrate must serialize via advisory lock");
     }
 
     // 2. DB-enforced tenant RLS: same principal `user:shared` in tenant_a and tenant_b;
@@ -754,13 +749,13 @@ async fn phase3_review_fixes_custom_dim_record_access_and_supersession_window_co
     use crate::memory::live_pg_test::LiveDb;
     use crate::memory::retrieve::{retrieve, RetrieveRequest};
     use crate::memory::store::MemoryStore;
-    use crate::memory_index::{HnswIterativeScan, MemoryConfig, MemoryMode};
+    use crate::memory_index::{HnswIterativeScan, MemoryConfig};
     use chrono::Duration;
 
-    // 1. Non-default embedding_dim (8 != 1536) via migrate_if_enabled works end-to-end.
+    // 1. Non-default embedding_dim (8 != 1536) via migrate works end-to-end.
     let db = LiveDb::create().await;
-    let custom_cfg = MemoryConfig { mode: MemoryMode::V2, embedding_dim: 8, hnsw_iterative_scan: HnswIterativeScan::RelaxedOrder, ..Default::default() };
-    // Fresh separate database migrated ONLY via migrate_if_enabled with dim=8
+    let custom_cfg = MemoryConfig { embedding_dim: 8, hnsw_iterative_scan: HnswIterativeScan::RelaxedOrder, ..Default::default() };
+    // Fresh separate database migrated ONLY via migrate with dim=8
     let server_url = std::env::var("MAGNUS_TEST_PG").unwrap_or_else(|_| "postgres://postgres:magnus_dev@127.0.0.1:54340/postgres".into());
     let server = crate::log::connect(&server_url).await.unwrap();
     let custom_name = format!("mem_dim8_{}", Uuid::new_v4().simple());
@@ -772,7 +767,7 @@ async fn phase3_review_fixes_custom_dim_record_access_and_supersession_window_co
     kernel8.set_username(&custom_name).unwrap();
     kernel8.set_password(Some("memtestpw")).unwrap();
 
-    migrate_if_enabled(admin8.as_str(), kernel8.as_str(), &custom_cfg).await.unwrap();
+    migrate(admin8.as_str(), kernel8.as_str(), &custom_cfg).await.unwrap();
     let mut store8 = MemoryStore::connect(kernel8.as_str(), &custom_cfg).await.unwrap();
     let t8 = format!("t8_{}", Uuid::new_v4());
     let now = Utc::now();
@@ -928,7 +923,7 @@ async fn phase3_review_fixes_custom_dim_record_access_and_supersession_window_co
 }
 
 /// `log::migrate` is the event log's migration; it must not create the
-/// unified memory tables (they come only from `migrate_if_enabled`, which
+/// unified memory tables (they come only from `migrate`, which
 /// checks the mode, pgvector and the configured embedding size).
 #[tokio::test(flavor = "multi_thread")]
 async fn log_migrate_does_not_create_unified_memory_tables() {
@@ -936,7 +931,7 @@ async fn log_migrate_does_not_create_unified_memory_tables() {
     crate::log::migrate(&db.admin_url, &db.kernel_url, None).await.expect("log migration");
     let admin = crate::log::connect(&db.admin_url).await.unwrap();
     let present: bool = admin.query_one("SELECT to_regclass('public.memory_assertions') IS NOT NULL", &[]).await.unwrap().get(0);
-    assert!(!present, "log::migrate must leave the unified memory tables to migrate_if_enabled");
+    assert!(!present, "log::migrate must leave the unified memory tables to migrate");
 }
 
 /// A profile assertion is budgeted against the owner of the source it came

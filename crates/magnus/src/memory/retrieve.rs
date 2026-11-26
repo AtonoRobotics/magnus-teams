@@ -24,6 +24,12 @@ pub const BRANCH_CANDIDATE_LIMIT: usize = 40;
 pub const EXACT_MATCH_BOOST: f64 = 1.5;
 /// Minimum character length for query tokens/lexemes.
 pub const MIN_QUERY_TOKEN_CHARS: usize = 2;
+/// Words longer than this match by their stem: their first two thirds, never
+/// shorter than this ("allergy" finds "allergic", "schedules" "scheduled").
+pub const STEM_MIN_CHARS: usize = 4;
+/// Shortest word matched as a prefix rather than whole; shorter ones ("of",
+/// "is") would match nearly everything.
+pub const PREFIX_MIN_CHARS: usize = 3;
 /// Seconds per calendar day for recency decay calculation.
 pub const SECONDS_PER_DAY: f64 = 86_400.0;
 /// Formatting separator overhead (bytes) per serialized graph edge (`" -> "`).
@@ -125,9 +131,28 @@ fn exact_match_tokens(query: &str) -> Vec<String> {
     query.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_').map(str::trim).filter(|w| w.chars().count() >= MIN_QUERY_TOKEN_CHARS).map(str::to_string).collect()
 }
 
-/// Split query into alphanumeric lowercased lexemes for `to_tsquery('simple', ...)`.
+/// Split query into lowercased `to_tsquery('simple', ...)` terms: a long word
+/// by its stem and a shorter one whole, each matched as a prefix, except the
+/// shortest, matched whole.
 fn fts_lexemes(query: &str) -> Vec<String> {
-    query.to_ascii_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() >= MIN_QUERY_TOKEN_CHARS).map(str::to_string).collect()
+    query
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= MIN_QUERY_TOKEN_CHARS)
+        .map(|w| {
+            let n = w.chars().count();
+            if n < PREFIX_MIN_CHARS {
+                return w.to_string();
+            }
+            let keep = if n > STEM_MIN_CHARS { (n * 2 / 3).max(STEM_MIN_CHARS) } else { n };
+            format!("{}:*", w.chars().take(keep).collect::<String>())
+        })
+        .collect()
+}
+
+/// Whether `query` has any word to search for.
+pub fn has_terms(query: &str) -> bool {
+    !fts_lexemes(query).is_empty()
 }
 
 fn valid_at_sql(alias: &str, start_param: &str, end_param: &str) -> String {
@@ -508,4 +533,44 @@ pub async fn retrieve(store: &mut MemoryStore, req: &RetrieveRequest) -> Result<
     tx.commit().await?;
 
     Ok(rank_and_pack(req, &exact_tokens, candidates, citations, edges, suppressed_by_private))
+}
+
+/// The reader's most recent sources, newest first: what "everything you
+/// remember" answers when a query has no word to search for.
+pub async fn recent_sources(store: &mut MemoryStore, req: &RetrieveRequest) -> Result<RetrieveResponse> {
+    let limit = req.limit as i64;
+    let tx = store.begin_reader_tx(&req.tenant_id, &req.principals).await?;
+    let rows = tx
+        .query(
+            "SELECT source_id, rev, text, untrusted, private, occurred_at
+             FROM public.memory_sources
+             WHERE tenant_id = $1 AND ($2 OR NOT untrusted)
+             ORDER BY occurred_at DESC, source_id
+             LIMIT $3",
+            &[&req.tenant_id, &req.allow_untrusted, &limit],
+        )
+        .await
+        .context("list the reader's recent memory sources")?;
+    tx.commit().await?;
+    let hits: Vec<RetrieveHit> = rows
+        .iter()
+        .map(|row| {
+            let sref = SourceRef { source_id: row.get(0), rev: row.get(1) };
+            RetrieveHit {
+                id: format!("{}@{}", sref.source_id, sref.rev),
+                origin: HitOrigin::UnenrichedSource,
+                kind: HitKind::Source,
+                text: row.get(2),
+                label: TaintLabel { untrusted: row.get(3), private: row.get(4) },
+                valid_from: row.get(5),
+                valid_to: None,
+                score: 0.0,
+                citations: vec![sref],
+            }
+        })
+        .collect();
+    let label =
+        hits.iter().fold(TaintLabel { untrusted: false, private: false }, |l, h| TaintLabel { untrusted: l.untrusted || h.label.untrusted, private: l.private || h.label.private });
+    let sources = hits.iter().flat_map(|h| h.citations.iter().cloned()).collect();
+    Ok(RetrieveResponse { hits, edges: Vec::new(), label, sources })
 }

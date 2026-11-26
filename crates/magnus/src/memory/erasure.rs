@@ -19,20 +19,6 @@ pub(crate) async fn lock_owner_for_ingest(tx: &Transaction<'_>, owner_id: &str) 
     Ok(())
 }
 
-/// Held shared on the sync's connection for the whole of one person's sync,
-/// across reading their content and copying it: an erasure of that owner
-/// waits for the copy, and a sync that starts during an erasure waits for it
-/// (by then their content is deleted, so nothing is copied back).
-pub(crate) async fn hold_owner_for_sync(client: &tokio_postgres::Client, owner_id: &str) -> Result<()> {
-    client.execute("SELECT pg_advisory_lock_shared($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("hold owner against erasure")?;
-    Ok(())
-}
-
-pub(crate) async fn release_owner_for_sync(client: &tokio_postgres::Client, owner_id: &str) -> Result<()> {
-    client.execute("SELECT pg_advisory_unlock_shared($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("release owner after sync")?;
-    Ok(())
-}
-
 async fn lock_owner_for_erasure(tx: &Transaction<'_>, owner_id: &str) -> Result<()> {
     tx.execute("SELECT pg_advisory_xact_lock($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("lock owner for erasure")?;
     Ok(())
@@ -76,11 +62,8 @@ pub async fn erase_owner_across_tenants(store: &mut MemoryStore, owner_id: &str)
     erase_owner_scoped(store, None, owner_id).await
 }
 
-/// Entry point for `person_admin::erase_person`. Gated on whether the unified
-/// memory tables exist, not on the configured `MemoryMode`: after a Shadow or
-/// V2 period rolled back to Legacy the tables still hold the person's rows,
-/// and erasure must remove them. A database that was never migrated for
-/// unified memory has nothing to erase.
+/// Entry point for `person_admin::erase_person`. A database not yet migrated
+/// for unified memory has nothing to erase.
 pub async fn erase_person_if_present(kernel_url: &str, cfg: &MemoryConfig, person: &str) -> Result<ErasureStats> {
     let mut store = MemoryStore::connect(kernel_url, cfg).await?;
     let present: bool =
