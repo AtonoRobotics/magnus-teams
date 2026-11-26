@@ -11,7 +11,7 @@ Collapse Magnus's fragmented memory and knowledge stores into a single Postgres-
    - `memory_sources` is FTS-only (`tsvector` + GIN) for instant sync recall and citation storage; hard-deleted on revocation/erasure (no `deleted_at` tombstones).
    - `memory_assertions` holds facts, chunks, lessons, and pinned profile entries (`kind = 'profile'`, <= 8 KB, strictly `!untrusted`) behind a single partial HNSW index (`halfvec(N) WHERE NOT archived`) with `hnsw.iterative_scan = relaxed_order`.
 2. **Thin canonical `memory_entities` with zero ACL drift**:
-   - `memory_entities` holds only `(tenant_id, entity_id, entity_type, canonical_name, external_id)` with no `readers`, `aliases`, or `embedding`.
+   - `memory_entities` holds only `(tenant_id, entity_id, entity_type, external_id)` with no `readers`, free-text names, `aliases`, or `embedding`; per-edge display names (`src_name`, `dst_name`) live on RLS-protected `memory_edges` to prevent cross-ACL name leakage.
    - RLS on `memory_entities` for `{role}_reader` delegates visibility to `EXISTS` over RLS-filtered `memory_edges`, preventing cross-ACL leakage and stale ACL recomputation.
 3. **Strict taint & visibility separation**:
    - `memory_edges` is strictly entity-to-entity (composite FKs to `memory_entities`) and carries both `untrusted` and `private` flags; clean reads filter `!untrusted` on every graph hop.
@@ -23,5 +23,5 @@ Collapse Magnus's fragmented memory and knowledge stores into a single Postgres-
 
 ## Rationale
 
-- Eliminates multi-store sync drift, unindexed substring scans, and soft-delete erasure leaks while keeping 100% of security invariants database-enforced via forced Postgres RLS.
+- Eliminates multi-store sync drift, unindexed substring scans, and soft-delete erasure leaks. All reader-facing visibility and tenant isolation (`magnus.principals` + `magnus.tenant`) are database-enforced via forced Postgres RLS on `{role}_reader`; kernel write and maintenance paths run as `{role}` (`USING (true)`, matching `public.knowledge`) scoped by composite `(tenant_id, ...)` foreign keys and explicit `tenant_id` predicates.
 - Keeps rollback zero-risk via `MemoryMode` (`legacy | shadow | v2` + per-person `person_modes`).

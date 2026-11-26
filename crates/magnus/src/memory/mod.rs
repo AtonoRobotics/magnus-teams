@@ -22,8 +22,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-/// Fixed UUIDv5 namespace for deterministic canonical entity IDs.
-const ENTITY_UUID_NAMESPACE: Uuid = Uuid::from_bytes([0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8]);
+/// Deterministic UUIDv5 namespace for canonical entity IDs (RFC 4122 DNS namespace).
+const ENTITY_UUID_NAMESPACE: Uuid = Uuid::NAMESPACE_DNS;
 
 /// Taint lattice carried across sources, assertions, edges, and retrieval outputs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +71,16 @@ impl AssertionKind {
             Self::Chunk => "chunk",
             Self::Lesson => "lesson",
             Self::Profile => "profile",
+        }
+    }
+
+    pub fn parse(raw: &str) -> anyhow::Result<Self> {
+        match raw {
+            "fact" => Ok(Self::Fact),
+            "chunk" => Ok(Self::Chunk),
+            "lesson" => Ok(Self::Lesson),
+            "profile" => Ok(Self::Profile),
+            other => anyhow::bail!("unknown assertion kind {other:?}"),
         }
     }
 }

@@ -17,6 +17,23 @@ pub const JOB_BACKOFF_BASE_SECS: i64 = 15;
 /// Lease duration in seconds for a claimed `running` job before another worker
 /// may reclaim it after a crash.
 pub const JOB_LEASE_SECS: i64 = 300;
+/// Maximum left-shift exponent for exponential job retry backoff (`2^10 * base`).
+pub const JOB_MAX_BACKOFF_SHIFT: u32 = 10;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JobStatus {
+    Pending,
+    Failed,
+}
+
+impl JobStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Failed => "failed",
+        }
+    }
+}
 
 /// Claimed enrichment job ready for embedding + structured extraction.
 #[derive(Clone, Debug)]
@@ -177,7 +194,7 @@ pub async fn commit_enrichment(store: &mut MemoryStore, job: &ClaimedJob, output
             let ex_readers: Vec<Vec<String>> = serde_json::from_value(ex.get::<_, Value>(1)).context("decode existing assertion readers")?;
             let ex_label = TaintLabel { untrusted: ex.get(2), private: ex.get(3) };
             let joined = ex_label.join(src_label);
-            anyhow::ensure!(!(ex_kind == AssertionKind::Profile.as_str() && joined.untrusted), "refusing to taint existing profile assertion with untrusted source");
+            anyhow::ensure!(!(AssertionKind::parse(&ex_kind)? == AssertionKind::Profile && joined.untrusted), "refusing to taint existing profile assertion with untrusted source");
             let merged_readers = json!(intersect_readers(&[ex_readers, src_readers.clone()]));
             tx.execute(
                 "UPDATE public.memory_assertions
@@ -189,12 +206,14 @@ pub async fn commit_enrichment(store: &mut MemoryStore, job: &ClaimedJob, output
             .context("merge taint/readers on existing memory_assertions")?;
         } else {
             if a.kind == AssertionKind::Profile {
+                anyhow::ensure!(a.owner_id == job.owner_id, "profile assertion owner ({}) must match source owner ({})", a.owner_id, job.owner_id);
+                crate::memory::curator::lock_owner_scope(&tx, &job.tenant_id, &job.owner_id).await?;
                 let existing_bytes: i64 = tx
                     .query_one(
                         "SELECT COALESCE(SUM(octet_length(statement)), 0)::bigint
                          FROM public.memory_assertions
                          WHERE tenant_id = $1 AND owner_id = $2 AND kind = 'profile' AND NOT archived",
-                        &[&job.tenant_id, &a.owner_id],
+                        &[&job.tenant_id, &job.owner_id],
                     )
                     .await?
                     .get(0);
@@ -333,9 +352,9 @@ pub async fn commit_enrichment(store: &mut MemoryStore, job: &ClaimedJob, output
 /// Record a transient enrichment failure with exponential backoff, or mark
 /// `failed` once `JOB_MAX_ATTEMPTS` is reached.
 pub async fn fail_job(store: &mut MemoryStore, job: &ClaimedJob, error_msg: &str) -> Result<()> {
-    let shift = u32::try_from(job.attempts.saturating_sub(1).max(0)).unwrap_or(0).min(10);
+    let shift = u32::try_from(job.attempts.saturating_sub(1).max(0)).unwrap_or(0).min(JOB_MAX_BACKOFF_SHIFT);
     let backoff_secs = JOB_BACKOFF_BASE_SECS.saturating_mul(1_i64 << shift);
-    let next_status = if job.attempts >= JOB_MAX_ATTEMPTS { "failed" } else { "pending" };
+    let next_status = if job.attempts >= JOB_MAX_ATTEMPTS { JobStatus::Failed } else { JobStatus::Pending }.as_str();
     let msg = json!(error_msg).to_string();
     store
         .client()

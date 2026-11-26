@@ -7,6 +7,22 @@ use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use tokio_postgres::{Client, Transaction};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EvidenceTargetKind {
+    Assertion,
+    Edge,
+}
+
+impl EvidenceTargetKind {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "assertion" => Some(Self::Assertion),
+            "edge" => Some(Self::Edge),
+            _ => None,
+        }
+    }
+}
+
 /// Postgres store owning a kernel connection and the derived `{role}_reader` role.
 pub struct MemoryStore {
     client: Client,
@@ -20,8 +36,7 @@ impl MemoryStore {
     pub async fn connect(kernel_url: &str, cfg: &MemoryConfig) -> Result<Self> {
         cfg.check()?;
         let parsed = url::Url::parse(kernel_url).context("parse memory database url")?;
-        let role = parsed.username();
-        anyhow::ensure!(!role.is_empty() && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "unsafe Postgres role name in memory database URL");
+        let role = crate::log::ident(parsed.username())?;
         let client = crate::log::connect(kernel_url).await?;
         Ok(Self { client, reader_role: format!("{role}_reader"), embedding_dim: cfg.embedding_dim, hnsw_iterative_scan: cfg.hnsw_iterative_scan })
     }
@@ -88,10 +103,10 @@ impl MemoryStore {
         for row in ev_rows {
             let kind: String = row.get(0);
             let target_id: String = row.get(1);
-            match kind.as_str() {
-                "assertion" => affected_assertions.push(target_id),
-                "edge" => affected_edges.push(target_id),
-                _ => {}
+            match EvidenceTargetKind::parse(&kind) {
+                Some(EvidenceTargetKind::Assertion) => affected_assertions.push(target_id),
+                Some(EvidenceTargetKind::Edge) => affected_edges.push(target_id),
+                None => {}
             }
         }
 
@@ -189,6 +204,25 @@ impl MemoryStore {
 
         tx.commit().await?;
         Ok(deleted)
+    }
+
+    /// Explicitly increment `access_count` and `last_accessed_at` for assertions
+    /// returned to a caller (used by cold-archival and lesson-cap ranking).
+    pub async fn record_access(&mut self, tenant_id: &str, assertion_ids: &[String]) -> Result<u64> {
+        if assertion_ids.is_empty() {
+            return Ok(0);
+        }
+        let updated = self
+            .client
+            .execute(
+                "UPDATE public.memory_assertions
+                 SET access_count = access_count + 1, last_accessed_at = now()
+                 WHERE tenant_id = $1 AND assertion_id = ANY($2)",
+                &[&tenant_id, &assertion_ids],
+            )
+            .await
+            .context("record assertion access counts")?;
+        Ok(updated)
     }
 
     /// Record that `new_assertion_id` supersedes `old_assertion_id` within `tenant_id`.

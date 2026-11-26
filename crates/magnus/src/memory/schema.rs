@@ -29,8 +29,7 @@ pub async fn migrate_if_enabled(admin_url: &str, kernel_url: &str, cfg: &MemoryC
         return Ok(());
     }
     let parsed = url::Url::parse(kernel_url).context("parse kernel database url")?;
-    let role = parsed.username();
-    anyhow::ensure!(!role.is_empty() && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "unsafe Postgres role name in kernel database url");
+    let role = crate::log::ident(parsed.username())?;
     let mut admin = crate::log::connect(admin_url).await?;
     let tx = admin.transaction().await.context("begin memory migration transaction")?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&MIGRATE_ADVISORY_LOCK_KEY]).await.context("acquire memory migration advisory lock")?;

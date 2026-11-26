@@ -5,7 +5,7 @@
 
 use crate::memory::graph::{expand_hops, find_seed_entities, GraphEdgeHit, MAX_GRAPH_HOPS};
 use crate::memory::store::MemoryStore;
-use crate::memory::{format_halfvec_literal, ReadScope, SourceRef, TaintLabel};
+use crate::memory::{format_halfvec_literal, AssertionKind, ReadScope, SourceRef, TaintLabel};
 use crate::memory_index::{hybrid_score, RankedCandidate};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -69,6 +69,13 @@ pub enum HitOrigin {
     UnenrichedSource,
 }
 
+/// Typed kind of a retrieved hit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitKind {
+    Assertion(AssertionKind),
+    Source,
+}
+
 /// Typed key distinguishing assertion candidates from unenriched source candidates.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum CandidateKey {
@@ -81,7 +88,7 @@ enum CandidateKey {
 pub struct RetrieveHit {
     pub id: String,
     pub origin: HitOrigin,
-    pub kind: String,
+    pub kind: HitKind,
     pub text: String,
     pub label: TaintLabel,
     pub valid_from: DateTime<Utc>,
@@ -103,7 +110,7 @@ pub struct RetrieveResponse {
 struct CandidateMeta {
     id: String,
     origin: HitOrigin,
-    kind: String,
+    kind: HitKind,
     text: String,
     label: TaintLabel,
     valid_from: DateTime<Utc>,
@@ -131,33 +138,30 @@ fn valid_at_sql(alias: &str, start_param: &str, end_param: &str) -> String {
     )
 }
 
-/// SQL expression returning:
-/// - `superseded`: whether any visible, active, trust-eligible newer assertion supersedes `alias`.
-/// - `superseded_by_private`: whether any such superseding assertion is `private`.
-fn supersession_lateral_sql(alias: &str, allow_param: &str, start_param: &str, end_param: &str) -> String {
-    let newer_valid = valid_at_sql("newer", start_param, end_param);
+/// SQL predicate requiring `alias` to cover the entire active or requested
+/// temporal window (not merely overlap part of it).
+fn covers_window_sql(alias: &str, start_param: &str, end_param: &str) -> String {
     format!(
-        "LEFT JOIN LATERAL ( \
-             SELECT (count(*) > 0) AS is_superseded, COALESCE(bool_or(newer.private), false) AS by_private \
-             FROM public.memory_supersessions s \
-             JOIN public.memory_assertions newer \
-               ON newer.tenant_id = s.tenant_id \
-              AND newer.assertion_id = s.new_assertion_id \
-             WHERE s.tenant_id = {alias}.tenant_id \
-               AND s.old_assertion_id = {alias}.assertion_id \
-               AND NOT newer.archived \
-               AND ({allow_param} OR NOT newer.untrusted) \
-               AND ({alias}.untrusted OR NOT newer.untrusted) \
-               AND {newer_valid} \
-         ) sup ON true"
+        "(({start_param}::timestamptz IS NULL AND {alias}.valid_from <= now() AND ({alias}.valid_to IS NULL OR {alias}.valid_to > now()))           OR ({start_param}::timestamptz IS NOT NULL AND {alias}.valid_from <= {start_param}::timestamptz               AND ({alias}.valid_to IS NULL OR {alias}.valid_to >= {end_param}::timestamptz)))"
     )
 }
 
-fn meta_from_assertion_row(row: &Row, fts_rank: Option<usize>, vec_rank: Option<usize>) -> CandidateMeta {
-    CandidateMeta {
+/// SQL expression returning:
+/// - `superseded`: whether any visible, active, trust-eligible newer assertion covers the whole window.
+/// - `superseded_by_private`: whether any such superseding assertion is `private`.
+fn supersession_lateral_sql(alias: &str, allow_param: &str, start_param: &str, end_param: &str) -> String {
+    let newer_covers = covers_window_sql("newer", start_param, end_param);
+    format!(
+        "LEFT JOIN LATERAL (              SELECT (count(*) > 0) AS is_superseded, COALESCE(bool_or(newer.private), false) AS by_private              FROM public.memory_supersessions s              JOIN public.memory_assertions newer                ON newer.tenant_id = s.tenant_id               AND newer.assertion_id = s.new_assertion_id              WHERE s.tenant_id = {alias}.tenant_id                AND s.old_assertion_id = {alias}.assertion_id                AND NOT newer.archived                AND ({allow_param} OR NOT newer.untrusted)                AND ({alias}.untrusted OR NOT newer.untrusted)                AND {newer_covers}          ) sup ON true"
+    )
+}
+
+fn meta_from_assertion_row(row: &Row, fts_rank: Option<usize>, vec_rank: Option<usize>) -> Result<CandidateMeta> {
+    let raw_kind: String = row.get(1);
+    Ok(CandidateMeta {
         id: row.get(0),
         origin: HitOrigin::Assertion,
-        kind: row.get(1),
+        kind: HitKind::Assertion(AssertionKind::parse(&raw_kind)?),
         text: row.get(2),
         label: TaintLabel { untrusted: row.get(3), private: row.get(4) },
         valid_from: row.get(5),
@@ -165,7 +169,7 @@ fn meta_from_assertion_row(row: &Row, fts_rank: Option<usize>, vec_rank: Option<
         access_count: row.get::<_, i32>(7).max(0) as u32,
         fts_rank,
         vec_rank,
-    }
+    })
 }
 
 async fn query_fts_assertions(
@@ -213,7 +217,7 @@ async fn query_fts_assertions(
             }
             continue;
         }
-        let meta = meta_from_assertion_row(&row, Some(rank), None);
+        let meta = meta_from_assertion_row(&row, Some(rank), None)?;
         candidates.insert(CandidateKey::Assertion(meta.id.clone()), meta);
         rank += 1;
     }
@@ -275,7 +279,7 @@ async fn query_vec_assertions(
         if let Some(existing) = candidates.get_mut(&key) {
             existing.vec_rank = Some(rank);
         } else {
-            candidates.insert(key, meta_from_assertion_row(&row, None, Some(rank)));
+            candidates.insert(key, meta_from_assertion_row(&row, None, Some(rank))?);
         }
         rank += 1;
     }
@@ -336,7 +340,7 @@ async fn query_unenriched_sources(
             CandidateMeta {
                 id,
                 origin: HitOrigin::UnenrichedSource,
-                kind: "source".into(),
+                kind: HitKind::Source,
                 text: row.get(2),
                 label: TaintLabel { untrusted: row.get(3), private: row.get(4) },
                 valid_from: row.get(5),

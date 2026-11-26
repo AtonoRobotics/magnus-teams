@@ -36,7 +36,7 @@ pub async fn connect(url: &str) -> Result<Client> {
     Ok(client)
 }
 
-fn ident(s: &str) -> Result<&str> {
+pub(crate) fn ident(s: &str) -> Result<&str> {
     anyhow::ensure!(!s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "unsafe SQL identifier {s:?}");
     Ok(s)
 }
@@ -92,10 +92,6 @@ pub async fn migrate(admin_url: &str, kernel_url: &str, root_url: Option<&str>) 
     admin.batch_execute(&content_walls_sql(&role)).await.context("wall the content store by person")?;
     // The knowledge base's index, filtered for each reader by row security.
     admin.batch_execute(&crate::knowledge::migrate_sql(&role)).await.context("create the knowledge index (pgvector must be installed)")?;
-    admin
-        .batch_execute(&crate::memory::schema::migrate_sql(&role, crate::memory_index::DEFAULT_EMBEDDING_DIM))
-        .await
-        .context("create the unified memory tables (pgvector >= 0.8.0 required)")?;
     admin.batch_execute(&crate::computer::migrate_sql(&role)).await.context("create the computers' egress audit table")?;
     admin.batch_execute(&crate::accounts::migrate_sql(&role)).await.context("create the accounts tables")?;
     // Append-only is the database's to enforce: whatever grants or

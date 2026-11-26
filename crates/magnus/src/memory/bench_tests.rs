@@ -747,3 +747,182 @@ async fn phase2_review_fixes_tenant_rls_supersession_guards_advisory_lock_and_mu
     let elapsed_ms = t0.elapsed().as_millis();
     assert!(elapsed_ms <= SELECTIVE_RLS_MAX_LATENCY_MS, "selective HNSW took {elapsed_ms}ms > {SELECTIVE_RLS_MAX_LATENCY_MS}ms");
 }
+
+#[tokio::test]
+async fn phase3_review_fixes_custom_dim_record_access_and_supersession_window_cover() {
+    use crate::memory::curator::archive_cold_and_sweep_orphans;
+    use crate::memory::live_pg_test::LiveDb;
+    use crate::memory::retrieve::{retrieve, RetrieveRequest};
+    use crate::memory::store::MemoryStore;
+    use crate::memory_index::{HnswIterativeScan, MemoryConfig, MemoryMode};
+    use chrono::Duration;
+
+    // 1. Non-default embedding_dim (8 != 1536) via migrate_if_enabled works end-to-end.
+    let db = LiveDb::create().await;
+    let custom_cfg = MemoryConfig { mode: MemoryMode::V2, embedding_dim: 8, hnsw_iterative_scan: HnswIterativeScan::RelaxedOrder, ..Default::default() };
+    // Fresh separate database migrated ONLY via migrate_if_enabled with dim=8
+    let server_url = std::env::var("MAGNUS_TEST_PG").unwrap_or_else(|_| "postgres://postgres:magnus_dev@127.0.0.1:54340/postgres".into());
+    let server = crate::log::connect(&server_url).await.unwrap();
+    let custom_name = format!("mem_dim8_{}", Uuid::new_v4().simple());
+    server.batch_execute(&format!("CREATE DATABASE {custom_name}")).await.unwrap();
+    server.batch_execute(&format!("CREATE ROLE {custom_name} LOGIN PASSWORD 'memtestpw' NOSUPERUSER NOBYPASSRLS")).await.unwrap();
+    let mut admin8 = url::Url::parse(&server_url).unwrap();
+    admin8.set_path(&format!("/{custom_name}"));
+    let mut kernel8 = admin8.clone();
+    kernel8.set_username(&custom_name).unwrap();
+    kernel8.set_password(Some("memtestpw")).unwrap();
+
+    migrate_if_enabled(admin8.as_str(), kernel8.as_str(), &custom_cfg).await.unwrap();
+    let mut store8 = MemoryStore::connect(kernel8.as_str(), &custom_cfg).await.unwrap();
+    let t8 = format!("t8_{}", Uuid::new_v4());
+    let now = Utc::now();
+    let s8 = SourceInput {
+        tenant_id: t8.clone(),
+        source_id: "s8".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["user:alice".into()]],
+        label: TaintLabel { untrusted: false, private: false },
+        text: "Eight-dim vector fact".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store8, &s8).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let j8 = claim_next_job(&mut store8).await.unwrap().expect("j8");
+    assert_eq!(
+        commit_enrichment(
+            &mut store8,
+            &j8,
+            &EnrichmentOutput {
+                assertions: vec![AssertionInput {
+                    assertion_id: "a8".into(),
+                    kind: AssertionKind::Fact,
+                    owner_id: "alice".into(),
+                    statement: "Eight-dim vector fact".into(),
+                    valid_from: now,
+                    valid_to: None,
+                    confidence: 1.0,
+                    embedding: Some(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                }],
+                edges: vec![],
+            },
+        )
+        .await
+        .unwrap(),
+        EnrichCommit::Committed
+    );
+    drop(store8);
+    let _ = server.batch_execute(&format!("DROP DATABASE IF EXISTS {custom_name} WITH (FORCE)")).await;
+    let _ = server.batch_execute(&format!("DROP ROLE IF EXISTS {custom_name}_reader; DROP ROLE IF EXISTS {custom_name}")).await;
+
+    // 2. record_access increments access_count and protects accessed untrusted assertions from cold archival.
+    let mut store = db.store().await;
+    let tenant = format!("tw_{}", Uuid::new_v4());
+    let s_u = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "su".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["user:alice".into()]],
+        label: TaintLabel { untrusted: true, private: false },
+        text: "Useful untrusted note".into(),
+        occurred_at: now - Duration::days(45),
+    };
+    assert!(matches!(ingest_source(&mut store, &s_u).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let ju = claim_next_job(&mut store).await.unwrap().expect("ju");
+    assert_eq!(
+        commit_enrichment(
+            &mut store,
+            &ju,
+            &EnrichmentOutput {
+                assertions: vec![AssertionInput {
+                    assertion_id: "a_accessed".into(),
+                    kind: AssertionKind::Fact,
+                    owner_id: "alice".into(),
+                    statement: "Useful untrusted note".into(),
+                    valid_from: now - Duration::days(45),
+                    valid_to: None,
+                    confidence: 0.8,
+                    embedding: None,
+                }],
+                edges: vec![],
+            },
+        )
+        .await
+        .unwrap(),
+        EnrichCommit::Committed
+    );
+    store
+        .client()
+        .execute("UPDATE public.memory_assertions SET created_at = now() - interval '45 days' WHERE tenant_id = $1 AND assertion_id = 'a_accessed'", &[&tenant])
+        .await
+        .unwrap();
+    assert_eq!(store.record_access(&tenant, &["a_accessed".into()]).await.unwrap(), 1);
+    let arch = archive_cold_and_sweep_orphans(&mut store, &tenant, 30).await.unwrap();
+    assert_eq!(arch.archived_untrusted, 0, "accessed untrusted assertion must not be cold-archived");
+
+    // 3. Supersession window coverage: newer fact starting mid-window does NOT hide older fact
+    //    for a window covering the earlier period, but DOES hide it when covering the full window.
+    let s_hist = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "sh".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["user:alice".into()]],
+        label: TaintLabel { untrusted: false, private: false },
+        text: "VP of Engineering timeline".into(),
+        occurred_at: now - Duration::days(30),
+    };
+    assert!(matches!(ingest_source(&mut store, &s_hist).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let jh = claim_next_job(&mut store).await.unwrap().expect("jh");
+    assert_eq!(
+        commit_enrichment(
+            &mut store,
+            &jh,
+            &EnrichmentOutput {
+                assertions: vec![
+                    AssertionInput {
+                        assertion_id: "a_vp_old".into(),
+                        kind: AssertionKind::Fact,
+                        owner_id: "alice".into(),
+                        statement: "Alice is VP of Engineering".into(),
+                        valid_from: now - Duration::days(30),
+                        valid_to: None,
+                        confidence: 1.0,
+                        embedding: None,
+                    },
+                    AssertionInput {
+                        assertion_id: "a_vp_new".into(),
+                        kind: AssertionKind::Fact,
+                        owner_id: "alice".into(),
+                        statement: "Bob is VP of Engineering".into(),
+                        valid_from: now - Duration::days(10),
+                        valid_to: None,
+                        confidence: 1.0,
+                        embedding: None,
+                    },
+                ],
+                edges: vec![],
+            },
+        )
+        .await
+        .unwrap(),
+        EnrichCommit::Committed
+    );
+    store.record_supersession(&tenant, "a_vp_new", "a_vp_old").await.unwrap();
+
+    // Window [T-20d, T-5d]: newer starts at T-10d (mid-window), so older MUST remain visible.
+    let mut mid_req = RetrieveRequest::new(&tenant, vec!["user:alice".into()], "VP Engineering");
+    mid_req.time_range = Some((now - Duration::days(20), now - Duration::days(5)));
+    let mid_res = retrieve(&mut store, &mid_req).await.unwrap();
+    let mid_ids: Vec<&str> = mid_res.hits.iter().map(|h| h.id.as_str()).collect();
+    assert!(mid_ids.contains(&"a_vp_old"), "mid-window supersession must not hide older fact for earlier part of window: {mid_ids:?}");
+    assert!(mid_ids.contains(&"a_vp_new"));
+
+    // Window [T-8d, T-2d]: newer covers the entire window, so older MUST be hidden.
+    let mut full_req = RetrieveRequest::new(&tenant, vec!["user:alice".into()], "VP Engineering");
+    full_req.time_range = Some((now - Duration::days(8), now - Duration::days(2)));
+    let full_res = retrieve(&mut store, &full_req).await.unwrap();
+    let full_ids: Vec<&str> = full_res.hits.iter().map(|h| h.id.as_str()).collect();
+    assert!(!full_ids.contains(&"a_vp_old"), "full-window supersession must hide older fact: {full_ids:?}");
+    assert!(full_ids.contains(&"a_vp_new"));
+}
