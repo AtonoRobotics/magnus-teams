@@ -121,4 +121,12 @@ for (const f of ["team-chat.js", "team-conversation.js"]) {
 assert.doesNotMatch(ui("teams.css"), /\.tm\b|\.tm-|team-composer|team-mentions/, "the team's own chat styles are still there");
 for (const f of ["chat-view.js", "chat-composer.js", "personal-chat.js", "team-conversation.js"]) assert.match(ui("index.html"), new RegExp(`<script src="${f}"></script>`), `the page does not load ${f}`);
 assert.doesNotMatch(ui("app.js"), /function wireComposer|function msgActions|case "message": return|case "answer": return/, "app.js keeps a second chat view");
+
+// Editing a message hides the hover action bar and renders the spacious edit box.
+const editingHtml = ChatView.item(
+  sandbox.teamEntry(served({ id: "m-edit", sender: "sam", text: "original text", thread: null, at: "", may: { edit: true } }), reader),
+  { conv: team, ui: { editing: "m-edit", sharing: null, people: [] } }
+);
+assert.match(editingHtml, /class="msg me editing"[^]*class="edit-actions row small"[^]*data-msg-act="edit-cancel"[^]*data-msg-act="edit-send"/, "editing box missing structured actions");
+assert.doesNotMatch(editingHtml, /class="msg-actions/, "hover action bar still rendered while editing");
 console.log("chat view ok");
