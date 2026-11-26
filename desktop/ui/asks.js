@@ -129,9 +129,12 @@ function askCard(i, canRespond) {
   const buttons = canRespond
     ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(ASK_LABELS[o])}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
+  const isReceipt = i.tier === "financial" || i.tier === "irreversible";
+  const headHtml = isReceipt
+    ? `<div class="ask-receipt-head">${askTierBadge(i)}<p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p></div>`
+    : `${askTierBadge(i)}<p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>`;
   return `<div class="ask" data-ask="${esc(i.id)}"${i.tier ? ` data-tier="${esc(i.tier)}"` : ""}${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
-    ${askTierBadge(i)}
-    <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
+    ${headHtml}
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}
     ${askPreview(i)}
     <details class="ask-content" data-ask-content><summary>See exactly what it would do</summary>${askContent(d)}</details>

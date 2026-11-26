@@ -1,14 +1,16 @@
-// Nova UX & autonomous feature enhancements:
+// Nova UX & autonomous feature overhaul:
 // 1. Dissolving midnight cobalt halo & prismatic editorial showcase on empty
-//    new conversations (vanishes smoothly once work begins).
-// 2. "While Magnus works" calm tip carousel during active background runs.
-// 3. Featured Spotlight hero banner on the Apps & Connectors catalog.
-// 4. Keyboard-first approval triage (A = Allow, D = open decline note drawer)
-//    whenever an open ask card is visible and focus is not in a text field.
+//    new conversations (.hello-hero) — vanishes smoothly once work begins.
+// 2. Live Companion Studio preview card in Settings -> Appearance with
+//    interactive state demo pills (Ready, Listening, Thinking, Working, Waiting, Done).
+// 3. Verified Task Replay Scrubber on task views with 2+ steps.
+// 4. "While Magnus works" calm tip carousel during active background runs.
+// 5. Featured Spotlight hero banner on the Apps & Connectors catalog.
+// 6. Keyboard-first approval triage (A = Allow, D = open decline note drawer).
 "use strict";
 
 const NovaUx = (() => {
-  const SYNC_DEBOUNCE_MS = 80;
+  const SYNC_DEBOUNCE_MS = 60;
   const WORKING_TIPS = [
     {
       title: "Edit before approving",
@@ -23,10 +25,20 @@ const NovaUx = (() => {
       body: "Scheduled checks run silently in the background and only surface a card when something genuinely needs your attention.",
     },
   ];
+  const DEMO_STATES = [
+    ["ready", "Ready"],
+    ["listening", "Listening"],
+    ["thinking", "Thinking"],
+    ["working", "Working"],
+    ["waiting", "Waiting"],
+    ["done", "Done"],
+  ];
 
   let syncTimer = 0;
   let tipIndex = 0;
   let tipDismissedFor = "";
+  let studioState = "ready";
+  let studioAvatar = null;
 
   const isNova = () => document.documentElement.dataset.style === "nova";
 
@@ -37,34 +49,82 @@ const NovaUx = (() => {
       return;
     }
     const thread = document.getElementById("thread");
-    const hasHello = Boolean(thread?.querySelector(".hello"));
+    const hero = thread?.querySelector(".hello-hero");
     const hasMsgs = Boolean(thread?.querySelector(".msg"));
-    const onIntro = hasHello && !hasMsgs;
+    const onIntro = Boolean(hero) && !hasMsgs;
     document.body.dataset.novaIntro = onIntro ? "on" : "off";
 
-    if (onIntro && thread) {
-      const hello = thread.querySelector(".hello");
-      if (hello && !hello.querySelector(".nova-showcase")) {
-        const wrap = document.createElement("div");
-        wrap.className = "nova-showcase";
-        wrap.innerHTML = `<div class="nova-prism-card" role="region" aria-label="Featured capabilities">
-          <button type="button" class="nova-prism-tile nova-prism-wide" data-nova-prompt="Build an interactive summary dashboard from my recent project files and connected apps.">
-            <span class="nova-prism-badge">Live Workspace</span>
-            <strong>Interactive views built to remix &amp; share</strong>
-            <span class="small muted">Magnus composes live bento tiles, parallel sub-agents, and verified deliverables.</span>
-          </button>
-          <a class="nova-prism-tile nova-prism-accent-a" href="#/explore">
-            <strong>Editorial Playbooks</strong>
-            <span class="small">Browse visual workflows →</span>
-          </a>
-          <a class="nova-prism-tile nova-prism-accent-b" href="#/library">
-            <strong>Apps &amp; Skills</strong>
-            <span class="small">Connect Notion, Linear, Mail →</span>
-          </a>
-        </div>`;
-        hello.append(wrap);
-      }
+    if (onIntro && hero && !hero.querySelector(".nova-showcase")) {
+      const wrap = document.createElement("div");
+      wrap.className = "nova-showcase";
+      wrap.innerHTML = `<div class="nova-prism-card" role="region" aria-label="Featured capabilities">
+        <button type="button" class="nova-prism-tile nova-prism-wide" data-nova-prompt="Build an interactive summary dashboard from my recent project files and connected apps.">
+          <span class="nova-prism-badge">Live Workspace</span>
+          <strong>Interactive views built to remix &amp; share</strong>
+          <span class="small muted">Magnus composes live bento tiles, parallel sub-agents, and verified deliverables.</span>
+        </button>
+        <a class="nova-prism-tile nova-prism-accent-a" href="#/explore">
+          <strong>Editorial Playbooks</strong>
+          <span class="small">Browse visual workflows →</span>
+        </a>
+        <a class="nova-prism-tile nova-prism-accent-b" href="#/library">
+          <strong>Apps &amp; Skills</strong>
+          <span class="small">Connect Notion, Linear, Mail →</span>
+        </a>
+      </div>`;
+      hero.append(wrap);
     }
+  }
+
+  function syncCompanionStudio() {
+    const heading = document.getElementById("avatar-h");
+    if (!heading || !isNova() || typeof AuroraAvatar === "undefined") {
+      if (studioAvatar) { studioAvatar.avatar?.destroy?.(); studioAvatar = null; }
+      return;
+    }
+    const existing = heading.parentElement?.querySelector(".nova-companion-studio");
+    if (existing) return;
+    const card = document.createElement("div");
+    card.className = "nova-companion-studio";
+    card.innerHTML = `<div class="nova-studio-stage" data-nova-studio-slot></div>
+      <div class="nova-studio-meta">
+        <strong>Live Companion Preview</strong>
+        <span class="small muted">Move your pointer and preview each live agent state.</span>
+        <div class="nova-studio-states">${DEMO_STATES.map(([k, l]) => `<button type="button" class="${k === studioState ? "on" : ""}" data-nova-demo-state="${k}">${l}</button>`).join("")}</div>
+      </div>`;
+    heading.insertAdjacentElement("afterend", card);
+    const slot = /** @type {?HTMLElement} */ (card.querySelector("[data-nova-studio-slot]"));
+    if (slot) studioAvatar = AuroraAvatar.mount(slot, 86, "studio", studioState);
+  }
+
+  function syncTaskReplay() {
+    if (!isNova()) {
+      document.querySelectorAll(".nova-replay").forEach(el => el.remove());
+      return;
+    }
+    const steps = [...document.querySelectorAll("#main .step, #detail .step")];
+    if (steps.length < 2) return;
+    const first = steps[0];
+    const parent = first.parentElement;
+    if (!parent || parent.querySelector(".nova-replay")) return;
+    const bar = document.createElement("div");
+    bar.className = "nova-replay";
+    bar.innerHTML = `<div class="nova-replay-head">
+      <strong class="small">Task Replay</strong>
+      <span class="mono small muted" data-nova-replay-lbl>Step ${steps.length} / ${steps.length}</span>
+    </div>
+    <input type="range" class="nova-replay-range" min="1" max="${steps.length}" value="${steps.length}" aria-label="Scrub task steps">`;
+    parent.insertBefore(bar, first);
+    const range = /** @type {HTMLInputElement} */ (bar.querySelector(".nova-replay-range"));
+    const lbl = bar.querySelector("[data-nova-replay-lbl]");
+    range.addEventListener("input", () => {
+      const idx = Number(range.value);
+      if (lbl) lbl.textContent = `Step ${idx} / ${steps.length}`;
+      steps.forEach((el, i) => {
+        el.classList.toggle("nova-step-active", i === idx - 1);
+        el.classList.toggle("nova-step-future", i >= idx);
+      });
+    });
   }
 
   function syncWorkingTips() {
@@ -127,6 +187,8 @@ const NovaUx = (() => {
 
   function sync() {
     syncIntroState();
+    syncCompanionStudio();
+    syncTaskReplay();
     syncWorkingTips();
     syncLibraryFeatured();
   }
@@ -138,6 +200,16 @@ const NovaUx = (() => {
 
   document.addEventListener("click", e => {
     const t = /** @type {HTMLElement} */ (e.target);
+    const demoBtn = t.closest?.("[data-nova-demo-state]");
+    if (demoBtn) {
+      studioState = demoBtn.getAttribute("data-nova-demo-state") || "ready";
+      demoBtn.parentElement?.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === demoBtn));
+      if (studioAvatar) {
+        studioAvatar.fixedState = studioState;
+        studioAvatar.avatar?.set?.(studioState);
+      }
+      return;
+    }
     const promptBtn = t.closest?.("[data-nova-prompt]");
     if (promptBtn) {
       const box = /** @type {?HTMLTextAreaElement} */ (document.getElementById("msg"));

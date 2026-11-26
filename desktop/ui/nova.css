@@ -1,15 +1,18 @@
 /* Nova greenfield theme (decisions/2026-11-26-nova-theme-and-ux-overhaul.md):
-   Pitch-carbon / clean-light canvas with a dissolving midnight cobalt halo on
-   new conversations, whisper-quiet hover menus in the sidebar, airy editorial
-   reading prose, risk-tiered progressive-disclosure approval cards, borderless
-   matte Settings & Apps catalogs, rounded-24px Explore cards, and Project Hub 2.0. */
+   Complete pitch-carbon / clean-light design system matching the Gemini,
+   Antigravity, and AI Studio references: seamless borderless canvas, dissolving
+   midnight cobalt halo, whisper-quiet monochrome rail & charcoal sidebar,
+   centered editorial Home with prismatic showcase, matte Bento stage & 3-tier
+   receipt approvals, Personal Intelligence settings cards, Companion Studio,
+   Task Replay scrubber, rounded-24px Explore cards, Featured Apps hero, and
+   Project Hub 2.0. */
 
 @keyframes novaPrismShift {
   0% { filter: blur(22px) hue-rotate(0deg); }
   100% { filter: blur(22px) hue-rotate(360deg); }
 }
 
-/* ---------- 1. Pitch-carbon canvas & dissolving midnight cobalt halo ---------- */
+/* ---------- 1. Seamless pitch-carbon canvas & dissolving midnight halo ---------- */
 html[data-style="nova"] body::before {
   content: "";
   position: fixed;
@@ -17,7 +20,7 @@ html[data-style="nova"] body::before {
   z-index: 0;
   pointer-events: none;
   opacity: 0;
-  background: radial-gradient(56% 50% at 54% 46%, rgba(30, 58, 138, 0.40) 0%, rgba(23, 37, 84, 0.22) 45%, transparent 76%);
+  background: radial-gradient(56% 50% at 54% 46%, rgba(30, 58, 138, 0.44) 0%, rgba(23, 37, 84, 0.24) 45%, transparent 76%);
   transition: opacity .65s var(--ease);
 }
 
@@ -30,10 +33,38 @@ html[data-style="nova"] body[data-nova-intro="on"]::before {
 }
 
 html[data-style="nova"] .aurora-bg-canvas {
-  opacity: 0.42;
+  opacity: 0.22;
 }
 
-/* ---------- 2. Airy reading typography & matte pill composer ---------- */
+@media (min-width: 761px) {
+  html[data-style="nova"] body:not([data-navigation=drawer]) .shell::before {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  html[data-style="nova"] body[data-navigation=compact] .shell > nav.side {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  html[data-style="nova"] body[data-navigation=expanded] .shell > nav.side {
+    background: var(--side);
+    border: 0;
+    border-right: 1px solid var(--hair);
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+/* ---------- 2. Quiet chrome, airy typography & Gemini pill composer ---------- */
+html[data-style="nova"] .hello-title {
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
 html[data-style="nova"] .msg.magnus {
   font-size: 15px;
   line-height: 1.64;
@@ -43,12 +74,37 @@ html[data-style="nova"] .msg.magnus {
 html[data-style="nova"] .say {
   border-radius: var(--r-composer);
   background: var(--bubble);
-  border-color: var(--line-strong);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
 }
 
 html[data-style="nova"][data-mode="light"] .say {
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+html[data-style="nova"] :is(button.primary, .button.primary) {
+  box-shadow: none;
+}
+
+html[data-style="nova"] :is(button.primary, .button.primary):hover {
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+html[data-style="nova"] .stage-tile {
+  background: var(--surface);
+  border-color: var(--hair);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: var(--r-lg);
+}
+
+html[data-style="nova"] .stage-tile:hover {
+  border-color: var(--line-strong);
+}
+
+html[data-style="nova"] .stage-tile[data-tone="needs"] {
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
 /* ---------- 3. Whisper-quiet sidebar: hover-only delete controls ---------- */
@@ -71,7 +127,7 @@ html[data-style="nova"][data-mode="light"] .say {
 .nova-showcase {
   width: 100%;
   max-width: 680px;
-  margin: 20px auto 0;
+  margin: 22px auto 0;
 }
 
 .nova-prism-card {
@@ -90,7 +146,7 @@ html[data-style="nova"] .nova-prism-card::before {
   border-radius: var(--r-xl);
   background: conic-gradient(from 140deg at 50% 50%, #3b82f6, #a855f7, #f43f5e, #f59e0b, #10b981, #3b82f6);
   filter: blur(22px);
-  opacity: 0.28;
+  opacity: 0.30;
   pointer-events: none;
 }
 
@@ -137,11 +193,11 @@ html[data-style="nova"][data-motion="full"] .nova-prism-card::before {
 }
 
 .nova-prism-accent-a {
-  background: color-mix(in srgb, #6366f1 14%, var(--surface));
+  background: color-mix(in srgb, #6366f1 16%, var(--surface));
 }
 
 .nova-prism-accent-b {
-  background: color-mix(in srgb, #10b981 13%, var(--surface));
+  background: color-mix(in srgb, #10b981 14%, var(--surface));
 }
 
 @media (max-width: 640px) {
@@ -150,11 +206,11 @@ html[data-style="nova"][data-motion="full"] .nova-prism-card::before {
   }
 }
 
-/* ---------- 5. Working-State Tip Carousel (nova-ux.js) ---------- */
+/* ---------- 5. Working-State Tip Carousel & Task Replay Scrubber ---------- */
 .nova-wait-tips {
   padding: 14px 16px;
   border-radius: var(--r-lg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--hair);
   background: var(--surface);
   display: flex;
   flex-direction: column;
@@ -197,7 +253,41 @@ html[data-style="nova"][data-motion="full"] .nova-prism-card::before {
   line-height: 1.45;
 }
 
-/* ---------- 6. Risk-Tiered Progressive-Disclosure Approvals ---------- */
+.nova-replay {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nova-replay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nova-replay-range {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.step.nova-step-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+}
+
+.step.nova-step-future {
+  opacity: 0.36;
+}
+
+/* ---------- 6. 3-Tier Approvals: Receipt Card, Batch Bar & Progressive Decline ---------- */
 .ask-decline-wrap {
   margin: 2px 0;
 }
@@ -222,20 +312,38 @@ html[data-style="nova"][data-motion="full"] .nova-prism-card::before {
   width: 100%;
 }
 
-html[data-style="nova"] .ask[data-tier="financial"],
-html[data-style="nova"] .ask[data-tier="irreversible"] {
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  border: 1px solid color-mix(in srgb, var(--bad) 32%, transparent);
-  border-left: 3px solid var(--bad);
-  background: linear-gradient(145deg, color-mix(in srgb, var(--bad) 10%, var(--surface)) 0%, var(--surface) 48%);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--bad) 10%, transparent);
+.ask-receipt-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--line-strong);
 }
 
-html[data-style="nova"] .ask[data-tier="financial"] .ask-preview,
-html[data-style="nova"] .ask[data-tier="irreversible"] .ask-preview {
-  padding-top: 10px;
-  border-top: 1px dashed var(--line-strong);
+html[data-style="nova"] .ask[data-tier="financial"],
+html[data-style="nova"] .ask[data-tier="irreversible"] {
+  padding: 16px 18px;
+  border-radius: var(--r-lg);
+  border: 1px solid color-mix(in srgb, var(--bad) 32%, transparent);
+  border-left: 3px solid var(--bad);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--bad) 11%, var(--surface)) 0%, var(--surface) 44%);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--bad) 10%, transparent);
+}
+
+html[data-style="nova"] .ask[data-tier="financial"] .ask-preview-rows,
+html[data-style="nova"] .ask[data-tier="irreversible"] .ask-preview-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+html[data-style="nova"] .ask[data-tier="financial"] .ask-preview-row,
+html[data-style="nova"] .ask[data-tier="irreversible"] .ask-preview-row {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--main);
+  flex-direction: column;
+  gap: 2px;
 }
 
 html[data-style="nova"] .ask[data-tier="reversible_write"] {
@@ -243,7 +351,25 @@ html[data-style="nova"] .ask[data-tier="reversible_write"] {
   border-left: 3px solid var(--warn);
 }
 
-/* ---------- 7. Borderless Matte Settings & Featured Apps Catalog ---------- */
+.stage-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+}
+
+/* ---------- 7. Personal Intelligence Settings, Companion Studio & Apps Catalog ---------- */
+html[data-style="nova"] .card {
+  border-color: transparent;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 18px 20px;
+}
+
 html[data-style="nova"] .appearance .seg {
   background: var(--surface);
   border-color: var(--hair);
@@ -254,13 +380,59 @@ html[data-style="nova"] .appearance .seg button {
   border-radius: var(--r-pill);
 }
 
+.nova-companion-studio {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px 20px;
+  margin: 10px 0 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.nova-studio-stage {
+  display: grid;
+  place-items: center;
+  height: 112px;
+  border-radius: var(--r-md);
+  background: var(--main);
+}
+
+.nova-studio-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nova-studio-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.nova-studio-states button {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  border: 1px solid var(--hair);
+  background: var(--main);
+  color: var(--muted);
+}
+
+.nova-studio-states button.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+
 .nova-featured {
   display: grid;
   grid-template-columns: minmax(180px, 42%) minmax(0, 58%);
   border-radius: var(--r-xl);
   overflow: hidden;
   background: var(--surface);
-  border: 1px solid var(--line);
   margin: 14px 0 24px;
 }
 
@@ -270,7 +442,7 @@ html[data-style="nova"] .appearance .seg button {
   place-content: center;
   gap: 12px;
   padding: 24px;
-  background: radial-gradient(circle at 38% 45%, rgba(37, 99, 235, 0.42), rgba(15, 23, 42, 0.92) 78%);
+  background: radial-gradient(circle at 38% 45%, rgba(37, 99, 235, 0.44), rgba(15, 23, 42, 0.94) 78%);
 }
 
 .nova-app-tile {
@@ -279,7 +451,7 @@ html[data-style="nova"] .appearance .seg button {
   width: 52px;
   height: 52px;
   border-radius: 14px;
-  background: rgba(15, 17, 23, 0.88);
+  background: rgba(15, 17, 23, 0.90);
   border: 1px solid rgba(255, 255, 255, 0.14);
   color: #f8fafc;
   font-weight: 700;
@@ -288,7 +460,7 @@ html[data-style="nova"] .appearance .seg button {
 
 .nova-app-tile:first-child {
   border-color: #3b82f6;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.42);
 }
 
 .nova-featured-copy {
@@ -307,7 +479,7 @@ html[data-style="nova"] .appearance .seg button {
 html[data-style="nova"] .lcard {
   border-color: transparent;
   background: transparent;
-  min-height: 92px;
+  min-height: 88px;
   border-radius: var(--r-md);
 }
 
@@ -315,8 +487,14 @@ html[data-style="nova"] .lcard:hover {
   background: var(--surface);
 }
 
+html[data-style="nova"] .explore-grid > .explore-card {
+  border-radius: var(--r-xl);
+  border-color: var(--hair);
+}
+
 @media (max-width: 720px) {
-  .nova-featured {
+  .nova-featured,
+  .nova-companion-studio {
     grid-template-columns: 1fr;
   }
 }
@@ -367,7 +545,7 @@ html[data-style="nova"] .project-page {
 html[data-style="nova"] .project-page-head {
   padding: 20px 22px;
   border-radius: var(--r-xl);
-  background: linear-gradient(125deg, color-mix(in srgb, var(--accent) 16%, var(--surface)) 0%, var(--surface) 75%);
+  background: linear-gradient(125deg, color-mix(in srgb, var(--accent) 18%, var(--surface)) 0%, var(--surface) 75%);
   border: 1px solid var(--hair);
 }
 
@@ -398,6 +576,8 @@ html[data-style="nova"] .project-page-head {
   .nova-prism-tile,
   .nova-wait-tips,
   .nova-featured,
+  .nova-companion-studio,
+  .nova-replay,
   .project-hero-composer {
     border: 1px solid CanvasText;
     background: Canvas;

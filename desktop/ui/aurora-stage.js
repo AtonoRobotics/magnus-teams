@@ -254,12 +254,13 @@ const AuroraStage = (() => {
         updatedAt: tsOf(i.created_at),
       };
     };
+    const batchIds = pending.filter(x => x.kind === "approval" && x.can_respond && x.tier !== "financial").map(x => x.id);
     let shownApprovals = 0;
     for (const i of pending) {
       if (shownApprovals >= MAX_APPROVAL_BOXES) break;
       const box = ask(i, shownApprovals);
       if (AuroraBoxes.isClosed(box)) continue;
-      list.push({ ...box, answers: answersOf(i) });
+      list.push({ ...box, answers: answersOf(i), batchIds: shownApprovals === 0 && batchIds.length >= 2 ? batchIds : [] });
       shownApprovals++;
     }
     for (const [k, n] of notes) if (Date.now() - n.at > NOTE_FRESH_MS) notes.delete(k);
@@ -357,9 +358,12 @@ const AuroraStage = (() => {
         : (inline && c.open)
           ? `<div class="stage-tile-acts"><a class="stage-tile-link" href="${html(c.href)}" data-open="${html(c.open)}">Full details →</a></div>`
           : "";
+    const batchHtml = Array.isArray(c.batchIds) && c.batchIds.length >= 2
+      ? `<div class="stage-batch-bar"><span class="small muted">${c.batchIds.length} similar approvals waiting</span><button type="button" class="primary small" data-stage-batch-approve="${html(c.batchIds.join(","))}">Allow all ${c.batchIds.length}</button></div>`
+      : "";
     const foot = c.said
       ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
-      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${planStepsHtml}${subsHtml}${actsHtml}`;
+      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${planStepsHtml}${subsHtml}${batchHtml}${actsHtml}`;
     return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${verifiedPill}${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
       ${title}
       ${foot}`;
@@ -529,6 +533,25 @@ const AuroraStage = (() => {
       refresh();
     } catch (err) {
       /** @type {HTMLButtonElement} */ (stopBtn).disabled = false;
+      if (typeof toast === "function") toast(err.message);
+    }
+  });
+
+  // 1-click batch approval on the Side Bento when multiple non-financial asks wait.
+  document.addEventListener("click", async e => {
+    const btn = /** @type {?HTMLButtonElement} */ (/** @type {HTMLElement} */ (e.target).closest?.("[data-stage-batch-approve]"));
+    if (!btn || typeof Server === "undefined" || !Server.inbox?.batch) return;
+    e.preventDefault();
+    const ids = (btn.dataset.stageBatchApprove || "").split(",").filter(Boolean);
+    if (!ids.length) return;
+    btn.disabled = true;
+    try {
+      await Server.inbox.batch(ids, { decision: "approve", scope: "once" });
+      if (typeof toast === "function") toast(`Allowed ${ids.length} approvals.`);
+      if (typeof globalThis.refresh === "function") await globalThis.refresh();
+      refresh();
+    } catch (err) {
+      btn.disabled = false;
       if (typeof toast === "function") toast(err.message);
     }
   });
