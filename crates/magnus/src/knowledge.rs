@@ -76,7 +76,7 @@ pub fn migrate_sql(role: &str) -> String {
     let reader = format!("{role}_reader");
     format!(
         "CREATE EXTENSION IF NOT EXISTS vector;
-         DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+         DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
          DO $$ BEGIN IF NOT pg_has_role('{role}', '{reader}', 'MEMBER') THEN GRANT {reader} TO {role}; END IF; END $$;
          CREATE TABLE IF NOT EXISTS public.knowledge (
              id        text PRIMARY KEY,

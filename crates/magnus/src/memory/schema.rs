@@ -157,7 +157,7 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
     let pol_jobs_k = ensure_policy_sql("memory_enrichment_jobs", "memory_enrichment_jobs_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
 
     format!(
-        "DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        "DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
          DO $$ BEGIN IF NOT pg_has_role('{role}', '{reader}', 'MEMBER') THEN GRANT {reader} TO {role}; END IF; END $$;
 
          -- 1. memory_sources: FTS-only citation & raw source store (hard-deleted on erasure).

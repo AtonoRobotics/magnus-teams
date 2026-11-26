@@ -211,7 +211,7 @@ pub fn content_walls_sql(role: &str) -> String {
     format!(
         "ALTER TABLE public.content ADD COLUMN IF NOT EXISTS person text;
          CREATE INDEX IF NOT EXISTS content_person ON public.content (person);
-         DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+         DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
          DO $$ BEGIN IF NOT pg_has_role('{role}', '{reader}', 'MEMBER') THEN GRANT {reader} TO {role}; END IF; END $$;
          REVOKE ALL ON public.content FROM {reader};
          REVOKE ALL ON public.events FROM {reader};
