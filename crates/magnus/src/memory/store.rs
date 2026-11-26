@@ -223,16 +223,6 @@ impl MemoryStore {
         Ok(total)
     }
 
-    /// True if at least one `memory_sources` row exists for `(tenant_id, owner_id)`.
-    pub async fn has_any_sources_for_owner(&self, tenant_id: &str, owner_id: &str) -> Result<bool> {
-        let row = self
-            .client
-            .query_opt("SELECT 1 FROM public.memory_sources WHERE tenant_id = $1 AND owner_id = $2 LIMIT 1", &[&tenant_id, &owner_id])
-            .await
-            .context("check existing sources for owner")?;
-        Ok(row.is_some())
-    }
-
     /// Explicitly increment `access_count` and `last_accessed_at` for assertions
     /// returned to a caller (used by cold-archival and lesson-cap ranking).
     pub async fn record_access(&mut self, tenant_id: &str, assertion_ids: &[String]) -> Result<u64> {

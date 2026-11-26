@@ -10,6 +10,7 @@ pub mod ingest;
 pub mod retrieve;
 pub mod schema;
 pub mod store;
+pub mod sync;
 
 #[cfg(test)]
 mod bench_tests;
@@ -19,6 +20,8 @@ mod curator_tests;
 mod erasure_tests;
 #[cfg(test)]
 mod live_pg_test;
+#[cfg(test)]
+mod sync_tests;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

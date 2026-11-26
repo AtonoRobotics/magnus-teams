@@ -190,12 +190,10 @@ impl Kernel {
             .collect();
         let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
         let mode = self.cfg.memory.mode_for(&person);
-        if mode == crate::memory_index::MemoryMode::V2 && !query.trim().is_empty() {
-            if let Ok(existing) = self.remembered(&person, |_| true).await {
-                if let Err(e) = crate::memory::bridge::ensure_backfilled(&self.cfg.database.url, &self.cfg.memory, &person, &existing).await {
-                    tracing::warn!("memory v2 backfill failed for {person}: {e:#}");
-                }
-            }
+        // The unified store serves a person only once it holds exactly their
+        // current memory (`memory::sync`); until then legacy recall answers.
+        let in_step = !query.trim().is_empty() && self.memory_sync.is_synced(&person);
+        if mode == crate::memory_index::MemoryMode::V2 && in_step {
             let v2 =
                 crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true, crate::memory::bridge::AccessTracking::Record).await;
             if let Some(hits) = crate::memory::bridge::v2_hits_or_fallback(&person, v2) {
@@ -236,17 +234,7 @@ impl Kernel {
         let legacy: Vec<crate::recall::Remembered> = scored.into_iter().take(crate::memory::bridge::MAX_MEMORY_HITS_RETURNED).map(|(_, m)| m).collect();
         // Shadow is benchmarked off the request: detached, time-limited and
         // read-only, so the person's answer never waits on it.
-        if mode == crate::memory_index::MemoryMode::Shadow && !query.trim().is_empty() {
-            if let Ok(existing) = self.remembered(&person, |_| true).await {
-                let url = self.cfg.database.url.clone();
-                let mem_cfg = self.cfg.memory.clone();
-                let who = person.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = crate::memory::bridge::ensure_backfilled(&url, &mem_cfg, &who, &existing).await {
-                        tracing::warn!("memory shadow backfill failed for {who}: {e:#}");
-                    }
-                });
-            }
+        if mode == crate::memory_index::MemoryMode::Shadow && in_step {
             drop(crate::memory::bridge::spawn_shadow_comparison(
                 self.cfg.database.url.clone(),
                 self.cfg.memory.clone(),
