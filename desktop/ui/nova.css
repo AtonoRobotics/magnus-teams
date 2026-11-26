@@ -37,15 +37,25 @@ html[data-style="nova"] .aurora-bg-canvas {
 }
 
 @media (min-width: 761px) {
+  html[data-style="nova"] body:not([data-navigation=drawer]) .shell {
+    padding: 0;
+  }
+
   html[data-style="nova"] body:not([data-navigation=drawer]) .shell::before {
     background: transparent;
     border-color: transparent;
     box-shadow: none;
   }
 
+  html[data-style="nova"] body:not([data-navigation=drawer]) .shell > main {
+    margin-left: 0;
+    border-radius: 0;
+  }
+
   html[data-style="nova"] body[data-navigation=compact] .shell > nav.side {
     background: transparent;
     border-color: transparent;
+    border-radius: 0;
     box-shadow: none;
   }
 
@@ -56,6 +66,24 @@ html[data-style="nova"] .aurora-bg-canvas {
     border-radius: 0;
     box-shadow: none;
   }
+
+  html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
+    margin: 0;
+    border-radius: 0;
+    border: 0;
+    border-left: 1px solid var(--hair);
+    background: var(--side);
+    box-shadow: none;
+  }
+}
+
+html[data-style="nova"] .composer-slot {
+  background: transparent;
+}
+
+html[data-style="nova"] nav.side .new-chat.primary-nav {
+  background: var(--surface);
+  border-color: var(--line);
 }
 
 /* ---------- 2. Quiet chrome, airy typography & Gemini pill composer ---------- */
@@ -523,7 +551,7 @@ html[data-style="nova"] section.conv:has(.hello-hero) > .thread {
   padding-bottom: 12px;
 }
 
-html[data-style="nova"] section.conv:has(.hello-hero) > form.composer {
+html[data-style="nova"] section.conv:has(.hello-hero) > .composer-slot {
   margin-top: 8px;
 }
 
