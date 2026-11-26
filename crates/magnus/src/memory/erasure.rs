@@ -43,13 +43,18 @@ pub async fn erase_owner_across_tenants(store: &mut MemoryStore, owner_id: &str)
     erase_owner_scoped(store, None, owner_id).await
 }
 
-/// Mode-gated entry point for `person_admin::erase_person`: no-op when
-/// `MemoryMode::Legacy` everywhere.
-pub async fn erase_person_if_enabled(kernel_url: &str, cfg: &MemoryConfig, person: &str) -> Result<ErasureStats> {
-    if !cfg.is_unified_enabled() {
+/// Entry point for `person_admin::erase_person`. Gated on whether the unified
+/// memory tables exist, not on the configured `MemoryMode`: after a Shadow or
+/// V2 period rolled back to Legacy the tables still hold the person's rows,
+/// and erasure must remove them. A database that was never migrated for
+/// unified memory has nothing to erase.
+pub async fn erase_person_if_present(kernel_url: &str, cfg: &MemoryConfig, person: &str) -> Result<ErasureStats> {
+    let mut store = MemoryStore::connect(kernel_url, cfg).await?;
+    let present: bool =
+        store.client().query_one("SELECT to_regclass('public.memory_sources') IS NOT NULL", &[]).await.context("check whether the unified memory tables exist")?.get(0);
+    if !present {
         return Ok(ErasureStats::default());
     }
-    let mut store = MemoryStore::connect(kernel_url, cfg).await?;
     erase_owner_across_tenants(&mut store, person).await
 }
 

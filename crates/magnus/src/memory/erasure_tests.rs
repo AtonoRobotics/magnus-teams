@@ -1,9 +1,9 @@
 //! Phase 4 live Postgres tests for atomic person erasure and concurrent fencing.
 
 use crate::memory::enrich::{claim_next_job, commit_enrichment, EnrichCommit, EnrichmentOutput};
-use crate::memory::erasure::{erase_owner, erase_owner_across_tenants, erase_person_if_enabled};
+use crate::memory::erasure::{erase_owner, erase_owner_across_tenants, erase_person_if_present, ErasureStats};
 use crate::memory::ingest::{ingest_source, IngestOutcome};
-use crate::memory::live_pg_test::LiveDb;
+use crate::memory::live_pg_test::{LiveDb, TEST_EMBEDDING_DIM};
 use crate::memory::{AssertionInput, AssertionKind, EdgeInput, EntityInput, SourceInput, TaintLabel};
 use crate::memory_index::{MemoryConfig, MemoryMode};
 use chrono::Utc;
@@ -16,11 +16,6 @@ async fn erase_owner_removes_all_person_data_cascades_supersessions_and_leaves_o
     let mut store = db.store().await;
     let tenant = format!("te_{}", Uuid::new_v4());
     let now = Utc::now();
-
-    // Legacy mode helper is a no-op.
-    let legacy = MemoryConfig { mode: MemoryMode::Legacy, ..Default::default() };
-    let noop = erase_person_if_enabled(&db.kernel_url, &legacy, "alice").await.unwrap();
-    assert_eq!(noop.sources_deleted, 0);
 
     // Seed Bob's shared fact + Alice's private override + Alice's profile + Alice-only edge/entities.
     let s_bob = SourceInput {
@@ -159,4 +154,40 @@ async fn erase_owner_removes_all_person_data_cascades_supersessions_and_leaves_o
     assert_eq!(bob_stats.assertions_deleted, 1);
     assert_eq!(bob_stats.edges_deleted, 1);
     assert_eq!(bob_stats.entities_deleted, 2);
+}
+
+/// Rolled back to Legacy after a Shadow/V2 period: the tables still hold the
+/// person's rows, and erasing them must not depend on the configured mode.
+#[tokio::test]
+async fn erase_person_removes_unified_rows_after_rollback_to_legacy() {
+    let db = LiveDb::create().await;
+    let mut store = db.store().await;
+    let src = SourceInput {
+        tenant_id: "default".into(),
+        source_id: "alice_note".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["user:alice".into()]],
+        label: TaintLabel { untrusted: false, private: true },
+        text: "Alice's private note from the canary period.".into(),
+        occurred_at: Utc::now(),
+    };
+    assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
+
+    let legacy = MemoryConfig { mode: MemoryMode::Legacy, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
+    assert!(!legacy.is_unified_enabled());
+    let stats = erase_person_if_present(&db.kernel_url, &legacy, "alice").await.unwrap();
+    assert_eq!(stats.sources_deleted, 1);
+    let left: i64 = store.client().query_one("SELECT count(*) FROM public.memory_sources WHERE owner_id = 'alice'", &[]).await.unwrap().get(0);
+    assert_eq!(left, 0, "Legacy config must not leave the person's unified memory behind");
+}
+
+/// A database never migrated for unified memory has nothing to erase.
+#[tokio::test]
+async fn erase_person_is_a_no_op_without_unified_tables() {
+    let db = LiveDb::create().await;
+    let admin = crate::log::connect(&db.admin_url).await.unwrap();
+    admin.batch_execute("DROP TABLE public.memory_sources CASCADE").await.unwrap();
+    let legacy = MemoryConfig { mode: MemoryMode::Legacy, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
+    assert_eq!(erase_person_if_present(&db.kernel_url, &legacy, "alice").await.unwrap(), ErasureStats::default());
 }
