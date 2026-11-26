@@ -32,30 +32,54 @@ html[data-style="nova"] body[data-nova-intro="on"]::before {
   opacity: 1;
 }
 
+html[data-style="nova"] body {
+  background: var(--bg);
+}
+
+html[data-style="nova"] .aurora-bg-canvas,
+html[data-style="nova"] .aurora-field-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+}
+
 html[data-style="nova"] .aurora-bg-canvas {
   opacity: 0.22;
 }
 
+html[data-style="nova"] .shell {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+html[data-style="nova"] .shell > main {
+  background: transparent;
+}
+
+html[data-style="nova"] .conv-head {
+  background: transparent;
+  border-bottom-color: transparent;
+  padding: 10px 20px;
+}
+
+html[data-style="nova"] nav.side .brand .logo {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+
+html[data-style="nova"] nav.side .brand .logo > svg {
+  opacity: 0;
+}
+
 @media (min-width: 761px) {
-  html[data-style="nova"] body:not([data-navigation=drawer]) .shell {
-    padding: 0;
-  }
-
-  html[data-style="nova"] body:not([data-navigation=drawer]) .shell::before {
-    background: transparent;
-    border-color: transparent;
-    box-shadow: none;
-  }
-
-  html[data-style="nova"] body:not([data-navigation=drawer]) .shell > main {
-    margin-left: 0;
-    border-radius: 0;
-  }
-
   html[data-style="nova"] body[data-navigation=compact] .shell > nav.side {
     background: transparent;
     border-color: transparent;
-    border-radius: 0;
     box-shadow: none;
   }
 
@@ -68,12 +92,8 @@ html[data-style="nova"] .aurora-bg-canvas {
   }
 
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
-    margin: 0;
-    border-radius: 0;
-    border: 0;
     border-left: 1px solid var(--hair);
     background: var(--side);
-    box-shadow: none;
   }
 }
 

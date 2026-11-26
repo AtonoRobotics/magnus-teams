@@ -652,13 +652,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: #f5f7fb;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card:first-child {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
   grid-column: 1 / -1;
   aspect-ratio: 21 / 9;
   max-height: 300px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card:first-child > :not(.card-media, .explore-card-foot) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child > :not(.card-media, .explore-card-foot) {
   max-width: 620px;
 }
 

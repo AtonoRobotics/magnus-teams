@@ -9,20 +9,20 @@
 }
 
 /* ---------- 1. A request's tasks: a status line over light rows ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard > .rg-head {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head {
   margin: 0 0 2px;
   padding: 2px 8px;
   font-size: 12.5px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard > .rg-head > :first-child {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head > :first-child {
   display: inline-flex;
   align-items: center;
   gap: 9px;
   color: var(--fg2);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard > .rg-head > :first-child::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head > :first-child::before {
   content: "";
   width: 8px;
   height: 8px;
@@ -32,37 +32,37 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   box-shadow: 0 0 12px var(--aurora-beam-b);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard:has(.st.working) > .rg-head > :first-child::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard:has(.st.working) > .rg-head > :first-child::before {
   background: var(--aurora-beam-a);
   box-shadow: 0 0 12px var(--aurora-beam-a);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard:has(.st.done):not(:has(.st.working, .st.need, .st.stopped)) > .rg-head > :first-child::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard:has(.st.done):not(:has(.st.working, .st.need, .st.stopped)) > .rg-head > :first-child::before {
   background: var(--ok);
   box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 55%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard:has(.st.need) > .rg-head > :first-child::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard:has(.st.need) > .rg-head > :first-child::before {
   background: var(--warn);
   box-shadow: 0 0 12px var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .chatcard:has(.st.working, .st.need) > .rg-head > :first-child::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .chatcard:has(.st.working, .st.need) > .rg-head > :first-child::before {
   animation: auroraSpark 2.4s ease-in-out infinite;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .rg-rows {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .rg-rows {
   display: grid;
   gap: 2px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .rg-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .rg-row {
   min-height: 32px;
   padding: 4px 8px;
 }
 
 /* A task's standing as a status dot: its icon in a tinted ring. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .st {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st {
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -70,47 +70,47 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: background .3s var(--ease), box-shadow .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .st.working {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.working {
   background: color-mix(in srgb, var(--aurora-beam-a) 16%, transparent);
   box-shadow: 0 0 12px color-mix(in srgb, var(--aurora-beam-a) 40%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .st.working svg { color: var(--aurora-beam-a); }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.working svg { color: var(--aurora-beam-a); }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .st.done {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.done {
   background: color-mix(in srgb, var(--ok) 16%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .st.need {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.need {
   background: color-mix(in srgb, var(--warn) 18%, transparent);
   box-shadow: 0 0 12px color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chatcard .st.stopped {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.stopped {
   background: color-mix(in srgb, var(--bad) 14%, transparent);
 }
 
 /* ---------- 2. An approval as the mockup's artifact panel ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .card.item.approval {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 20px 22px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .card.item.approval > .spread {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval > .spread {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--aurora-rim);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .card.item.approval .ask-sentence {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval .ask-sentence {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .card.item.approval :is(.consequence, .ask-content) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval :is(.consequence, .ask-content) {
   margin: 0;
   padding: 12px 14px;
   border-radius: var(--r-sm);
@@ -118,13 +118,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   background: color-mix(in srgb, var(--fg) 4%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .card.item.approval .ask {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval .ask {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .ask-answers {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .ask-answers {
   justify-content: flex-end;
   gap: 8px;
   padding-top: 14px;
@@ -132,38 +132,38 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 }
 
 /* ---------- 3. Buttons and chips as pills ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(button.primary, .button.primary) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primary, .button.primary) {
   border-radius: var(--r-pill);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--aurora-beam-a) 22%, transparent);
   transition: box-shadow .2s var(--ease), transform .2s var(--ease), filter .2s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .appr-hist-row .ask-answers button[data-offer="allow"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .appr-hist-row .ask-answers button[data-offer="allow"] {
   background: var(--accent);
   color: var(--accent-fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(button.primary, .button.primary):hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primary, .button.primary):hover {
   box-shadow: 0 14px 36px color-mix(in srgb, var(--aurora-beam-a) 34%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] :is(button.primary, .button.primary):hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] :is(button.primary, .button.primary):hover {
   transform: translateY(-1px);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(.ask-answers, .cc-act, .needs-inline-acts, .card-acts) button:not(.primary):not(.link) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.ask-answers, .cc-act, .needs-inline-acts, .card-acts) button:not(.primary):not(.link) {
   border-radius: var(--r-pill);
   border: 1px solid var(--line-strong);
   background: var(--aurora-glass);
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(.ask-answers, .cc-act, .needs-inline-acts, .card-acts) button:not(.primary):not(.link):hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.ask-answers, .cc-act, .needs-inline-acts, .card-acts) button:not(.primary):not(.link):hover {
   background: var(--aurora-glass-strong);
   border-color: var(--fg2);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .chip {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chip {
   border-radius: var(--r-pill);
   border: 1px solid var(--aurora-rim);
 }
@@ -175,7 +175,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   from { opacity: 0; transform: translateY(3px); }
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason {
   margin: 2px 0 10px;
   border-radius: var(--r-md);
   border: 1px solid var(--aurora-rim);
@@ -184,11 +184,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: border-color .25s var(--ease), background .25s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .msg:has(> .aurora-reason):has(> [data-live]) > .small.faint {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .msg:has(> .aurora-reason):has(> [data-live]) > .small.faint {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-toggle {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-toggle {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -204,11 +204,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   text-align: left;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-toggle:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-toggle:hover {
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-summary {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-summary {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -216,7 +216,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   white-space: nowrap;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-spark {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-spark {
   width: 8px;
   height: 8px;
   flex: none;
@@ -226,31 +226,31 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: background .3s var(--ease), box-shadow .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason:is([data-phase="working"], [data-phase="writing"]) .aurora-reason-spark {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason:is([data-phase="working"], [data-phase="writing"]) .aurora-reason-spark {
   background: var(--aurora-beam-a);
   box-shadow: 0 0 12px var(--aurora-beam-a);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason[data-phase="needs"] .aurora-reason-spark {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-phase="needs"] .aurora-reason-spark {
   background: var(--warn);
   box-shadow: 0 0 12px var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason[data-phase="done"] .aurora-reason-spark {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-phase="done"] .aurora-reason-spark {
   background: var(--ok);
   box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 55%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason[data-phase="stopped"] .aurora-reason-spark {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-phase="stopped"] .aurora-reason-spark {
   background: var(--muted);
   box-shadow: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .aurora-reason:is([data-phase="thinking"], [data-phase="working"], [data-phase="writing"], [data-phase="needs"]) .aurora-reason-spark {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-reason:is([data-phase="thinking"], [data-phase="working"], [data-phase="writing"], [data-phase="needs"]) .aurora-reason-spark {
   animation: auroraSpark 2.4s ease-in-out infinite;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-chev {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-chev {
   width: 15px;
   height: 15px;
   flex: none;
@@ -263,25 +263,25 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: transform .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason:not([data-steps]) .aurora-reason-chev {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason:not([data-steps]) .aurora-reason-chev {
   visibility: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason[data-open] .aurora-reason-chev {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-open] .aurora-reason-chev {
   transform: rotate(180deg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-body {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-body {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows .38s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason[data-open] .aurora-reason-body {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-open] .aurora-reason-body {
   grid-template-rows: 1fr;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-steps {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps {
   min-height: 0;
   margin: 0;
   padding: 0 14px;
@@ -290,11 +290,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: padding .38s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason[data-open] .aurora-reason-steps {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-open] .aurora-reason-steps {
   padding: 2px 14px 10px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-steps > li {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -306,19 +306,19 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: color .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-steps > li[data-state="active"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li[data-state="active"] {
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-steps > li[data-state="done"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li[data-state="done"] {
   color: var(--fg2);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .aurora-reason-steps > li.aurora-reason-in {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-reason-steps > li.aurora-reason-in {
   animation: auroraReasonIn .34s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-check {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-check {
   flex: none;
   color: var(--ok);
   font-weight: 600;
@@ -327,13 +327,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: opacity .25s var(--ease), transform .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-reason-steps > li[data-state="done"] .aurora-reason-check {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li[data-state="done"] .aurora-reason-check {
   opacity: 1;
   transform: none;
 }
 
 /* ---------- 5. The composer: the state Magnus is in, and a glow on focus ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-say-state {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -347,27 +347,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: color .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]):is([data-aurora-avatar-state="thinking"], [data-aurora-avatar-state="planning"], [data-aurora-state="thinking"]) .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="thinking"], [data-aurora-avatar-state="planning"], [data-aurora-state="thinking"]) .aurora-say-state {
   color: color-mix(in srgb, var(--aurora-beam-b) 55%, var(--fg));
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]):is([data-aurora-avatar-state="working"], [data-aurora-state="executing"]) .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="working"], [data-aurora-state="executing"]) .aurora-say-state {
   color: var(--aurora-exec-text);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]):is([data-aurora-avatar-state="listening"], [data-aurora-avatar-state="done"], [data-aurora-state="listening"]) .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="listening"], [data-aurora-avatar-state="done"], [data-aurora-state="listening"]) .aurora-say-state {
   color: var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]):is([data-aurora-avatar-state="waiting"], [data-aurora-avatar-state="control"], [data-aurora-state="needs"], [data-aurora-state="takeover"]) .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="waiting"], [data-aurora-avatar-state="control"], [data-aurora-state="needs"], [data-aurora-state="takeover"]) .aurora-say-state {
   color: var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-aurora-avatar-state="failed"] .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-avatar-state="failed"] .aurora-say-state {
   color: var(--bad);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .composer-slot::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot::before {
   content: "";
   position: absolute;
   inset: -6px -32px -8px;
@@ -380,13 +380,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: opacity .45s var(--ease), transform .45s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .composer-slot:focus-within::before {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot:focus-within::before {
   opacity: 1;
   transform: scale(1.06);
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .composer-slot::before {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot::before {
     display: none;
   }
 }
@@ -409,11 +409,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 }
 
 /* The card is shown beside the conversation or in its box; the line stays. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv .card.item[data-id] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv .card.item[data-id] {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-line {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-line {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -428,11 +428,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: border-color .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-line[data-state="answered"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-line[data-state="answered"] {
   border-color: color-mix(in srgb, var(--ok) 40%, var(--aurora-rim));
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-dot {
   width: 7px;
   height: 7px;
   flex: none;
@@ -441,22 +441,22 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   box-shadow: 0 0 10px var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-line[data-state="answered"] .aurora-decision-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-line[data-state="answered"] .aurora-decision-dot {
   background: var(--ok);
   box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-said {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-said {
   flex: none;
   font-weight: 600;
   color: var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-line[data-state="answered"] .aurora-decision-said {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-line[data-state="answered"] .aurora-decision-said {
   color: var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-what {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-what {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -464,7 +464,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   white-space: nowrap;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-meta {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-meta {
   flex: 0 1 40%;
   min-width: 0;
   overflow: hidden;
@@ -474,35 +474,35 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--muted);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-meta:empty {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-meta:empty {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-decision-open {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-decision-open {
   flex: none;
   font-weight: 600;
   color: var(--fg);
 }
 
 /* What a toast would say, in the composer's line for its time. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-say-told {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-say-told {
   display: none;
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-say-state[data-told] .aurora-say-told {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-say-state[data-told] .aurora-say-told {
   display: inline;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-say-state[data-told] .aurora-say-text {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-say-state[data-told] .aurora-say-text {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .aurora-say-state[data-told] .aurora-say-told {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-say-state[data-told] .aurora-say-told {
   animation: auroraToldIn .3s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .toast {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .toast {
   border-radius: var(--r-pill);
   border: 1px solid var(--aurora-rim);
   background: var(--aurora-glass-strong);
@@ -512,26 +512,26 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   box-shadow: var(--shadow);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .toast {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .toast {
   animation: auroraToastIn .36s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-leaving {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-leaving {
   overflow: hidden;
   pointer-events: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .card.item.aurora-alert-in {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .card.item.aurora-alert-in {
   animation: auroraAlertIn .6s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .card.item.aurora-confirmed {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.aurora-confirmed {
   border-color: color-mix(in srgb, var(--ok) 55%, var(--aurora-rim));
   box-shadow: var(--shadow), 0 0 28px color-mix(in srgb, var(--ok) 18%, transparent);
   transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-confirmed-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-confirmed-row {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -542,7 +542,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--fg2);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-confirmed-pill {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-confirmed-pill {
   padding: 7px 14px;
   border-radius: var(--r-pill);
   background: var(--ok);
@@ -550,7 +550,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   font-weight: 600;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-bar {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-bar {
   height: 3px;
   border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--fg) 10%, transparent);
@@ -558,7 +558,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   margin: 2px 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-bar > span {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-bar > span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -566,19 +566,19 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: width .35s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-artifact > .panel-tabs {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact > .panel-tabs {
   flex: none;
   margin: 10px 22px 0;
   background: color-mix(in srgb, var(--fg) 5%, transparent);
   border: 1px solid var(--aurora-rim);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-artifact > .panel-tabs a[aria-current="page"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact > .panel-tabs a[aria-current="page"] {
   background: color-mix(in srgb, var(--fg) 12%, transparent);
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-step-dot {
   width: 6px;
   height: 6px;
   flex: none;
@@ -586,20 +586,20 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   background: var(--muted);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) [data-step="done"] > .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) [data-step="done"] > .stage-step-dot {
   background: var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is([data-step="active"], [data-status="running"]) > .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is([data-step="active"], [data-status="running"]) > .stage-step-dot {
   background: var(--aurora-beam-a);
   box-shadow: 0 0 8px var(--aurora-beam-a);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) [data-status="suspended"] > .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) [data-status="suspended"] > .stage-step-dot {
   background: var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-preview {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-preview {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -611,23 +611,23 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   font-size: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-preview-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-preview-row {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 6px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-preview-key {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-preview-key {
   color: var(--muted);
   font-weight: 500;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-preview-val {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-preview-val {
   color: var(--fg);
   word-break: break-word;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-preview-body {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-preview-body {
   margin: 2px 0 0;
   padding-top: 5px;
   border-top: 1px solid var(--aurora-rim);
@@ -639,14 +639,14 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   overflow: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-preview-note {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-preview-note {
   margin: 2px 0 0;
   color: var(--warn);
   font-size: 11.5px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-acts,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-acts-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-acts,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-acts-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -657,18 +657,18 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   border-top: 1px solid var(--aurora-rim);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-link {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-link {
   font-size: 12px;
   font-weight: 500;
   color: var(--accent-text);
   text-decoration: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-link:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-link:hover {
   text-decoration: underline;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-stop {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-stop {
   min-height: 24px;
   padding: 2px 9px;
   border-radius: var(--r-pill);
@@ -680,7 +680,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   cursor: pointer;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento-overflow {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento-overflow {
   grid-column: 1 / -1;
   display: block;
   text-align: center;
@@ -693,7 +693,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   text-decoration: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento-overflow:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento-overflow:hover {
   color: var(--fg);
   border-color: var(--line-strong);
 }
