@@ -516,8 +516,9 @@ function nav() {
   const route=location.hash || "#/home";
   const adminNav=adminNavItem(route);
   const onApps=route.startsWith("#/library");
+  const pending=typeof needsMe === "function" ? needsMe().length : 0;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">Apps</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon("need")}<span class="nav-label">Inbox</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">Briefing</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">Apps</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
@@ -1342,8 +1343,11 @@ function convHead(thread, project) {
   const nCount = typeof Notices !== "undefined" && Array.isArray(Notices.history) ? Notices.history.length : 0;
   const noticeBtn = `<div class="notice-center-wrap"><button type="button" class="icon-btn stage-dock-btn${dnd ? " muted" : ""}" data-toggle-notices aria-expanded="false" aria-controls="notice-center" title="${dnd ? "Notifications snoozed (click to open)" : "Notifications & Do Not Disturb"}" aria-label="${dnd ? "Notifications snoozed" : `Notifications${nCount ? `, ${nCount} recent` : ""}`}">${icon("bell")}${!dnd && nCount ? `<span class="stage-dock-badge" aria-hidden="true">${Math.min(nCount, 99)}</span>` : ""}</button><div id="notice-center" class="notice-center card" role="region" aria-label="Notifications" hidden></div></div>`;
   const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
+  const moreMenu = thread
+    ? `<details class="conv-more"><summary class="icon-btn" title="More conversation actions" aria-label="More conversation actions">&bull;&bull;&bull;</summary><div class="conv-more-menu card">${move}<button type="button" class="conv-more-del" data-trash="${esc(thread)}" data-then="#/home">${icon("trash")}<span>Delete conversation</span></button></div></details>`
+    : "";
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${computerChip(App.computers)}${shareBtn}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}${noticeBtn}${sidebarBtn}</div>`);
+    <div class="row">${computerChip(App.computers)}${shareBtn}${moreMenu}${noticeBtn}${sidebarBtn}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -1397,6 +1401,7 @@ route(/^#\/chat\/new\/([^/]+)$/, (m, project) => showNewChat(m, project), true);
 route(/^#\/inbox$/, main => home(main, "needs"), true);
 route(/^#\/(activity|tasks|schedules|files)$/, (main, k) => home(main, k), true);
 route(/^#\/projects$/, main => Projects.showList(main));
+route(/^#\/briefing$/, main => NovaPages.showBriefing(main));
 // The Library is the connector catalog, a page of its own (connectors spec,
 // Library); a connector's page is under it.
 route(/^#\/explore$/, main => Discover.show(main));

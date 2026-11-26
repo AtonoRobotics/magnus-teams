@@ -51,4 +51,39 @@ const html = projCtx.__P.pageHtml({ id: "p1", name: "Launch", instructions: "", 
 assert.match(html, /data-project-ask="p1"/, "project page should include inline composer");
 assert.match(html, /project-hub-grid/, "project page should use 2-column hub grid");
 
+// 4. nova-pages.js renders Executive Morning Briefing & Quiet Routines with Run now / Dry run.
+let painted = "";
+const briefCtx = {
+  esc, enc: encodeURIComponent,
+  App: { thread: "t1", schedules: [{ id: "s1", title: "Morning digest", cadence: "Daily 08:00" }], tasks: [] },
+  Panel: { what: null },
+  ENDED: ["completed", "failed", "cancelled"],
+  needsMe: () => [{ id: "i1" }],
+  paint: (_el, h) => { painted = h; },
+  Server: { call: async () => ({ summary: "All systems nominal." }) },
+  toast: () => {},
+};
+briefCtx.globalThis = briefCtx;
+vm.runInNewContext(ui("nova-pages.js") + "\nglobalThis.__NP = NovaPages;", briefCtx);
+await briefCtx.__NP.showBriefing({});
+assert.match(painted, /nova-briefing-page/, "briefing page should render");
+assert.match(painted, /data-routine-run="s1"/, "briefing should render Run now button");
+assert.match(painted, /data-routine-dry="s1"/, "briefing should render Dry run button");
+
+// 5. Structural wiring in app.js, aurora-stage.js, and nova.css.
+const appSrc = ui("app.js");
+assert.match(appSrc, /route\(\/\^#\\\/briefing\$\//, "app.js must route #/briefing");
+assert.match(appSrc, /nav-inbox-count/, "app.js nav must show live Inbox count badge");
+assert.match(appSrc, /conv-more-menu/, "app.js convHead must tuck move/delete into overflow menu");
+
+const stageSrc = ui("aurora-stage.js");
+assert.match(stageSrc, /data-stage-batch-approve/, "aurora-stage.js must support 1-click batch approval");
+assert.match(stageSrc, /b\.dataset\.tier\s*=/, "aurora-stage.js must set data-tier on stage tiles");
+
+const novaCss = ui("nova.css");
+assert.match(novaCss, /section\.conv:has\(\.hello-hero\)/, "nova.css must center empty Home intro");
+assert.match(novaCss, /html\[data-style="nova"\] \.lgrid/, "nova.css must style 2-column Apps grid");
+assert.match(novaCss, /html\[data-style="nova"\] \.explore-grid/, "nova.css must style 3-column Explore grid");
+assert.match(novaCss, /\.stage-tile\[data-tier="financial"\]/, "nova.css must style Side Bento financial receipt tiles");
+
 console.log("nova theme & overhaul check ok");

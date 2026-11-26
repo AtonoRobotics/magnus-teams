@@ -476,7 +476,16 @@ html[data-style="nova"] .appearance .seg button {
   font-size: 20px;
 }
 
+html[data-style="nova"] .lgrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 24px;
+}
+
 html[data-style="nova"] .lcard {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
   border-color: transparent;
   background: transparent;
   min-height: 88px;
@@ -487,14 +496,204 @@ html[data-style="nova"] .lcard:hover {
   background: var(--surface);
 }
 
+html[data-style="nova"] .explore-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
 html[data-style="nova"] .explore-grid > .explore-card {
   border-radius: var(--r-xl);
   border-color: var(--hair);
 }
 
+html[data-style="nova"] .explore-grid > .explore-card:first-child {
+  grid-column: auto;
+  aspect-ratio: 4 / 3;
+  max-height: none;
+}
+
+/* Centered Gemini-style Home intro on empty New Chat */
+html[data-style="nova"] section.conv:has(.hello-hero) {
+  justify-content: center;
+}
+
+html[data-style="nova"] section.conv:has(.hello-hero) > .thread {
+  flex: 0 1 auto;
+  justify-content: center;
+  padding-bottom: 12px;
+}
+
+html[data-style="nova"] section.conv:has(.hello-hero) > form.composer {
+  margin-top: 8px;
+}
+
+/* Side Bento 3-tier financial & irreversible receipt styling */
+html[data-style="nova"] .stage-tile[data-tier="financial"],
+html[data-style="nova"] .stage-tile[data-tier="irreversible"] {
+  background: color-mix(in srgb, var(--bad) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--bad) 30%, var(--line));
+}
+
+html[data-style="nova"] .stage-tile[data-tier="financial"] .stage-tile-preview,
+html[data-style="nova"] .stage-tile[data-tier="irreversible"] .stage-tile-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--bad) 35%, var(--line));
+}
+
+/* Whisper-quiet rail Inbox count & conversation header overflow menu */
+.nav-inbox-count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--bad);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.conv-more {
+  position: relative;
+}
+
+.conv-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.conv-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.conv-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 220px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow);
+}
+
+.conv-more-del {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  color: var(--bad);
+  border-color: transparent;
+  background: transparent;
+}
+
+.conv-more-del:hover {
+  background: var(--bad-soft);
+}
+
+/* ---------- 7b. Morning Briefing & Quiet Routines (#/briefing) ---------- */
+.nova-briefing-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 36px 28px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.nova-brief-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.nova-brief-head h1 {
+  margin: 4px 0 0;
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.02em;
+}
+
+.nova-brief-summary p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.nova-brief-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.nova-brief-metrics > .card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+}
+
+.nova-metric-val {
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.nova-brief-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nova-brief-sec h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.nova-routine-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nova-routine-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hair);
+  background: var(--surface);
+}
+
+.nova-routine-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  html[data-style="nova"] .explore-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
   .nova-featured,
-  .nova-companion-studio {
+  .nova-companion-studio,
+  .nova-brief-metrics,
+  html[data-style="nova"] .lgrid,
+  html[data-style="nova"] .explore-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -578,7 +777,8 @@ html[data-style="nova"] .project-page-head {
   .nova-featured,
   .nova-companion-studio,
   .nova-replay,
-  .project-hero-composer {
+  .project-hero-composer,
+  .nova-routine-row {
     border: 1px solid CanvasText;
     background: Canvas;
   }

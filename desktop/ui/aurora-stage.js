@@ -243,6 +243,7 @@ const AuroraStage = (() => {
         icon: "need",
         href: "#/inbox",
         tone: "needs",
+        tier: i.tier || "",
         tierHtml: typeof askTierBadge === "function" ? askTierBadge(i) : "",
         previewRows: fields.rows.slice(0, 4),
         previewBody: fields.body || "",
@@ -428,6 +429,7 @@ const AuroraStage = (() => {
       b.classList.add("stage-tile");
       b.classList.toggle("aurora-executing", c.tone === "run");
       b.dataset.tone = c.tone;
+      if (c.tier) b.dataset.tier = c.tier; else delete b.dataset.tier;
       if (tag === "A") {
         if (c.open) b.dataset.open = c.open; else delete b.dataset.open;
         b.setAttribute("href", c.href);
