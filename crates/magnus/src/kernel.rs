@@ -279,7 +279,7 @@ impl Kernel {
         // The knowledge index follows what this write changed.
         self.follow_index(&es).await;
         // The unified memory store follows too, off the request path: this only marks.
-        self.memory_sync.follow(&es);
+        self.memory_sync.follow(&es, |id| self.read(|s| s.library.memory().iter().find(|m| m.id == id).map(|m| m.person.clone())));
         Ok(es)
     }
 

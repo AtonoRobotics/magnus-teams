@@ -194,8 +194,9 @@ impl Kernel {
         // current memory (`memory::sync`); until then legacy recall answers.
         let in_step = !query.trim().is_empty() && self.memory_sync.is_synced(&person);
         if mode == crate::memory_index::MemoryMode::V2 && in_step {
-            let v2 =
-                crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true, crate::memory::bridge::AccessTracking::Record).await;
+            let v2 = crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true, crate::memory::bridge::AccessTracking::Record)
+                .await
+                .map(|hits| crate::memory::bridge::only_current(hits, &self.current_memory_ids(&person)));
             if let Some(hits) = crate::memory::bridge::v2_hits_or_fallback(&person, v2) {
                 return Ok(hits);
             }

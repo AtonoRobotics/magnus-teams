@@ -85,6 +85,14 @@ pub async fn retrieve_for_person(kernel_url: &str, cfg: &MemoryConfig, person: &
     Ok(response_to_remembered(person, &resp))
 }
 
+/// Keep only hits whose every cited source is one of the person's current
+/// memories (`current`, as the state has them when the answer is served). A
+/// memory forgotten, trashed, archived or superseded after the in-step check
+/// is never served, whatever the store still holds. Citations are `id@rev`.
+pub fn only_current(hits: Vec<Remembered>, current: &std::collections::HashSet<String>) -> Vec<Remembered> {
+    hits.into_iter().filter(|h| !h.entry.sources.is_empty() && h.entry.sources.iter().all(|s| current.contains(s.rsplit_once('@').map_or(s.as_str(), |(id, _)| id)))).collect()
+}
+
 /// What `MemoryMode::V2` serves: the v2 hits when there are any. No hits, or
 /// an error, falls back to legacy (`None`). The unified store only holds what
 /// has been ingested into it, so an empty answer must not hide the facts the
@@ -142,6 +150,29 @@ mod tests {
     use crate::memory::{AssertionInput, AssertionKind, SourceInput, TaintLabel};
     use crate::memory_index::DEFAULT_TENANT_ID;
     use chrono::Utc;
+
+    #[test]
+    fn only_hits_citing_current_memories_are_served() {
+        let hit = |id: &str, sources: &[&str]| Remembered {
+            entry: MemoryEntry {
+                id: id.into(),
+                person: "alice".into(),
+                run: String::new(),
+                label: Label::default(),
+                sources: sources.iter().map(|s| s.to_string()).collect(),
+                by: None,
+                at: Utc::now(),
+                seq: 0,
+            },
+            fact: "a fact".into(),
+            topic: None,
+        };
+        let current: std::collections::HashSet<String> = ["mem_a".to_string(), "mem_b".to_string()].into();
+        let kept =
+            only_current(vec![hit("x1", &["mem_a@3"]), hit("x2", &["mem_a@3", "mem_gone@4"]), hit("x3", &["mem_gone@4"]), hit("x4", &[]), hit("x5", &["mem_b@9"])], &current);
+        let ids: Vec<&str> = kept.iter().map(|h| h.entry.id.as_str()).collect();
+        assert_eq!(ids, vec!["x1", "x5"], "a hit citing any non-current memory, or none, is dropped");
+    }
 
     #[test]
     fn v2_serves_its_hits_and_falls_back_to_legacy_when_empty_or_failed() {

@@ -223,3 +223,21 @@ async fn erasure_waits_for_an_in_flight_ingest_and_removes_its_source() {
     let left: i64 = reader.client().query_one("SELECT count(*) FROM public.memory_sources WHERE owner_id = 'alice'", &[]).await.unwrap().get(0);
     assert_eq!(left, 0);
 }
+
+/// A person's sync holds their erasure lock shared from reading their content
+/// to copying it, so an erasure waits for the copy and then removes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn erasure_waits_for_a_sync_holding_the_owner() {
+    let db = LiveDb::create().await;
+    let syncing = db.store().await;
+    crate::memory::erasure::hold_owner_for_sync(syncing.client(), "alice").await.unwrap();
+
+    let cfg = MemoryConfig { mode: MemoryMode::V2, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
+    let url = db.kernel_url.clone();
+    let erasure = tokio::spawn(async move { erase_person_if_present(&url, &cfg, "alice").await });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!erasure.is_finished(), "erasure must wait for a sync holding the owner");
+
+    crate::memory::erasure::release_owner_for_sync(syncing.client(), "alice").await.unwrap();
+    erasure.await.unwrap().unwrap();
+}

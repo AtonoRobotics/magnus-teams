@@ -223,6 +223,28 @@ impl MemoryStore {
         Ok(total)
     }
 
+    /// True once the unified memory tables have been migrated.
+    pub async fn tables_present(&self) -> Result<bool> {
+        let row = self.client.query_one("SELECT to_regclass('public.memory_sources') IS NOT NULL", &[]).await.context("check whether the unified memory tables exist")?;
+        Ok(row.get(0))
+    }
+
+    /// Every owner with at least one source in `tenant_id`.
+    pub async fn owners(&self, tenant_id: &str) -> Result<Vec<String>> {
+        let rows = self.client.query("SELECT DISTINCT owner_id FROM public.memory_sources WHERE tenant_id = $1", &[&tenant_id]).await.context("list unified memory owners")?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
+    /// The source ids `owner_id` has in `tenant_id`, whatever their revision.
+    pub async fn source_ids_for_owner(&self, tenant_id: &str, owner_id: &str) -> Result<std::collections::HashSet<String>> {
+        let rows = self
+            .client
+            .query("SELECT DISTINCT source_id FROM public.memory_sources WHERE tenant_id = $1 AND owner_id = $2", &[&tenant_id, &owner_id])
+            .await
+            .context("list the owner's unified sources")?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
     /// Explicitly increment `access_count` and `last_accessed_at` for assertions
     /// returned to a caller (used by cold-archival and lesson-cap ranking).
     pub async fn record_access(&mut self, tenant_id: &str, assertion_ids: &[String]) -> Result<u64> {

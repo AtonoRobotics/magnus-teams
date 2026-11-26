@@ -115,27 +115,91 @@ async fn archived_and_superseded_memories_leave_the_store() {
     s.done().await;
 }
 
-/// With the store failing, a save is not held up, the person is not served
-/// from the store, and the next pass copies what was missed.
+/// With the store failing, the person is not served from it, and the next
+/// pass copies what was missed.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_copy_does_not_hold_up_the_save_and_is_retried() {
+async fn a_failed_copy_is_retried() {
     let s = boot(V2_FOR_MO).await;
     s.k.sync_memory().await.unwrap();
     let db = s.store().await;
     // Every copy fails: ingest cannot queue its enrichment job.
     db.batch_execute("ALTER TABLE public.memory_enrichment_jobs RENAME TO memory_enrichment_jobs_away").await.unwrap();
 
-    let started = std::time::Instant::now();
     s.k.emit("person:mo", memory("m_during", "mo", "The dock door code changed")).await.unwrap();
-    assert!(started.elapsed() < std::time::Duration::from_millis(500), "the save waited on the unified store");
     assert!(s.k.sync_memory().await.is_err(), "the copy could not be made");
     assert!(s.k.memory_sync.behind(), "a failed pass keeps its marks");
+    assert!(s.k.memory_sync.failure().is_some(), "the failure is kept to be shown");
     assert!(!s.k.memory_sync.is_synced("mo"));
 
     db.batch_execute("ALTER TABLE public.memory_enrichment_jobs_away RENAME TO memory_enrichment_jobs").await.unwrap();
     s.k.sync_memory().await.unwrap();
     assert!(s.k.memory_sync.is_synced("mo"));
+    assert!(s.k.memory_sync.failure().is_none());
     assert_eq!(sources(&s, "mo").await, vec!["m_during".to_string()]);
+    s.done().await;
+}
+
+/// A save never waits on the unified store: here its table is locked by
+/// another transaction for the whole save.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_does_not_wait_on_the_unified_store() {
+    let s = boot(V2_FOR_MO).await;
+    let mut locker = s.store().await;
+    let tx = locker.transaction().await.unwrap();
+    tx.batch_execute("LOCK TABLE public.memory_sources IN ACCESS EXCLUSIVE MODE").await.unwrap();
+
+    let save = s.k.emit("person:mo", memory("m_locked", "mo", "Saved while the store was locked"));
+    tokio::time::timeout(std::time::Duration::from_secs(3), save).await.expect("the save waited on the unified store").unwrap();
+    assert!(!s.k.memory_sync.is_synced("mo"));
+
+    tx.rollback().await.unwrap();
+    s.k.sync_memory().await.unwrap();
+    assert_eq!(sources(&s, "mo").await, vec!["m_locked".to_string()]);
+    s.done().await;
+}
+
+/// A trashed memory leaves the store at once, and comes back when restored.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trashed_memory_leaves_the_store_and_a_restored_one_returns() {
+    let s = boot(V2_FOR_MO).await;
+    s.k.emit("person:mo", memory("m_trash", "mo", "The gate code is 4512")).await.unwrap();
+    s.k.sync_memory().await.unwrap();
+    assert_eq!(sources(&s, "mo").await, vec!["m_trash".to_string()]);
+
+    assert_eq!(s.k.trash("mo", false, "m_trash").await.unwrap(), Ok(()));
+    assert!(!s.k.memory_sync.is_synced("mo"), "a trash takes the person out of step");
+    s.k.sync_memory().await.unwrap();
+    assert!(sources(&s, "mo").await.is_empty(), "the trashed memory's copy stayed in the store");
+
+    assert!(s.k.restore("mo", "m_trash").await.unwrap());
+    s.k.sync_memory().await.unwrap();
+    assert_eq!(sources(&s, "mo").await, vec!["m_trash".to_string()], "a restored memory was not copied back");
+    s.done().await;
+}
+
+/// One person whose copy keeps failing does not hold up anyone else.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_failing_person_does_not_hold_up_the_rest() {
+    let s = boot("[memory]\nembedding_dim = 4\n[memory.person_modes]\nmo = \"v2\"\nana = \"v2\"\n").await;
+    let db = s.store().await;
+    db.batch_execute(
+        "CREATE FUNCTION refuse_ana() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+             IF NEW.owner_id = 'ana' THEN RAISE EXCEPTION 'ana refused'; END IF; RETURN NEW; END $$;
+         CREATE TRIGGER refuse_ana BEFORE INSERT ON public.memory_sources FOR EACH ROW EXECUTE FUNCTION refuse_ana();",
+    )
+    .await
+    .unwrap();
+    s.k.emit("person:mo", memory("m_mo", "mo", "Mo's fact")).await.unwrap();
+    s.k.emit("person:ana", memory("m_ana", "ana", "Ana's fact")).await.unwrap();
+
+    assert!(s.k.sync_memory().await.is_err());
+    assert!(s.k.memory_sync.is_synced("mo"), "mo was held up by ana's failure");
+    assert_eq!(sources(&s, "mo").await, vec!["m_mo".to_string()]);
+    assert!(!s.k.memory_sync.is_synced("ana"));
+
+    db.batch_execute("DROP TRIGGER refuse_ana ON public.memory_sources").await.unwrap();
+    s.k.sync_memory().await.unwrap();
+    assert!(s.k.memory_sync.is_synced("ana"));
     s.done().await;
 }
 
@@ -143,32 +207,57 @@ fn event(ev: Ev) -> Event {
     Event { seq: 1, at: chrono::Utc::now(), actor: "person:mo".into(), ev }
 }
 
+fn no_owner(_: &str) -> Option<String> {
+    None
+}
+
+/// Bring `sync` to "mo is in step": a pass that took the start marks and settled mo.
+fn in_step(sync: &MemorySync) {
+    sync.begin_for_test();
+    sync.settle_for_test("mo");
+    sync.finish_for_test();
+}
+
 #[test]
-fn nobody_is_in_step_until_a_pass_and_a_write_or_forget_takes_them_out() {
+fn nobody_is_in_step_until_a_pass_and_a_write_takes_them_out() {
     let sync = MemorySync::new();
     assert!(!sync.is_synced("mo"), "everyone is behind at start");
-    sync.take_for_test();
-    sync.settle_for_test("mo");
+    in_step(&sync);
     assert!(sync.is_synced("mo"));
 
-    sync.follow(&[event(memory("m1", "mo", "a fact"))]);
+    sync.follow(&[event(memory("m1", "mo", "a fact"))], no_owner);
     assert!(!sync.is_synced("mo"), "a save takes the person out of step");
-    sync.take_for_test();
-    sync.settle_for_test("mo");
+    in_step(&sync);
     assert!(sync.is_synced("mo"));
 
-    sync.follow(&[event(Ev::MemoryForgotten { id: "m1".into() })]);
-    assert!(!sync.is_synced("mo"), "a pending forget takes everyone out of step");
-    sync.take_for_test();
+    sync.follow(&[event(Ev::Trashed { item: "m1".into(), person: "mo".into() })], no_owner);
+    assert!(!sync.is_synced("mo"), "a trash takes the person out of step");
+    in_step(&sync);
+    sync.follow(&[event(Ev::Restored { item: "m1".into() })], |_| Some("mo".into()));
+    assert!(!sync.is_synced("mo"), "a restore takes the memory's owner out of step");
+}
+
+/// A forget keeps everyone out of step until the pass that deletes it has
+/// finished, not merely started.
+#[test]
+fn a_forget_holds_everyone_back_until_its_pass_has_finished() {
+    let sync = MemorySync::new();
+    in_step(&sync);
+    sync.follow(&[event(Ev::MemoryForgotten { id: "m1".into() })], no_owner);
+    assert!(!sync.is_synced("mo"));
+    sync.begin_for_test();
+    assert!(!sync.is_synced("mo"), "a forget being deleted by a running pass was served around");
+    sync.finish_for_test();
     assert!(sync.is_synced("mo"));
 }
 
 #[test]
 fn a_write_during_a_pass_keeps_the_person_out_of_step() {
     let sync = MemorySync::new();
-    sync.take_for_test();
+    sync.begin_for_test();
     // The pass is working on mo when another save for mo lands.
-    sync.follow(&[event(memory("m2", "mo", "another fact"))]);
+    sync.follow(&[event(memory("m2", "mo", "another fact"))], no_owner);
     sync.settle_for_test("mo");
+    sync.finish_for_test();
     assert!(!sync.is_synced("mo"), "the pass finished before the new save was copied");
 }

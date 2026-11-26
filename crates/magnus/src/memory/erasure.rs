@@ -19,6 +19,20 @@ pub(crate) async fn lock_owner_for_ingest(tx: &Transaction<'_>, owner_id: &str) 
     Ok(())
 }
 
+/// Held shared on the sync's connection for the whole of one person's sync,
+/// across reading their content and copying it: an erasure of that owner
+/// waits for the copy, and a sync that starts during an erasure waits for it
+/// (by then their content is deleted, so nothing is copied back).
+pub(crate) async fn hold_owner_for_sync(client: &tokio_postgres::Client, owner_id: &str) -> Result<()> {
+    client.execute("SELECT pg_advisory_lock_shared($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("hold owner against erasure")?;
+    Ok(())
+}
+
+pub(crate) async fn release_owner_for_sync(client: &tokio_postgres::Client, owner_id: &str) -> Result<()> {
+    client.execute("SELECT pg_advisory_unlock_shared($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("release owner after sync")?;
+    Ok(())
+}
+
 async fn lock_owner_for_erasure(tx: &Transaction<'_>, owner_id: &str) -> Result<()> {
     tx.execute("SELECT pg_advisory_xact_lock($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("lock owner for erasure")?;
     Ok(())
