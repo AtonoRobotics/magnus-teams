@@ -1,6 +1,7 @@
 //! Unified Rust + Postgres memory engine (Phase 1-2: core schema, tenant+CNF
 //! RLS store, sync ingest, fenced enrichment, and 0-LLM hybrid+graph retrieval).
 
+pub mod bridge;
 pub mod curator;
 pub mod enrich;
 pub mod erasure;

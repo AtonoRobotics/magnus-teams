@@ -189,6 +189,13 @@ impl Kernel {
             })
             .collect();
         let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
+        let mode = self.cfg.memory.mode_for(&person);
+        if mode == crate::memory_index::MemoryMode::V2 && !query.trim().is_empty() {
+            match crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true).await {
+                Ok(v2_hits) => return Ok(v2_hits),
+                Err(e) => tracing::warn!("memory v2 recall failed for {person}; falling back to legacy: {e:#}"),
+            }
+        }
         let now = chrono::Utc::now();
         let mut matched: Vec<(usize, crate::recall::Remembered)> = self
             .remembered(&person, |_| true)
@@ -220,7 +227,21 @@ impl Kernel {
             })
             .collect();
         scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        Ok(scored.into_iter().take(20).map(|(_, m)| m).collect())
+        let legacy: Vec<crate::recall::Remembered> = scored.into_iter().take(crate::memory::bridge::MAX_MEMORY_HITS_RETURNED).map(|(_, m)| m).collect();
+        if mode == crate::memory_index::MemoryMode::Shadow && !query.trim().is_empty() {
+            let t0 = std::time::Instant::now();
+            match crate::memory::bridge::retrieve_for_person(&self.cfg.database.url, &self.cfg.memory, &person, query, true).await {
+                Ok(v2_hits) => tracing::info!(
+                    person = %person,
+                    legacy_count = legacy.len(),
+                    v2_count = v2_hits.len(),
+                    v2_elapsed_ms = t0.elapsed().as_millis() as u64,
+                    "memory shadow recall comparison"
+                ),
+                Err(e) => tracing::warn!(person = %person, "memory shadow recall failed: {e:#}"),
+            }
+        }
+        Ok(legacy)
     }
 }
 
