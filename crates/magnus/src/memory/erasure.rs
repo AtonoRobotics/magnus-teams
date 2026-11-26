@@ -4,6 +4,25 @@ use crate::memory::store::MemoryStore;
 use crate::memory_index::MemoryConfig;
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
+use tokio_postgres::Transaction;
+
+/// First key of the per-owner advisory lock that fences erasure against
+/// ingest (the second is `hashtext(owner_id)`). Distinct from the
+/// `(hashtext(tenant), hashtext(owner))` space `curator::lock_owner_scope` uses.
+const OWNER_ERASURE_LOCK_NAMESPACE: i32 = 0x4D45_5241; // "MERA"
+
+/// Taken shared by every `ingest_source` transaction for `owner_id`: an
+/// erasure of that owner waits for in-flight ingests to commit, and an ingest
+/// that starts during an erasure waits for it to finish.
+pub(crate) async fn lock_owner_for_ingest(tx: &Transaction<'_>, owner_id: &str) -> Result<()> {
+    tx.execute("SELECT pg_advisory_xact_lock_shared($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("lock owner against erasure")?;
+    Ok(())
+}
+
+async fn lock_owner_for_erasure(tx: &Transaction<'_>, owner_id: &str) -> Result<()> {
+    tx.execute("SELECT pg_advisory_xact_lock($1, hashtext($2))", &[&OWNER_ERASURE_LOCK_NAMESPACE, &owner_id]).await.context("lock owner for erasure")?;
+    Ok(())
+}
 
 /// Row counts removed by an atomic person erasure transaction.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -60,6 +79,9 @@ pub async fn erase_person_if_present(kernel_url: &str, cfg: &MemoryConfig, perso
 
 async fn erase_owner_scoped(store: &mut MemoryStore, tenant_filter: Option<&str>, owner_id: &str) -> Result<ErasureStats> {
     let tx = store.client_mut().transaction().await.context("begin erase_owner tx")?;
+    // 0. Wait out in-flight ingests for this owner and hold off new ones, so
+    //    every source of theirs that exists is seen by the lock below.
+    lock_owner_for_erasure(&tx, owner_id).await?;
 
     // 1. Lock all owned sources FOR UPDATE first to serialize against concurrent
     //    FOR SHARE enrichment and distillation commits.

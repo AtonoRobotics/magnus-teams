@@ -2,6 +2,7 @@
 //! `(tenant_id, source_id, content_hash, readers, untrusted, private)` with
 //! order-independent canonicalized `readers`, plus atomic job enqueue.
 
+use crate::memory::erasure::lock_owner_for_ingest;
 use crate::memory::store::MemoryStore;
 use crate::memory::{canonicalize_readers, content_hash, SourceInput};
 use anyhow::{Context, Result};
@@ -24,6 +25,7 @@ pub async fn ingest_source(store: &mut MemoryStore, input: &SourceInput) -> Resu
     let hash = content_hash(&input.text);
     let readers_json = json!(canonicalize_readers(&input.readers));
     let tx = store.client_mut().transaction().await.context("begin ingest_source tx")?;
+    lock_owner_for_ingest(&tx, &input.owner_id).await?;
 
     let inserted = tx
         .query_opt(

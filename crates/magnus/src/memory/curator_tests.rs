@@ -79,19 +79,6 @@ async fn seed(store: &mut MemoryStore, tenant: &str, source_id: &str, owner: &st
     assert_eq!(commit_enrichment(store, &job, &EnrichmentOutput { assertions, edges: vec![] }).await.unwrap(), EnrichCommit::Committed);
 }
 
-/// Age freshly written assertions past `COLLISION_WATERMARK_SETTLE_SECS`, keeping their order.
-async fn settle(store: &MemoryStore, tenant: &str) {
-    store
-        .client()
-        .execute(
-            "UPDATE public.memory_assertions SET created_at = created_at - interval '1 hour'
-             WHERE tenant_id = $1 AND created_at > now() - interval '10 minutes'",
-            &[&tenant],
-        )
-        .await
-        .unwrap();
-}
-
 async fn pass(store: &mut MemoryStore, tenant: &str, decision: CollisionDecision) -> (CollisionStats, usize) {
     let spy = SpyReviewer::new(decision);
     let stats = review_collisions(store, tenant, &spy).await.unwrap();
@@ -139,7 +126,7 @@ fn max_lessons_per_scope_is_validated_at_startup() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn collision_review_is_idle_free_watermarked_and_merges_within_one_class() {
+async fn collision_review_is_idle_free_queued_and_merges_within_one_class() {
     let db = LiveDb::create().await;
     let mut store = db.store().await;
     let t = "t_watermark";
@@ -152,10 +139,6 @@ async fn collision_review_is_idle_free_watermarked_and_merges_within_one_class()
     seed(&mut store, t, "s2", "alice", readers("user:alice"), CLEAN, vec![fact("a_dup_2", [0.98, 0.02, 0.0, 0.0], now)]).await;
     seed(&mut store, t, "s3", "alice", readers("user:alice"), UNTRUSTED, vec![fact("a_rumor", [0.97, 0.03, 0.0, 0.0], now)]).await;
 
-    let (unsettled, calls) = pass(&mut store, t, CollisionDecision::MergeDuplicate).await;
-    assert_eq!((unsettled.candidates_scanned, calls), (0, 0), "assertions inside the settle window wait for a later pass");
-
-    settle(&store, t).await;
     let (merged, _) = pass(&mut store, t, CollisionDecision::MergeDuplicate).await;
     assert_eq!(merged.candidates_scanned, 3);
     assert_eq!(merged.merged, 1, "the clean duplicate merges into the older clean assertion");
@@ -164,12 +147,11 @@ async fn collision_review_is_idle_free_watermarked_and_merges_within_one_class()
     assert_eq!(count(&store, "SELECT count(*) FROM public.memory_assertions WHERE tenant_id = $1 AND assertion_id = 'a_dup_2'", t).await, 0);
 
     let (again, calls) = pass(&mut store, t, CollisionDecision::MergeDuplicate).await;
-    assert_eq!((again.candidates_scanned, calls), (0, 0), "a repeat pass after the watermark makes 0 reviewer calls");
+    assert_eq!((again.candidates_scanned, calls), (0, 0), "a repeat pass with nothing pending makes 0 reviewer calls");
 
     seed(&mut store, t, "s4", "alice", readers("user:alice"), CLEAN, vec![fact("a_later", [0.96, 0.04, 0.0, 0.0], now)]).await;
-    settle(&store, t).await;
     let (fresh, calls) = pass(&mut store, t, CollisionDecision::KeepBoth).await;
-    assert_eq!(fresh.candidates_scanned, 1, "only the assertion written since the watermark is scanned");
+    assert_eq!(fresh.candidates_scanned, 1, "only the assertion written since the last pass is scanned");
     assert!(calls >= 1 && fresh.kept_both == calls);
 }
 
@@ -184,7 +166,6 @@ async fn merge_moves_supersession_links_onto_the_kept_assertion() {
     seed(&mut store, t, "s_x", "alice", readers("org:acme"), CLEAN, vec![fact("a_x", [1.0, 0.0, 0.0, 0.0], now)]).await;
     seed(&mut store, t, "s_y", "alice", readers("org:acme"), CLEAN, vec![fact("a_y", [0.99, 0.01, 0.0, 0.0], now)]).await;
     assert_eq!(store.record_supersession(t, "a_y", "a_old").await.unwrap(), SupersessionOutcome::Recorded);
-    settle(&store, t).await;
 
     let (stats, _) = pass(&mut store, t, CollisionDecision::MergeDuplicate).await;
     assert_eq!(stats.merged, 1);
@@ -204,27 +185,23 @@ async fn temporal_update_needs_reader_coverage_later_start_and_trust() {
 
     seed(&mut store, t, "s_team", "alice", readers("org:acme"), CLEAN, vec![fact("a_team", [1.0, 0.0, 0.0, 0.0], now - Duration::days(10))]).await;
     seed(&mut store, t, "s_mine", "alice", readers("user:alice"), PRIVATE, vec![fact("a_mine", [0.99, 0.01, 0.0, 0.0], now)]).await;
-    settle(&store, t).await;
     let (s1, _) = pass(&mut store, t, CollisionDecision::TemporalUpdate).await;
     assert_eq!(s1.temporal_closed, 0, "a private fact alice alone reads must not end the team's fact for everyone");
     assert!(valid_to(&store, t, "a_team").await.is_none());
 
     seed(&mut store, t, "s_back", "alice", readers("org:acme"), CLEAN, vec![fact("a_backdated", [0.98, 0.02, 0.0, 0.0], now - Duration::days(20))]).await;
-    settle(&store, t).await;
     let (s2, _) = pass(&mut store, t, CollisionDecision::TemporalUpdate).await;
     assert_eq!(s2.temporal_closed, 0, "a fact starting before the older one cannot close it");
     assert!(valid_to(&store, t, "a_team").await.is_none());
 
     let ok_from = now - Duration::days(1);
     seed(&mut store, t, "s_ok", "alice", readers("org:acme"), CLEAN, vec![fact("a_ok", [0.97, 0.03, 0.0, 0.0], ok_from)]).await;
-    settle(&store, t).await;
     let (s3, _) = pass(&mut store, t, CollisionDecision::TemporalUpdate).await;
     assert!(s3.temporal_closed >= 1);
     let closed = valid_to(&store, t, "a_team").await.expect("the team fact is closed by a later fact every team reader can see");
     assert_eq!(closed.timestamp_micros(), ok_from.timestamp_micros());
 
     seed(&mut store, t, "s_rumor", "alice", readers("org:acme"), UNTRUSTED, vec![fact("a_rumor", [0.96, 0.04, 0.0, 0.0], now)]).await;
-    settle(&store, t).await;
     let (s4, _) = pass(&mut store, t, CollisionDecision::TemporalUpdate).await;
     assert_eq!(s4.temporal_closed, 0, "untrusted content never closes a trusted fact (Invariant 4)");
     assert!(valid_to(&store, t, "a_ok").await.is_none());
@@ -239,12 +216,10 @@ async fn supersede_counts_policy_refusals_as_guard_skips_not_errors() {
 
     seed(&mut store, t, "s_t", "alice", readers("org:acme"), CLEAN, vec![fact("a_trusted", [1.0, 0.0, 0.0, 0.0], now)]).await;
     seed(&mut store, t, "s_u", "alice", readers("org:acme"), UNTRUSTED, vec![fact("a_untrusted", [0.99, 0.01, 0.0, 0.0], now)]).await;
-    settle(&store, t).await;
     let (s1, _) = pass(&mut store, t, CollisionDecision::Supersede).await;
     assert_eq!((s1.superseded, s1.skipped_by_guard), (0, 1), "the untrusted override is refused and counted, and the pass still succeeds");
 
     seed(&mut store, t, "s_t2", "alice", readers("org:acme"), CLEAN, vec![fact("a_trusted_2", [0.98, 0.02, 0.0, 0.0], now)]).await;
-    settle(&store, t).await;
     let (s2, _) = pass(&mut store, t, CollisionDecision::Supersede).await;
     assert!(s2.superseded >= 1);
     assert_eq!(
@@ -370,4 +345,47 @@ async fn cold_archival_only_touches_unused_untrusted_assertions_and_orphan_entit
     let clean_active: bool =
         store.client().query_one("SELECT NOT archived FROM public.memory_assertions WHERE tenant_id = $1 AND assertion_id = 'a_clean'", &[&t]).await.unwrap().get(0);
     assert!(clean_active, "trusted assertions are never cold-archived");
+}
+
+/// A write whose transaction started long before it committed carries an old
+/// `created_at`. It must still be reviewed, against the rows reviewed before
+/// it, once it commits.
+#[tokio::test(flavor = "multi_thread")]
+async fn collision_review_does_not_skip_a_late_committed_older_write() {
+    let db = LiveDb::create().await;
+    let mut store = db.store().await;
+    let t = "t_late_commit";
+    let now = Utc::now();
+
+    seed(&mut store, t, "s1", "alice", readers("user:alice"), CLEAN, vec![fact("a_first", [0.99, 0.01, 0.0, 0.0], now)]).await;
+    let (first, _) = pass(&mut store, t, CollisionDecision::KeepBoth).await;
+    assert_eq!(first.candidates_scanned, 1);
+
+    // Committed now, but stamped as if its transaction began an hour ago.
+    seed(&mut store, t, "s2", "alice", readers("user:alice"), CLEAN, vec![fact("a_slow", [0.98, 0.02, 0.0, 0.0], now)]).await;
+    store.client().execute("UPDATE public.memory_assertions SET created_at = now() - interval '1 hour' WHERE tenant_id = $1 AND assertion_id = 'a_slow'", &[&t]).await.unwrap();
+
+    let (late, calls) = pass(&mut store, t, CollisionDecision::KeepBoth).await;
+    assert_eq!(late.candidates_scanned, 1, "the late-committed write is still reviewed");
+    assert_eq!(calls, 1, "it is reviewed against the assertion reviewed before it");
+}
+
+/// A row that is ineligible when a pass runs (here: superseded) is not passed
+/// over for good; it is reviewed once it qualifies again.
+#[tokio::test(flavor = "multi_thread")]
+async fn collision_review_returns_to_a_row_that_was_ineligible_at_scan_time() {
+    let db = LiveDb::create().await;
+    let mut store = db.store().await;
+    let t = "t_revived";
+    let now = Utc::now();
+
+    seed(&mut store, t, "s1", "alice", readers("user:alice"), CLEAN, vec![fact("a_old", [0.99, 0.01, 0.0, 0.0], now)]).await;
+    seed(&mut store, t, "s2", "alice", readers("user:alice"), CLEAN, vec![fact("a_new", [0.0, 0.0, 0.99, 0.01], now)]).await;
+    store.client().execute("INSERT INTO public.memory_supersessions (tenant_id, new_assertion_id, old_assertion_id) VALUES ($1, 'a_new', 'a_old')", &[&t]).await.unwrap();
+    let (skipped, _) = pass(&mut store, t, CollisionDecision::KeepBoth).await;
+    assert_eq!(skipped.candidates_scanned, 1, "the superseded row is not a candidate");
+
+    store.client().execute("DELETE FROM public.memory_supersessions WHERE tenant_id = $1", &[&t]).await.unwrap();
+    let (revived, _) = pass(&mut store, t, CollisionDecision::KeepBoth).await;
+    assert_eq!(revived.candidates_scanned, 1, "once no longer superseded it is reviewed");
 }

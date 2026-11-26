@@ -17,8 +17,9 @@ pub const MIN_PGVECTOR_PATCH: u64 = 0;
 const MIGRATE_ADVISORY_LOCK_KEY: i64 = 0x4D45_4D5F_4D49_4752;
 /// Monotonic schema version recorded in `public.memory_schema_meta` so routine
 /// restarts skip DDL and take zero table locks.
-/// Version 2 adds `memory_curator_watermarks`.
-pub const MEMORY_SCHEMA_VERSION: i32 = 2;
+/// Version 2 added `memory_curator_watermarks`; version 3 replaces it with the
+/// per-assertion `collision_pending` flag and drops the table.
+pub const MEMORY_SCHEMA_VERSION: i32 = 3;
 
 /// Apply unified memory migrations only when `cfg.is_unified_enabled()` is true.
 /// Verifies `cfg.check()` and `pgvector >= 0.8.0` before running DDL with the
@@ -157,7 +158,6 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
         ),
     );
     let pol_jobs_k = ensure_policy_sql("memory_enrichment_jobs", "memory_enrichment_jobs_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
-    let pol_marks_k = ensure_policy_sql("memory_curator_watermarks", "memory_curator_watermarks_kernel", &format!("FOR ALL TO {role} USING (true) WITH CHECK (true)"));
 
     format!(
         "DO $$ BEGIN CREATE ROLE {reader} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -213,6 +213,7 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
              tsv              TSVECTOR NOT NULL,
              embedding        halfvec({embedding_dim}),
              created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+             collision_pending BOOLEAN NOT NULL DEFAULT TRUE,
              PRIMARY KEY (tenant_id, assertion_id),
              CHECK (kind IN ('fact', 'chunk', 'lesson', 'profile')),
              CHECK (kind <> 'profile' OR NOT untrusted),
@@ -227,6 +228,12 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          CREATE INDEX IF NOT EXISTS memory_assertions_active_idx
              ON public.memory_assertions (tenant_id, kind, valid_from DESC)
              WHERE NOT archived;
+         -- Collision review queue: an assertion is reviewed once it is
+         -- committed, however long its writing transaction ran (version 3).
+         ALTER TABLE public.memory_assertions ADD COLUMN IF NOT EXISTS collision_pending BOOLEAN NOT NULL DEFAULT TRUE;
+         CREATE INDEX IF NOT EXISTS memory_assertions_collision_pending_idx
+             ON public.memory_assertions (tenant_id, created_at, assertion_id)
+             WHERE collision_pending AND NOT archived AND embedding IS NOT NULL;
          ALTER TABLE public.memory_assertions ENABLE ROW LEVEL SECURITY;
          ALTER TABLE public.memory_assertions FORCE ROW LEVEL SECURITY;
          REVOKE ALL ON public.memory_assertions FROM PUBLIC;
@@ -358,20 +365,8 @@ pub fn migrate_sql(role: &str, embedding_dim: usize) -> String {
          GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_enrichment_jobs TO {role};
          {pol_jobs_k}
 
-         -- 8. memory_curator_watermarks: per-tenant progress of each curator job,
-         --    so a pass only looks at assertions written since the last one.
-         CREATE TABLE IF NOT EXISTS public.memory_curator_watermarks (
-             tenant_id         TEXT NOT NULL,
-             job               TEXT NOT NULL,
-             last_created_at   TIMESTAMPTZ NOT NULL,
-             last_assertion_id TEXT NOT NULL,
-             updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-             PRIMARY KEY (tenant_id, job)
-         );
-         ALTER TABLE public.memory_curator_watermarks ENABLE ROW LEVEL SECURITY;
-         ALTER TABLE public.memory_curator_watermarks FORCE ROW LEVEL SECURITY;
-         REVOKE ALL ON public.memory_curator_watermarks FROM PUBLIC;
-         GRANT SELECT, INSERT, UPDATE, DELETE ON public.memory_curator_watermarks TO {role};
-         {pol_marks_k}"
+         -- 8. memory_curator_watermarks (version 2) is replaced by
+         --    memory_assertions.collision_pending; its rows were only progress.
+         DROP TABLE IF EXISTS public.memory_curator_watermarks;"
     )
 }

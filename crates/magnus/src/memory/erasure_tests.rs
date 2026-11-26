@@ -191,3 +191,35 @@ async fn erase_person_is_a_no_op_without_unified_tables() {
     let legacy = MemoryConfig { mode: MemoryMode::Legacy, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
     assert_eq!(erase_person_if_present(&db.kernel_url, &legacy, "alice").await.unwrap(), ErasureStats::default());
 }
+
+/// An ingest whose transaction is still open when erasure starts: erasure
+/// waits for it and removes the source it commits, instead of missing it.
+#[tokio::test(flavor = "multi_thread")]
+async fn erasure_waits_for_an_in_flight_ingest_and_removes_its_source() {
+    let db = LiveDb::create().await;
+    let mut writer = db.store().await;
+    let reader = db.store().await;
+    let text = "Alice's note written while her erasure began.";
+
+    let tx = writer.client_mut().transaction().await.unwrap();
+    crate::memory::erasure::lock_owner_for_ingest(&tx, "alice").await.unwrap();
+    tx.execute(
+        "INSERT INTO public.memory_sources (tenant_id, source_id, rev, owner_id, readers, untrusted, private, content_hash, text, tsv, occurred_at)
+         VALUES ('default', 'inflight', 1, 'alice', $1, FALSE, TRUE, $2, $3, to_tsvector('simple', $3), now())",
+        &[&json!([["user:alice"]]), &crate::memory::content_hash(text), &text],
+    )
+    .await
+    .unwrap();
+
+    let cfg = MemoryConfig { mode: MemoryMode::V2, embedding_dim: TEST_EMBEDDING_DIM, ..Default::default() };
+    let url = db.kernel_url.clone();
+    let erasure = tokio::spawn(async move { erase_person_if_present(&url, &cfg, "alice").await });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!erasure.is_finished(), "erasure must wait for the owner's in-flight ingest");
+
+    tx.commit().await.unwrap();
+    let stats = erasure.await.unwrap().unwrap();
+    assert_eq!(stats.sources_deleted, 1, "the source committed by the in-flight ingest is erased");
+    let left: i64 = reader.client().query_one("SELECT count(*) FROM public.memory_sources WHERE owner_id = 'alice'", &[]).await.unwrap().get(0);
+    assert_eq!(left, 0);
+}

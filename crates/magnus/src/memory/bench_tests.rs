@@ -926,3 +926,102 @@ async fn phase3_review_fixes_custom_dim_record_access_and_supersession_window_co
     assert!(!full_ids.contains(&"a_vp_old"), "full-window supersession must hide older fact: {full_ids:?}");
     assert!(full_ids.contains(&"a_vp_new"));
 }
+
+/// `log::migrate` is the event log's migration; it must not create the
+/// unified memory tables (they come only from `migrate_if_enabled`, which
+/// checks the mode, pgvector and the configured embedding size).
+#[tokio::test(flavor = "multi_thread")]
+async fn log_migrate_does_not_create_unified_memory_tables() {
+    let db = LiveDb::create_unmigrated().await;
+    crate::log::migrate(&db.admin_url, &db.kernel_url, None).await.expect("log migration");
+    let admin = crate::log::connect(&db.admin_url).await.unwrap();
+    let present: bool = admin.query_one("SELECT to_regclass('public.memory_assertions') IS NOT NULL", &[]).await.unwrap().get(0);
+    assert!(!present, "log::migrate must leave the unified memory tables to migrate_if_enabled");
+}
+
+/// A profile assertion is budgeted against the owner of the source it came
+/// from: one person's source cannot write into another person's profile.
+#[tokio::test(flavor = "multi_thread")]
+async fn enrichment_refuses_a_profile_owned_by_someone_other_than_the_source_owner() {
+    let db = LiveDb::create().await;
+    let mut store = db.store().await;
+    let tenant = format!("t_{}", Uuid::new_v4());
+    let now = Utc::now();
+    let src = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "bob_mail".into(),
+        rev: 1,
+        owner_id: "bob".into(),
+        readers: vec![vec!["user:bob".into()]],
+        label: TaintLabel { untrusted: false, private: true },
+        text: "Bob says Alice prefers tea.".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let job = claim_next_job(&mut store).await.unwrap().expect("job");
+    let out = EnrichmentOutput {
+        assertions: vec![AssertionInput {
+            assertion_id: "p_alice_from_bob".into(),
+            kind: AssertionKind::Profile,
+            owner_id: "alice".into(),
+            statement: "Prefers tea".into(),
+            valid_from: now,
+            valid_to: None,
+            confidence: 1.0,
+            embedding: None,
+        }],
+        edges: vec![],
+    };
+    let err = commit_enrichment(&mut store, &job, &out).await.expect_err("a profile for another owner is refused");
+    assert!(format!("{err:#}").contains("must match source owner"), "{err:#}");
+    let written: i64 = store.client().query_one("SELECT count(*) FROM public.memory_assertions WHERE tenant_id = $1", &[&tenant]).await.unwrap().get(0);
+    assert_eq!(written, 0);
+}
+
+/// The profile byte budget is checked under the owner's scope lock, so a
+/// concurrent profile write for the same owner (here: a held lock) is waited
+/// for instead of both passing the budget check.
+#[tokio::test(flavor = "multi_thread")]
+async fn enrichment_profile_budget_waits_for_the_owner_scope_lock() {
+    let db = LiveDb::create().await;
+    let mut store = db.store().await;
+    let tenant = format!("t_{}", Uuid::new_v4());
+    let now = Utc::now();
+    let src = SourceInput {
+        tenant_id: tenant.clone(),
+        source_id: "alice_profile_src".into(),
+        rev: 1,
+        owner_id: "alice".into(),
+        readers: vec![vec!["user:alice".into()]],
+        label: TaintLabel { untrusted: false, private: true },
+        text: "Alice works from Lisbon.".into(),
+        occurred_at: now,
+    };
+    assert!(matches!(ingest_source(&mut store, &src).await.unwrap(), IngestOutcome::Inserted { .. }));
+    let job = claim_next_job(&mut store).await.unwrap().expect("job");
+    let out = EnrichmentOutput {
+        assertions: vec![AssertionInput {
+            assertion_id: "p_alice_city".into(),
+            kind: AssertionKind::Profile,
+            owner_id: "alice".into(),
+            statement: "Works from Lisbon".into(),
+            valid_from: now,
+            valid_to: None,
+            confidence: 1.0,
+            embedding: None,
+        }],
+        edges: vec![],
+    };
+
+    let mut holder = db.store().await;
+    let held = holder.client_mut().transaction().await.unwrap();
+    crate::memory::curator::lock_owner_scope(&held, &tenant, "alice").await.unwrap();
+
+    let mut writer = db.store().await;
+    let commit = tokio::spawn(async move { commit_enrichment(&mut writer, &job, &out).await });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!commit.is_finished(), "a profile write must wait for the owner's scope lock");
+
+    held.commit().await.unwrap();
+    assert_eq!(commit.await.unwrap().unwrap(), EnrichCommit::Committed);
+}

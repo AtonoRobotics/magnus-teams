@@ -142,7 +142,9 @@ fn valid_at_sql(alias: &str, start_param: &str, end_param: &str) -> String {
 /// temporal window (not merely overlap part of it).
 fn covers_window_sql(alias: &str, start_param: &str, end_param: &str) -> String {
     format!(
-        "(({start_param}::timestamptz IS NULL AND {alias}.valid_from <= now() AND ({alias}.valid_to IS NULL OR {alias}.valid_to > now()))           OR ({start_param}::timestamptz IS NOT NULL AND {alias}.valid_from <= {start_param}::timestamptz               AND ({alias}.valid_to IS NULL OR {alias}.valid_to >= {end_param}::timestamptz)))"
+        "(({start_param}::timestamptz IS NULL AND {alias}.valid_from <= now() AND ({alias}.valid_to IS NULL OR {alias}.valid_to > now())) \
+          OR ({start_param}::timestamptz IS NOT NULL AND {alias}.valid_from <= {start_param}::timestamptz \
+              AND ({alias}.valid_to IS NULL OR {alias}.valid_to >= {end_param}::timestamptz)))"
     )
 }
 
@@ -152,7 +154,19 @@ fn covers_window_sql(alias: &str, start_param: &str, end_param: &str) -> String 
 fn supersession_lateral_sql(alias: &str, allow_param: &str, start_param: &str, end_param: &str) -> String {
     let newer_covers = covers_window_sql("newer", start_param, end_param);
     format!(
-        "LEFT JOIN LATERAL (              SELECT (count(*) > 0) AS is_superseded, COALESCE(bool_or(newer.private), false) AS by_private              FROM public.memory_supersessions s              JOIN public.memory_assertions newer                ON newer.tenant_id = s.tenant_id               AND newer.assertion_id = s.new_assertion_id              WHERE s.tenant_id = {alias}.tenant_id                AND s.old_assertion_id = {alias}.assertion_id                AND NOT newer.archived                AND ({allow_param} OR NOT newer.untrusted)                AND ({alias}.untrusted OR NOT newer.untrusted)                AND {newer_covers}          ) sup ON true"
+        "LEFT JOIN LATERAL ( \
+             SELECT (count(*) > 0) AS is_superseded, COALESCE(bool_or(newer.private), false) AS by_private \
+             FROM public.memory_supersessions s \
+             JOIN public.memory_assertions newer \
+               ON newer.tenant_id = s.tenant_id \
+              AND newer.assertion_id = s.new_assertion_id \
+             WHERE s.tenant_id = {alias}.tenant_id \
+               AND s.old_assertion_id = {alias}.assertion_id \
+               AND NOT newer.archived \
+               AND ({allow_param} OR NOT newer.untrusted) \
+               AND ({alias}.untrusted OR NOT newer.untrusted) \
+               AND {newer_covers} \
+         ) sup ON true"
     )
 }
 

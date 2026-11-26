@@ -28,6 +28,13 @@ pub(crate) struct LiveDb {
 impl LiveDb {
     /// Create the database and kernel role, and migrate with `test_config()`.
     pub(crate) async fn create() -> Self {
+        let db = Self::create_unmigrated().await;
+        migrate_if_enabled(&db.admin_url, &db.kernel_url, &test_config()).await.expect("migrate unified memory schema");
+        db
+    }
+
+    /// Create the database and kernel role without any memory migration.
+    pub(crate) async fn create_unmigrated() -> Self {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let name = format!("mem_{id}");
         let server = crate::log::connect(&server_url()).await.expect("connect to the test Postgres (MAGNUS_TEST_PG)");
@@ -40,9 +47,7 @@ impl LiveDb {
         kernel.set_username(&name).expect("set kernel user");
         kernel.set_password(Some(TEST_KERNEL_PASSWORD)).expect("set kernel password");
 
-        let db = Self { admin_url: admin.to_string(), kernel_url: kernel.to_string(), name };
-        migrate_if_enabled(&db.admin_url, &db.kernel_url, &test_config()).await.expect("migrate unified memory schema");
-        db
+        Self { admin_url: admin.to_string(), kernel_url: kernel.to_string(), name }
     }
 
     pub(crate) async fn store(&self) -> MemoryStore {

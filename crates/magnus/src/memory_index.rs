@@ -79,6 +79,19 @@ pub struct MemoryConfig {
     /// archives the least-used excess when a new lesson is distilled.
     #[serde(default = "default_max_lessons_per_scope")]
     pub max_lessons_per_scope: usize,
+    /// Tenant this appliance's people recall from in the unified store. One
+    /// organisation per appliance today, so one tenant; set here, never in code.
+    #[serde(default = "default_tenant_id")]
+    pub tenant_id: String,
+}
+
+/// Tenant used when `[memory] tenant_id` is not set.
+pub const DEFAULT_TENANT_ID: &str = "default";
+/// Longest accepted `[memory] tenant_id`, in characters.
+pub const MAX_TENANT_ID_CHARS: usize = 64;
+
+fn default_tenant_id() -> String {
+    DEFAULT_TENANT_ID.to_string()
 }
 
 impl Default for MemoryConfig {
@@ -90,6 +103,7 @@ impl Default for MemoryConfig {
             embedding_dim: default_embedding_dim(),
             hnsw_iterative_scan: HnswIterativeScan::default(),
             max_lessons_per_scope: default_max_lessons_per_scope(),
+            tenant_id: default_tenant_id(),
         }
     }
 }
@@ -116,6 +130,13 @@ impl MemoryConfig {
             self.max_lessons_per_scope >= 1 && self.max_lessons_per_scope <= MAX_LESSONS_PER_SCOPE_LIMIT,
             "[memory] max_lessons_per_scope must be between 1 and {MAX_LESSONS_PER_SCOPE_LIMIT}, got {}",
             self.max_lessons_per_scope
+        );
+        anyhow::ensure!(
+            !self.tenant_id.is_empty()
+                && self.tenant_id.chars().count() <= MAX_TENANT_ID_CHARS
+                && self.tenant_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            "[memory] tenant_id must be 1 to {MAX_TENANT_ID_CHARS} letters, digits, '_' or '-', got {:?}",
+            self.tenant_id
         );
         Ok(())
     }

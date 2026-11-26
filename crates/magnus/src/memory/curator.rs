@@ -18,11 +18,6 @@ pub const COLLISION_MAX_COSINE_DISTANCE: f64 = 0.15;
 pub const COLLISION_BATCH_LIMIT: i64 = 32;
 /// Maximum older neighbours reviewed against each newer assertion.
 pub const COLLISION_NEIGHBOURS_PER_ASSERTION: i64 = 4;
-/// Assertions younger than this are left for a later pass, so a write whose
-/// transaction began before the watermark moved past it is never skipped.
-pub const COLLISION_WATERMARK_SETTLE_SECS: i64 = 300;
-/// `memory_curator_watermarks.job` for collision review.
-const COLLISION_JOB: &str = "collision_review";
 
 /// Snapshot of an active assertion participating in a high-cosine collision.
 #[derive(Clone, Debug)]
@@ -124,25 +119,16 @@ pub struct ArchivalStats {
     pub swept_orphan_entities: u64,
 }
 
-/// Job 1: Review active, live, unsuperseded embedded assertions written since
-/// the tenant's collision watermark against their nearest older neighbours
-/// within `COLLISION_MAX_COSINE_DISTANCE`. The watermark advances after each
-/// candidate, so a pass with nothing new makes 0 reviewer calls and 0 writes.
+/// Job 1: Review each committed, embedded, active, unsuperseded assertion
+/// still marked `collision_pending` against its nearest already-reviewed
+/// neighbours within `COLLISION_MAX_COSINE_DISTANCE`, then clear the flag.
+///
+/// The queue is the flag, not a time watermark: a row whose writing
+/// transaction ran long is reviewed once it commits, and a row that is
+/// ineligible now (superseded, or written before its embedding) stays pending
+/// until it qualifies. Every pair is reviewed once, when the second of the two
+/// is reviewed. A pass with nothing pending makes 0 reviewer calls and 0 writes.
 pub async fn review_collisions(store: &mut MemoryStore, tenant_id: &str, reviewer: &dyn CollisionReviewer) -> Result<CollisionStats> {
-    let mark = store
-        .client()
-        .query_opt(
-            "SELECT last_created_at, last_assertion_id FROM public.memory_curator_watermarks
-             WHERE tenant_id = $1 AND job = $2",
-            &[&tenant_id, &COLLISION_JOB],
-        )
-        .await
-        .context("read collision watermark")?;
-    let (mark_at, mark_id): (Option<DateTime<Utc>>, Option<String>) = match mark {
-        Some(r) => (Some(r.get(0)), Some(r.get(1))),
-        None => (None, None),
-    };
-
     let candidates = store
         .client()
         .query(
@@ -150,6 +136,7 @@ pub async fn review_collisions(store: &mut MemoryStore, tenant_id: &str, reviewe
                     n.statement, n.valid_from, n.valid_to, n.created_at
              FROM public.memory_assertions n
              WHERE n.tenant_id = $1
+               AND n.collision_pending
                AND NOT n.archived
                AND n.embedding IS NOT NULL
                AND (n.valid_to IS NULL OR n.valid_to > now())
@@ -157,11 +144,9 @@ pub async fn review_collisions(store: &mut MemoryStore, tenant_id: &str, reviewe
                    SELECT 1 FROM public.memory_supersessions s
                    WHERE s.tenant_id = n.tenant_id AND s.old_assertion_id = n.assertion_id
                )
-               AND n.created_at < now() - ($2::bigint * interval '1 second')
-               AND ($3::timestamptz IS NULL OR (n.created_at, n.assertion_id) > ($3::timestamptz, $4::text))
              ORDER BY n.created_at, n.assertion_id
-             LIMIT $5",
-            &[&tenant_id, &COLLISION_WATERMARK_SETTLE_SECS, &mark_at, &mark_id, &COLLISION_BATCH_LIMIT],
+             LIMIT $2",
+            &[&tenant_id, &COLLISION_BATCH_LIMIT],
         )
         .await
         .context("scan collision candidates")?;
@@ -169,33 +154,36 @@ pub async fn review_collisions(store: &mut MemoryStore, tenant_id: &str, reviewe
     let mut stats = CollisionStats::default();
     for cand in &candidates {
         stats.candidates_scanned += 1;
-        let newer = CollisionAssertion::from_row(cand, 0)?;
+        let candidate = CollisionAssertion::from_row(cand, 0)?;
         let created_at: DateTime<Utc> = cand.get(9);
-        review_candidate(store, tenant_id, &newer, reviewer, &mut stats).await?;
+        review_candidate(store, tenant_id, &candidate, created_at, reviewer, &mut stats).await?;
+        // Zero rows when the candidate was merged away.
         store
             .client()
-            .execute(
-                "INSERT INTO public.memory_curator_watermarks (tenant_id, job, last_created_at, last_assertion_id)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (tenant_id, job) DO UPDATE
-                 SET last_created_at = EXCLUDED.last_created_at,
-                     last_assertion_id = EXCLUDED.last_assertion_id,
-                     updated_at = now()",
-                &[&tenant_id, &COLLISION_JOB, &created_at, &newer.assertion_id],
-            )
+            .execute("UPDATE public.memory_assertions SET collision_pending = FALSE WHERE tenant_id = $1 AND assertion_id = $2", &[&tenant_id, &candidate.assertion_id])
             .await
-            .context("advance collision watermark")?;
+            .context("mark collision candidate reviewed")?;
     }
     Ok(stats)
 }
 
-async fn review_candidate(store: &mut MemoryStore, tenant_id: &str, newer: &CollisionAssertion, reviewer: &dyn CollisionReviewer, stats: &mut CollisionStats) -> Result<()> {
+/// Review `candidate` against already-reviewed neighbours. Each pair is
+/// oriented by `(created_at, assertion_id)`, so `newer` is the later-written
+/// assertion whichever of the two is the candidate.
+async fn review_candidate(
+    store: &mut MemoryStore,
+    tenant_id: &str,
+    candidate: &CollisionAssertion,
+    candidate_created_at: DateTime<Utc>,
+    reviewer: &dyn CollisionReviewer,
+    stats: &mut CollisionStats,
+) -> Result<()> {
     let neighbours = store
         .client()
         .query(
             "SELECT o.assertion_id, o.kind, o.owner_id, o.readers, o.untrusted, o.private,
                     o.statement, o.valid_from, o.valid_to,
-                    (o.embedding <=> n.embedding)::double precision AS dist
+                    (o.embedding <=> n.embedding)::double precision AS dist, o.created_at
              FROM public.memory_assertions n
              JOIN public.memory_assertions o ON o.tenant_id = n.tenant_id
              WHERE n.tenant_id = $1
@@ -204,30 +192,38 @@ async fn review_candidate(store: &mut MemoryStore, tenant_id: &str, newer: &Coll
                AND NOT o.archived
                AND o.embedding IS NOT NULL
                AND (o.valid_to IS NULL OR o.valid_to > now())
-               AND (o.created_at, o.assertion_id) < (n.created_at, n.assertion_id)
+               AND NOT o.collision_pending
                AND NOT EXISTS (
                    SELECT 1 FROM public.memory_supersessions s
                    WHERE s.tenant_id = o.tenant_id
                      AND (s.old_assertion_id = o.assertion_id
-                       OR (s.new_assertion_id = o.assertion_id AND s.old_assertion_id = n.assertion_id))
+                       OR (s.new_assertion_id = o.assertion_id AND s.old_assertion_id = n.assertion_id)
+                       OR (s.new_assertion_id = n.assertion_id AND s.old_assertion_id = o.assertion_id))
                )
                AND (o.embedding <=> n.embedding) <= $3
              ORDER BY dist ASC
              LIMIT $4",
-            &[&tenant_id, &newer.assertion_id, &COLLISION_MAX_COSINE_DISTANCE, &COLLISION_NEIGHBOURS_PER_ASSERTION],
+            &[&tenant_id, &candidate.assertion_id, &COLLISION_MAX_COSINE_DISTANCE, &COLLISION_NEIGHBOURS_PER_ASSERTION],
         )
         .await
         .context("query collision neighbours")?;
 
     for row in &neighbours {
-        let pair = CollisionPair { newer: newer.clone(), older: CollisionAssertion::from_row(row, 0)?, cosine_distance: row.get(9) };
+        let neighbour = CollisionAssertion::from_row(row, 0)?;
+        let neighbour_created_at: DateTime<Utc> = row.get(10);
+        let candidate_is_newer = (candidate_created_at, candidate.assertion_id.as_str()) > (neighbour_created_at, neighbour.assertion_id.as_str());
+        let (newer, older) = if candidate_is_newer { (candidate.clone(), neighbour) } else { (neighbour, candidate.clone()) };
+        let pair = CollisionPair { newer, older, cosine_distance: row.get(9) };
         stats.pairs_reviewed += 1;
         match reviewer.review(&pair).await? {
             CollisionDecision::MergeDuplicate => {
                 if merge_duplicate_pair(store, tenant_id, &pair).await? {
                     stats.merged += 1;
-                    // The candidate no longer exists; its other pairs are moot.
-                    return Ok(());
+                    if candidate_is_newer {
+                        // The candidate no longer exists; its other pairs are moot.
+                        return Ok(());
+                    }
+                    continue;
                 }
                 stats.skipped_by_guard += 1;
             }
