@@ -4,7 +4,10 @@
 1. The Responses adapter sends a `prompt_cache_key` naming the conversation
    (a hash of model, instructions and opening item), so every turn of one
    run reaches the same provider cache. A provider that refuses the field
-   is set `prompt_cache_key = false`.
+   is set `prompt_cache_key = false`. The same key goes in the
+   `session_id` and `x-client-request-id` headers, as Codex sends them:
+   with the body's key alone, 31 turns read nothing from cache; with the
+   headers, the next 27 read 60% of their input from it.
 2. The Responses adapter lets a reply ask for several tool calls
    (`parallel_tool_calls`, default true; a provider can set it false). The
    kernel already finished a reply's calls in order; the Anthropic and Chat

@@ -52,7 +52,12 @@ fn watching_script(seen_prompts: Arc<Mutex<Vec<String>>>) -> Script {
 async fn watched_app(m: &FakeModel) -> (FakeMcp, Appliance, Api) {
     let mail = mcp::mail().start().await;
     let app = Appliance::start(
-        Spec::default().proactive(json!({ "on": true })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch("mail", "list_inbox", "/messages", "subject"),
+        Spec::default().proactive(json!({ "on": true, "arrival_gather_minutes": 0 })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch(
+            "mail",
+            "list_inbox",
+            "/messages",
+            "subject",
+        ),
         m,
     )
     .await;
@@ -89,7 +94,12 @@ async fn a_new_item_in_a_connected_app_wakes_a_review() {
     }))
     .await;
     let app = Appliance::start(
-        Spec::default().proactive(json!({ "on": true })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch("mail", "list_inbox", "/messages", "subject"),
+        Spec::default().proactive(json!({ "on": true, "arrival_gather_minutes": 0 })).app("mail", &mail, "public", "private", &[("list_inbox", "read")]).watch(
+            "mail",
+            "list_inbox",
+            "/messages",
+            "subject",
+        ),
         &m,
     )
     .await;

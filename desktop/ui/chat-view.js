@@ -110,8 +110,8 @@ const ChatView = (() => {
 
   /** A person's message, or its edit box. @param {ChatEntry} e @param {ChatUi} ui @param {ChatConversation} conv */
   function message(e, ui, conv) {
-    if (ui.editing === e.id) return `<div class="msg me editing"><label class="sr" for="edit-${esc(e.id)}">Edit and resend</label><textarea id="edit-${esc(e.id)}" rows="3" data-draft="edit-${esc(e.id)}"></textarea>
-        <div class="row small"><button class="primary" data-msg-act="edit-send">Send</button><button class="link" data-msg-act="edit-cancel">Cancel</button></div></div>`;
+    if (ui.editing === e.id) return `<div class="msg me editing"><label class="sr" for="edit-${esc(e.id)}">Edit and resend</label><textarea id="edit-${esc(e.id)}" rows="4" data-draft="edit-${esc(e.id)}"></textarea>
+        <div class="edit-actions row small"><span class="faint edit-hint">⌘/Ctrl+Enter to send · Esc to cancel</span><button type="button" class="link" data-msg-act="edit-cancel">Cancel</button><button type="button" class="primary" data-msg-act="edit-send">Send</button></div></div>`;
     const body = typeof Compose.markdown === "function" ? Compose.markdown(e.text || "") : Compose.maskedText(e.text);
     return `<div class="msg ${mine(e, conv) ? "me" : "person"}">${byline(e, conv)}<div class="msg-body">${marked(body, conv)}</div>${files(e, conv)}</div>`;
   }
@@ -172,7 +172,7 @@ const ChatView = (() => {
     const conv = view.conv, ui = view.ui;
     const body = KINDS[e.kind] ? KINDS[e.kind](e, ui, conv, view) : entry(e, ui);
     const side = e.kind === "message" && mine(e, conv) ? "me" : "them";
-    return `<div class="entry ${side}" data-entry="${esc(e.id || "")}" data-kind="${esc(e.kind)}">${body}${e.work ? workCard(e.work) : ""}${conv.extras?.(e, view) || ""}${e.kind === "deleted" ? "" : controls(e, view)}</div>`;
+    return `<div class="entry ${side}" data-entry="${esc(e.id || "")}" data-kind="${esc(e.kind)}">${body}${e.work ? workCard(e.work) : ""}${conv.extras?.(e, view) || ""}${e.kind === "deleted" || ui.editing === e.id ? "" : controls(e, view)}</div>`;
   }
 
   /** The whole list, as it is drawn. @param {ChatEntry[]} entries @param {ChatViewState} view */
@@ -203,6 +203,16 @@ const ChatView = (() => {
     const painted = paint(el, listHtml(entries, view));
     if (painted) {
       liveStatusLines(el);
+      const editBox = ui.editing ? $(".msg.editing textarea", el) : null;
+      if (editBox) {
+        editBox.style.height = "auto";
+        editBox.style.height = `${Math.min(320, Math.max(96, editBox.scrollHeight))}px`;
+        if (document.activeElement !== editBox) {
+          editBox.focus({ preventScroll: true });
+          const end = editBox.value.length;
+          editBox.setSelectionRange?.(end, end);
+        }
+      }
       ReadingAnchors.restore(el, anchor); ReadingAnchors.remember(el, anchor);
       if (view.record && anchor.follow) view.record.anchor = { follow: true };
       if (newActivity && !anchor.follow) $("[data-jump-latest]", view.section).hidden = false;
@@ -238,6 +248,19 @@ const ChatView = (() => {
       $("[data-jump-latest]", section).hidden = true;
     };
     onLeave(ReadingAnchors.watch(view.list, view.record));
+    view.list.oninput = ev => {
+      const ta = ev.target.closest?.(".msg.editing textarea");
+      if (!ta) return;
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(320, Math.max(96, ta.scrollHeight))}px`;
+    };
+    view.list.onkeydown = ev => {
+      const ta = ev.target.closest?.(".msg.editing textarea");
+      if (!ta) return;
+      const box = ta.closest(".msg.editing");
+      if (ev.key === "Escape") { ev.preventDefault(); $('[data-msg-act="edit-cancel"]', box)?.click(); }
+      else if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); $('[data-msg-act="edit-send"]', box)?.click(); }
+    };
     view.list.onclick = async ev => {
       const starter = ev.target.closest(".hello-chip");
       if (starter) {

@@ -32,6 +32,19 @@ pub fn refused(s: &State, person: &str, now: DateTime<Utc>) -> Option<String> {
     None
 }
 
+/// How long new items in a person's apps gather after a review of new
+/// items woke before the next may (owner, 2026-11-25: one review per new
+/// email was the largest spender, 94M of a week's 215M input tokens). The
+/// items are not lost: a wake turned away advances no baseline, so the
+/// next read after the window wakes one review for all of them.
+pub const ARRIVAL_GATHER_MINUTES: u32 = 10;
+
+/// Whether new items for `person` still gather at `now`: a review of new
+/// items woke less than `minutes` ago.
+pub fn gathering(s: &State, person: &str, now: DateTime<Utc>, minutes: u32) -> bool {
+    s.inbox.arrival_review_of(person).is_some_and(|at| now < at + Duration::minutes(i64::from(minutes)))
+}
+
 #[cfg(test)]
 #[path = "wake_budget_tests.rs"]
 mod tests;

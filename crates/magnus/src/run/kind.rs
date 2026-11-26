@@ -258,7 +258,16 @@ impl State {
 
     /// Whether this run's end wakes its person's review (`RunKind::end_wakes_review`).
     pub fn end_wakes_review(&self, run: &str) -> bool {
-        self.run_kind(run).end_wakes_review() && !self.outcome_turn_follows(run)
+        self.run_kind(run).end_wakes_review() && !self.outcome_turn_follows(run) && !self.quiet_system_end(run)
+    }
+
+    /// Whether `run` is a system task (the heartbeat) that finished well.
+    /// It already reviewed what it found and stays silent, so its end
+    /// wakes no second review (2026-11-25-a-system-task-ends-quietly). A
+    /// failed one still wakes one.
+    fn quiet_system_end(&self, run: &str) -> bool {
+        let Some(r) = self.runs.get(run) else { return false };
+        r.status == crate::state::Status::Completed && self.tasks.get(&r.task).is_some_and(|t| crate::outcomes::is_system_task(self, t, r))
     }
 }
 

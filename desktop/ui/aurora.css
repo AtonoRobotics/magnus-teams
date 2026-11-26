@@ -561,6 +561,7 @@ html[data-style="aurora"] .msg.me {
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
+html[data-style="aurora"] .msg.me.editing { width: min(64ch, 100%); max-width: 100%; border-radius: var(--r-lg); }
 
 /* Inline file-type badges in Aurora & Obsidian 2 Aurora (WCAG-calibrated for light and dark). */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline {

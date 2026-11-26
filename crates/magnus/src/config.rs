@@ -491,11 +491,14 @@ pub struct Proactive {
     pub review_every_minutes: u32,
     #[serde(default = "interruptions_per_day")]
     pub interruptions_per_day: u32,
+    /// How long new items gather before one review reads them (`wake_budget::ARRIVAL_GATHER_MINUTES` unless set).
+    #[serde(default)]
+    pub arrival_gather_minutes: Option<u32>,
 }
 
 impl Default for Proactive {
     fn default() -> Self {
-        Proactive { on: proactive_on(), review_every_minutes: review_every_minutes(), interruptions_per_day: interruptions_per_day() }
+        Proactive { on: proactive_on(), review_every_minutes: review_every_minutes(), interruptions_per_day: interruptions_per_day(), arrival_gather_minutes: None }
     }
 }
 

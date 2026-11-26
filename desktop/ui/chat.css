@@ -180,7 +180,12 @@ label.model { margin: 0; display: inline-flex; align-items: center; border-radiu
 .msg-actions button.icon:hover, .msg-actions button.icon.on { color: var(--accent-text); background: var(--row-sel); }
 .msg-actions button.icon svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; width: 15px; height: 15px; stroke-width: 1.8; }
 .share-to { margin-top: 4px; gap: 6px; align-items: center; }
-.msg.editing textarea { width: 100%; min-width: 40ch; }
+.msg.editing { display: flex; flex-direction: column; gap: 10px; width: min(64ch, 100%); max-width: 100%; padding: 12px 14px; }
+.msg.editing textarea { width: 100%; min-width: 0; min-height: 96px; max-height: 320px; resize: vertical; padding: 10px 12px; font-family: inherit; font-size: inherit; line-height: 1.5; color: var(--fg); background: var(--input, var(--main)); border: 1px solid var(--line-strong); border-radius: var(--r-sm); box-sizing: border-box; }
+.msg.editing .edit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.msg.editing .edit-hint { margin-right: auto; font-size: 11.5px; }
+.msg.editing .edit-actions button.primary { padding: 6px 14px; min-height: 32px; font-size: 13px; box-shadow: none; }
+html:is([data-style="prism"], [data-style="studio"]) .msg.me.editing { width: min(64ch, 100%); max-width: 100%; border-radius: var(--r-md); }
 html[data-motion="full"] .entry.enter { animation: rise .5s var(--spring) both; }
 html[data-motion="full"] .tcard.changed .chip, html[data-motion="full"] .tcard.changed .st { animation: settle .45s var(--spring) both; }
 html[data-motion="full"] .tcard.finished .st { animation: pop .7s var(--spring) both; }
