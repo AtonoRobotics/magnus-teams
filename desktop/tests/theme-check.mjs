@@ -74,7 +74,7 @@ const os = { dark: false, reduceMotion: false };
 if (Theme.effective({ motion: "full" }, { ...os, reduceMotion: true }).motion !== "reduced") failures.push("the system's reduced motion did not reduce motion");
 if (Theme.effective({ motion: "off" }, { ...os, reduceMotion: true }).motion !== "off") failures.push("the system's reduced motion turned motion back on");
 if (Theme.effective({ mode: "system" }, { ...os, dark: true }).mode !== "dark") failures.push("Match computer did not follow the system into dark");
-if (Theme.effective({}, os).style !== "obsidian" || Theme.effective({}, os).accent !== "graphite") failures.push("Default look is not Obsidian monochrome graphite");
+if (Theme.effective({}, os).style !== "nova" || Theme.effective({}, os).accent !== "blue") failures.push("Default look is not Nova Indigo");
 
 console.log(report.join("\n"));
 if (failures.length) { console.error(`\n${failures.length} below ${MIN}:1 or wrong:\n${failures.join("\n")}`); process.exit(1); }

@@ -137,7 +137,7 @@ const AuroraAvatar = (() => {
    * @param {HTMLElement} slot @param {number} size @param {string} place @param {string} [fixedState]
    */
   function mount(slot, size, place, fixedState) {
-    const avatarName = Theme.avatar(document.documentElement.dataset.style || "") || "";
+    const avatarName = Theme.avatar(document.documentElement.dataset.style || "", document.documentElement.dataset.avatar || "") || "";
     const button = document.createElement("button");
     button.type = "button";
     const placeClass = PLACE_CLASS[/** @type {keyof typeof PLACE_CLASS} */ (place)] || `aurora-avatar-${place}`;
@@ -163,7 +163,7 @@ const AuroraAvatar = (() => {
       if (!m.button.isConnected) { m.avatar.destroy(); mounted.splice(i, 1); }
     }
     if (!on()) { unmountAll(); return; }
-    const want = Theme.avatar(document.documentElement.dataset.style || "") || "";
+    const want = Theme.avatar(document.documentElement.dataset.style || "", document.documentElement.dataset.avatar || "") || "";
     for (const m of mounted) if (m.name !== want) { m.name = want; remount(m); }
     document.querySelectorAll("nav.side .brand .logo").forEach(slot => {
       if (slot.querySelector(":scope > .aurora-avatar")) return;

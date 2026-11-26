@@ -13,32 +13,32 @@
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side [data-nav-toggle] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) nav.side [data-nav-toggle] {
   display: none;
 }
 
 /* ---------- The rail ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side {
   align-items: center;
   gap: 4px;
   padding: 10px 8px;
 }
 
 /* Its icons in one column, in the order the person reaches for them. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side #side {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side #side {
   display: contents;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .brand {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side .brand {
   order: -2;
   margin-bottom: 6px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .new-chat {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side .new-chat {
   order: -1;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .aurora-rail-open {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side .aurora-rail-open {
   position: relative;
   display: inline-grid;
 }
@@ -66,16 +66,16 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigat
 }
 
 /* The tree and Trash are in the full sidebar. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .rail-tree,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .sect:has(> a[href="#/trash"]) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side .rail-tree,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side .sect:has(> a[href="#/trash"]) {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side a:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side a:hover {
   transform: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side :is(.icon-btn, a.primary-nav) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=compact] .shell > nav.side :is(.icon-btn, a.primary-nav) {
   width: 40px;
   height: 40px;
   min-width: 40px;
@@ -83,21 +83,21 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigat
 }
 
 /* ---------- The full sidebar: pinned, or slid in ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .aurora-rail-pin {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=expanded] nav.side .aurora-rail-pin {
   display: inline-grid;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .aurora-rail-pin[aria-pressed="true"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=expanded] nav.side .aurora-rail-pin[aria-pressed="true"] {
   color: var(--accent-text);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .brand-name {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=expanded] nav.side .brand-name {
   flex: 1;
 }
 
 /* It slides in over the stage as a panel of its own, the stage still seen
    around it, and leaves it whole. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .navigation-drawer {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body:not([data-navigation=drawer]) .navigation-drawer {
   inset: 8px auto 8px 8px;
   width: 264px;
   height: auto;
@@ -105,11 +105,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-na
   border-radius: var(--r-lg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .navigation-drawer::backdrop {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body:not([data-navigation=drawer]) .navigation-drawer::backdrop {
   background: rgb(0 0 0 / .22);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] body:not([data-navigation=drawer]) .navigation-drawer[open] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] body:not([data-navigation=drawer]) .navigation-drawer[open] {
   animation: auroraRailIn .26s var(--ease) both;
 }
 
@@ -121,15 +121,15 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 /* Its rows are as tall as their words need on a mouse; a touch screen
    keeps the 44px targets layout.css gives it. */
 @media (pointer: fine) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=expanded] nav.side {
     gap: 8px;
   }
 
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side #side {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=expanded] nav.side #side {
     gap: 2px;
   }
 
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .group {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=expanded] nav.side .group {
     padding: 8px 8px 2px;
   }
 }
@@ -169,8 +169,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   pointer-events: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-avatar[data-state="listening"]::before,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-avatar[data-state="listening"]::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .aurora-avatar[data-state="listening"]::before,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .aurora-avatar[data-state="listening"]::after {
   content: "";
   position: absolute;
   inset: 2px;
@@ -180,16 +180,16 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   animation: auroraVoiceRipple 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-avatar[data-state="listening"]::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .aurora-avatar[data-state="listening"]::after {
   animation-delay: 0.65s;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo:has(> .aurora-avatar) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) nav.side .brand .logo:has(> .aurora-avatar) {
   width: auto;
   height: auto;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo:has(> .aurora-avatar) > svg {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) nav.side .brand .logo:has(> .aurora-avatar) > svg {
   display: none;
 }
 
@@ -204,7 +204,7 @@ nav.side button.aurora-avatar-nav {
   margin: 0 4px 0 2px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .aurora-avatar-bar {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-navigation=drawer] .aurora-avatar-bar {
   display: inline-grid;
 }
 

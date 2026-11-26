@@ -168,24 +168,32 @@ const Projects = (() => {
           <button type="button" class="icon-btn" data-project-delete="${esc(p.id)}" data-project-name="${esc(p.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>
         </div>
       </header>
-      <div class="project-sections">
-        <section class="project-sec">
-          <div class="spread"><h2>Conversations</h2></div>
-          ${p.threads?.length ? `<ul class="tlist">${p.threads.map(t => `<li class="trow"><a href="#/chat/${enc(t.thread)}"><span class="ttl">${esc(t.title)}</span><span class="small faint when">${esc(when(t.updated_at))}</span></a></li>`).join("")}</ul>` : `<p class="empty">No conversations yet. Start one when you're ready — Magnus waits until you ask.</p>`}
-        </section>
-        <section class="project-sec">
-          <div class="spread"><h2>Files</h2>${attachButton("Add files")}</div>
-          ${p.files?.length ? `<ul class="flist">${p.files.map(f => `<li data-project-file="${esc(f.id)}">${fileChip(f)} <span class="small faint">${f.source === "delivered" ? "delivered" : "uploaded"} ${esc(when(f.at))}</span></li>`).join("")}</ul>` : `<p class="small muted">No files yet.</p>`}
-        </section>
-        <details class="project-sec project-instructions"${hasIns ? " open" : ""}>
-          <summary><span>Instructions</span><span class="small muted">${hasIns ? "Active" : "Optional"}</span></summary>
-          <div class="project-ins-body">
-            <textarea id="pin" rows="3" data-draft="pin-${esc(p.id)}" placeholder="Rules or context Magnus should follow in this project…">${esc(p.instructions || "")}</textarea>
-            <div class="row"><button type="button" data-project-save-ins="${esc(p.id)}">Save</button></div>
-          </div>
-        </details>
-        ${hasTasks ? `<section class="project-sec"><h2>Tasks</h2><ul class="tlist">${p.tasks.map(taskRow).join("")}</ul></section>` : ""}
-        ${hasScheds ? `<section class="project-sec"><h2>Routines</h2><ul class="tlist">${p.schedules.map(x => `<li class="trow"><a href="#/schedules" data-open="schedule:${esc(x.id)}"><span class="ttl">${esc(x.title)}</span><span class="small faint when">Next ${esc(until(x.next))}</span></a></li>`).join("")}</ul></section>` : ""}
+      <form class="project-hero-composer" data-project-ask="${esc(p.id)}">
+        <input type="text" name="prompt" placeholder="Ask Magnus anything in ${esc(p.name)}… (nothing runs until you send)" aria-label="Ask Magnus in ${esc(p.name)}" autocomplete="off">
+        <button type="submit" class="primary">Ask Magnus</button>
+      </form>
+      <div class="project-sections project-hub-grid">
+        <div class="project-hub-main">
+          <section class="project-sec">
+            <div class="spread"><h2>Conversations</h2></div>
+            ${p.threads?.length ? `<ul class="tlist">${p.threads.map(t => `<li class="trow"><a href="#/chat/${enc(t.thread)}"><span class="ttl">${esc(t.title)}</span><span class="small faint when">${esc(when(t.updated_at))}</span></a></li>`).join("")}</ul>` : `<p class="empty">No conversations yet. Start one when you're ready — Magnus waits until you ask.</p>`}
+          </section>
+          <section class="project-sec">
+            <div class="spread"><h2>Files</h2>${attachButton("Add files")}</div>
+            ${p.files?.length ? `<ul class="flist">${p.files.map(f => `<li data-project-file="${esc(f.id)}">${fileChip(f)} <span class="small faint">${f.source === "delivered" ? "delivered" : "uploaded"} ${esc(when(f.at))}</span></li>`).join("")}</ul>` : `<p class="small muted">No files yet.</p>`}
+          </section>
+        </div>
+        <div class="project-hub-side">
+          <details class="project-sec project-instructions"${hasIns ? " open" : ""}>
+            <summary><span>Instructions</span><span class="small muted">${hasIns ? "Active" : "Optional"}</span></summary>
+            <div class="project-ins-body">
+              <textarea id="pin" rows="3" data-draft="pin-${esc(p.id)}" placeholder="Rules or context Magnus should follow in this project…">${esc(p.instructions || "")}</textarea>
+              <div class="row"><button type="button" data-project-save-ins="${esc(p.id)}">Save</button></div>
+            </div>
+          </details>
+          ${hasTasks ? `<section class="project-sec"><h2>Tasks</h2><ul class="tlist">${p.tasks.map(taskRow).join("")}</ul></section>` : ""}
+          ${hasScheds ? `<section class="project-sec"><h2>Routines</h2><ul class="tlist">${p.schedules.map(x => `<li class="trow"><a href="#/schedules" data-open="schedule:${esc(x.id)}"><span class="ttl">${esc(x.title)}</span><span class="small faint when">Next ${esc(until(x.next))}</span></a></li>`).join("")}</ul></section>` : ""}
+        </div>
       </div>
     </div>`;
   }
@@ -206,6 +214,16 @@ const Projects = (() => {
     };
     await draw();
     main.onsubmit = async e => {
+      const askForm = /** @type {HTMLElement} */ (e.target).closest?.("[data-project-ask]");
+      if (askForm) {
+        e.preventDefault();
+        const inp = /** @type {?HTMLInputElement} */ ($('input[name="prompt"]', askForm));
+        const text = (inp?.value || "").trim();
+        if (!text) return;
+        App.appSearch = text;
+        location.hash = `#/chat/new/${enc(id)}`;
+        return;
+      }
       const f = /** @type {HTMLElement} */ (e.target).closest?.("[data-project-rename]");
       if (!f) return;
       e.preventDefault();

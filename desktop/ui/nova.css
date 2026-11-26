@@ -1,0 +1,405 @@
+/* Nova greenfield theme (decisions/2026-11-26-nova-theme-and-ux-overhaul.md):
+   Pitch-carbon / clean-light canvas with a dissolving midnight cobalt halo on
+   new conversations, whisper-quiet hover menus in the sidebar, airy editorial
+   reading prose, risk-tiered progressive-disclosure approval cards, borderless
+   matte Settings & Apps catalogs, rounded-24px Explore cards, and Project Hub 2.0. */
+
+@keyframes novaPrismShift {
+  0% { filter: blur(22px) hue-rotate(0deg); }
+  100% { filter: blur(22px) hue-rotate(360deg); }
+}
+
+/* ---------- 1. Pitch-carbon canvas & dissolving midnight cobalt halo ---------- */
+html[data-style="nova"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(56% 50% at 54% 46%, rgba(30, 58, 138, 0.40) 0%, rgba(23, 37, 84, 0.22) 45%, transparent 76%);
+  transition: opacity .65s var(--ease);
+}
+
+html[data-style="nova"][data-mode="light"] body::before {
+  background: radial-gradient(56% 50% at 54% 46%, rgba(99, 132, 255, 0.16) 0%, rgba(147, 197, 253, 0.10) 45%, transparent 76%);
+}
+
+html[data-style="nova"] body[data-nova-intro="on"]::before {
+  opacity: 1;
+}
+
+html[data-style="nova"] .aurora-bg-canvas {
+  opacity: 0.42;
+}
+
+/* ---------- 2. Airy reading typography & matte pill composer ---------- */
+html[data-style="nova"] .msg.magnus {
+  font-size: 15px;
+  line-height: 1.64;
+  max-width: 68ch;
+}
+
+html[data-style="nova"] .say {
+  border-radius: var(--r-composer);
+  background: var(--bubble);
+  border-color: var(--line-strong);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+}
+
+html[data-style="nova"][data-mode="light"] .say {
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
+}
+
+/* ---------- 3. Whisper-quiet sidebar: hover-only delete controls ---------- */
+@media (hover: hover) and (pointer: fine) {
+  html[data-style="nova"] .nav-conv-del,
+  html[data-style="nova"] .nav-row-del {
+    opacity: 0;
+    transition: opacity .16s var(--ease);
+  }
+
+  html[data-style="nova"] .nav-conv-row:hover .nav-conv-del,
+  html[data-style="nova"] .nav-conv-row:focus-within .nav-conv-del,
+  html[data-style="nova"] .nav-project > summary:hover .nav-row-del,
+  html[data-style="nova"] .nav-project > summary:focus-within .nav-row-del {
+    opacity: 1;
+  }
+}
+
+/* ---------- 4. Editorial Prismatic-Halo Intro Showcase (nova-ux.js) ---------- */
+.nova-showcase {
+  width: 100%;
+  max-width: 680px;
+  margin: 20px auto 0;
+}
+
+.nova-prism-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+html[data-style="nova"] .nova-prism-card::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+  border-radius: var(--r-xl);
+  background: conic-gradient(from 140deg at 50% 50%, #3b82f6, #a855f7, #f43f5e, #f59e0b, #10b981, #3b82f6);
+  filter: blur(22px);
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+html[data-style="nova"][data-motion="full"] .nova-prism-card::before {
+  animation: novaPrismShift 14s linear infinite;
+}
+
+.nova-prism-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .22s var(--ease), border-color .18s var(--ease), background-color .18s var(--ease);
+}
+
+.nova-prism-tile:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  background: var(--raised);
+  text-decoration: none;
+}
+
+.nova-prism-wide {
+  grid-column: 1 / -1;
+}
+
+.nova-prism-badge {
+  display: inline-flex;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  margin-bottom: 2px;
+}
+
+.nova-prism-accent-a {
+  background: color-mix(in srgb, #6366f1 14%, var(--surface));
+}
+
+.nova-prism-accent-b {
+  background: color-mix(in srgb, #10b981 13%, var(--surface));
+}
+
+@media (max-width: 640px) {
+  .nova-prism-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- 5. Working-State Tip Carousel (nova-ux.js) ---------- */
+.nova-wait-tips {
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nova-wait-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nova-wait-close {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+}
+
+.nova-wait-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nova-wait-body {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.nova-wait-title {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.nova-wait-copy {
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* ---------- 6. Risk-Tiered Progressive-Disclosure Approvals ---------- */
+.ask-decline-wrap {
+  margin: 2px 0;
+}
+
+.ask-decline-wrap > summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+}
+
+.ask-decline-wrap > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ask-decline-wrap > summary:hover {
+  color: var(--fg);
+}
+
+.ask-decline-wrap[open] > .ask-decline-note {
+  margin-top: 6px;
+  width: 100%;
+}
+
+html[data-style="nova"] .ask[data-tier="financial"],
+html[data-style="nova"] .ask[data-tier="irreversible"] {
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid color-mix(in srgb, var(--bad) 32%, transparent);
+  border-left: 3px solid var(--bad);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--bad) 10%, var(--surface)) 0%, var(--surface) 48%);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--bad) 10%, transparent);
+}
+
+html[data-style="nova"] .ask[data-tier="financial"] .ask-preview,
+html[data-style="nova"] .ask[data-tier="irreversible"] .ask-preview {
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-strong);
+}
+
+html[data-style="nova"] .ask[data-tier="reversible_write"] {
+  padding-left: 14px;
+  border-left: 3px solid var(--warn);
+}
+
+/* ---------- 7. Borderless Matte Settings & Featured Apps Catalog ---------- */
+html[data-style="nova"] .appearance .seg {
+  background: var(--surface);
+  border-color: var(--hair);
+  border-radius: var(--r-pill);
+}
+
+html[data-style="nova"] .appearance .seg button {
+  border-radius: var(--r-pill);
+}
+
+.nova-featured {
+  display: grid;
+  grid-template-columns: minmax(180px, 42%) minmax(0, 58%);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  margin: 14px 0 24px;
+}
+
+.nova-featured-art {
+  display: grid;
+  grid-template-columns: repeat(2, 52px);
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: radial-gradient(circle at 38% 45%, rgba(37, 99, 235, 0.42), rgba(15, 23, 42, 0.92) 78%);
+}
+
+.nova-app-tile {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: rgba(15, 17, 23, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.nova-app-tile:first-child {
+  border-color: #3b82f6;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+.nova-featured-copy {
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.nova-featured-copy h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+html[data-style="nova"] .lcard {
+  border-color: transparent;
+  background: transparent;
+  min-height: 92px;
+  border-radius: var(--r-md);
+}
+
+html[data-style="nova"] .lcard:hover {
+  background: var(--surface);
+}
+
+@media (max-width: 720px) {
+  .nova-featured {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- 8. Project Hub 2.0 (Inline Composer + 2-Column Workspace) ---------- */
+.project-hero-composer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  margin-bottom: 22px;
+  border-radius: var(--r-composer);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.project-hero-composer input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 6px 2px;
+}
+
+.project-hero-composer input:focus {
+  outline: none;
+}
+
+.project-hub-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 62%) minmax(0, 38%);
+  gap: 24px;
+  align-items: start;
+}
+
+.project-hub-main,
+.project-hub-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+html[data-style="nova"] .project-page {
+  max-width: 960px;
+}
+
+html[data-style="nova"] .project-page-head {
+  padding: 20px 22px;
+  border-radius: var(--r-xl);
+  background: linear-gradient(125deg, color-mix(in srgb, var(--accent) 16%, var(--surface)) 0%, var(--surface) 75%);
+  border: 1px solid var(--hair);
+}
+
+@media (max-width: 860px) {
+  .project-hub-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- 9. Companion canvas & accessibility floors ---------- */
+.nova-companion-canvas {
+  display: block;
+  pointer-events: none;
+}
+
+@media (any-pointer: coarse) {
+  .nova-wait-close {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (forced-colors: active) {
+  html[data-style="nova"] body::before,
+  html[data-style="nova"] .nova-prism-card::before {
+    display: none;
+  }
+  .nova-prism-tile,
+  .nova-wait-tips,
+  .nova-featured,
+  .project-hero-composer {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+}

@@ -256,6 +256,8 @@ const makeEl = () => ({ innerHTML: "", isConnected: true, focus() {}, _bySel: ()
 const appEl = makeEl();
 ctx.appearanceSection(appEl);
 assert.match(appEl.innerHTML, /<h3 id="style-h">Theme<\/h3>/);
+assert.match(appEl.innerHTML, /data-look="style" data-value="nova"/);
+assert.match(appEl.innerHTML, /data-look="avatar" data-value="pip"/);
 assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian"/);
 assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian-2"/);
 assert.match(appEl.innerHTML, /data-look="style" data-value="prism"/);
@@ -263,8 +265,11 @@ assert.match(appEl.innerHTML, /data-look="style" data-value="studio"/);
 assert.match(appEl.innerHTML, /data-custom-hex/);
 
 const clickLook = (look, value) => appEl.onclick({ target: { closest: q => q === "[data-look]" ? { dataset: { look, value }, focus() {} } : null } });
+assert.equal(ctx.Theme.prefs().style, "nova");
+assert.equal(ctx.Theme.prefs().accent, "blue");
+clickLook("style", "obsidian");
 assert.equal(ctx.Theme.prefs().style, "obsidian");
-assert.equal(ctx.Theme.prefs().accent, "graphite");
+assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Nova -> Obsidian auto-shifts blue -> graphite");
 clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().style, "prism");
 assert.equal(ctx.Theme.prefs().accent, "blue", "switching Obsidian -> Prism auto-shifts graphite -> blue");

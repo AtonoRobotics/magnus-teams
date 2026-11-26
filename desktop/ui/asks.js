@@ -123,11 +123,13 @@ function askCard(i, canRespond) {
   const d = i.details || {};
   const scope = { allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
   const editBlock = canRespond ? askEditFields(i, d) : "";
-  const declineNote = canRespond ? `<input type="text" class="ask-decline-note" data-draft="rev-${esc(i.id)}" placeholder="Optional note if declining (tells Magnus what to change)…" aria-label="Optional note">` : "";
+  const declineNote = canRespond
+    ? `<details class="ask-decline-wrap" data-ask-decline="${esc(i.id)}"><summary class="small">Add a note if declining</summary><input type="text" class="ask-decline-note" data-draft="rev-${esc(i.id)}" placeholder="Optional note if declining (tells Magnus what to change)…" aria-label="Optional note"></details>`
+    : "";
   const buttons = canRespond
     ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(ASK_LABELS[o])}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
-  return `<div class="ask" data-ask="${esc(i.id)}"${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
+  return `<div class="ask" data-ask="${esc(i.id)}"${i.tier ? ` data-tier="${esc(i.tier)}"` : ""}${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
     ${askTierBadge(i)}
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}

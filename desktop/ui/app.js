@@ -3233,13 +3233,14 @@ function appearanceSection(el) {
   };
   const draw = () => {
     const p = Theme.prefs(), look = Theme.look;
-    const isAurora = p.style === "aurora" || p.style === "obsidian-aurora";
-    const isBlueDefault = p.style === "prism" || p.style === "studio" || p.style === "obsidian-2" || p.style === "aurora";
+    const isStage = Theme.stage(p.style);
+    const isBlueDefault = p.style === "nova" || p.style === "prism" || p.style === "studio" || p.style === "obsidian-2" || p.style === "aurora";
     const defAccent = isBlueDefault ? "blue" : "graphite";
     const defHex = isBlueDefault ? "#7C8CFF" : (look.mode === "light" ? "#111111" : "#F5F5F5");
     const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111111" : a.swatch;
     const currentHex = /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent.toUpperCase() : (Theme.ACCENTS.find(a => a.id === p.accent)?.[look.mode]?.accent || defHex);
     const styleDesc = {
+      nova: "Nova pairs a pitch-carbon canvas and dissolving midnight halo with subtle floating orbs, an expressive companion avatar, borderless matte cards, and the self-composing autonomous stage.",
       obsidian: "Obsidian uses tight architectural corners, flush borders, and a pure black monochrome baseline.",
       "obsidian-2": "Obsidian 2 frames the workspace in a pure black card with a matte sidebar, inline file badges, and a circular send button.",
       "obsidian-aurora": "Obsidian 2 Aurora pairs Obsidian 2's monochrome precision and file badges with floating islands, living presence orbs, and dynamic execution beams.",
@@ -3247,7 +3248,11 @@ function appearanceSection(el) {
       studio: "Studio uses a two-column editorial hero, bento cards, uppercase nav groups, and an elevated pill composer.",
       aurora: "Aurora brings living ambient light shaders, liquid-glass presence orbs, floating workspace islands, and dynamic execution beams across desktop and mobile.",
     }[p.style] || "";
-    const bgPicker = isAurora
+    const companionPicker = isStage && Theme.AVATAR_CHOICES
+      ? `<h3 id="avatar-h">Companion avatar</h3><div class="seg" role="radiogroup" aria-labelledby="avatar-h">${Theme.AVATAR_CHOICES.map(([k, l]) => radio("avatar", k, l)).join("")}</div>
+      <p class="small faint">Reacts live to every state (ready, listening, thinking, working, waiting, done) and follows your focus.</p>`
+      : "";
+    const bgPicker = isStage
       ? `<h3 id="bg-h">Motion background</h3><div class="seg" role="radiogroup" aria-labelledby="bg-h">${Theme.BACKGROUNDS.map(([k, l]) => radio("background", k, l)).join("")}</div>
       <p class="small faint">${esc(Theme.BACKGROUND_HINTS[p.background] || "")}</p>`
       : "";
@@ -3255,6 +3260,7 @@ function appearanceSection(el) {
       ${Theme.saved === false ? `<p class="small" role="status">Appearance changed for this session but was not saved on this device.</p>` : ""}
       <h3 id="style-h">Theme</h3><div class="seg" role="radiogroup" aria-labelledby="style-h">${Theme.STYLES.map(([k, l]) => radio("style", k, l)).join("")}</div>
       <p class="small faint">${esc(styleDesc)}</p>
+      ${companionPicker}
       <h3 id="mode-h">Mode</h3><div class="seg" role="radiogroup" aria-labelledby="mode-h">${Theme.MODES.map(([k, l]) => radio("mode", k, l)).join("")}</div>
       <h3 id="acc-h">Accent color</h3><div class="swatches ag-swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => { const sc = swatchColor(a); return radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${sc};background:${sc}`); }).join("")}<label class="swatch-custom" title="Pick any custom hex color"><span class="swatch-custom-inner" aria-hidden="true">+</span><input type="color" data-custom-accent value="${esc(currentHex)}" aria-label="Custom accent color"></label><div class="hex-box"><span class="hex-dot" aria-hidden="true"></span><input type="text" class="hex-input" data-custom-hex value="${esc(currentHex)}" maxlength="7" aria-label="Custom accent hex"></div>${p.accent !== defAccent ? `<button type="button" class="link small" data-look="accent" data-value="${esc(defAccent)}">Reset to default</button>` : ""}</div>
       <p class="small faint">${isBlueDefault ? "Default uses Indigo." : "Default uses Monochrome graphite."} Custom colors automatically preserve legible contrast.</p>
@@ -3275,7 +3281,7 @@ function appearanceSection(el) {
     b.focus({ preventScroll: true });
     if (b.dataset.look === "style") {
       const nextStyle = b.dataset.value, p = Theme.prefs(), patch = { style: nextStyle };
-      if ((nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2" || nextStyle === "aurora") && p.accent === "graphite") patch.accent = "blue";
+      if ((nextStyle === "nova" || nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2" || nextStyle === "aurora") && p.accent === "graphite") patch.accent = "blue";
       else if (nextStyle === "obsidian" && p.accent === "blue") patch.accent = "graphite";
       Theme.set(patch);
       return;

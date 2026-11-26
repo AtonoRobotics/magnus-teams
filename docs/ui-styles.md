@@ -22,6 +22,7 @@ kind of style lives, so a change goes in one place and shows.
 | Aurora's stage: the one frame the conversation and the canvas share, the boxes above the input (decisions with their answers, messages among them), the artifact canvas, and Explore as the mockup's bento | `aurora-stage.css` |
 | Aurora's rail: the navigation as icons, the full sidebar sliding in over the stage when asked for, and pinned beside it; the avatar's button | `aurora-rail.css` |
 | Aurora, compact: thin scrollbars in the theme's colours that show over what they scroll; the composer's model and reasoning as one chip; the close every page that takes the conversation's place has | `aurora-compact.css` |
+| Nova: pitch-carbon / clean-light greenfield theme, dissolving midnight cobalt halo, prismatic editorial showcase, working-state tip carousel, risk-tiered approvals, borderless matte catalogs, and Project Hub 2.0 | `nova.css` |
 
 `index.html` loads the sheets in that order, and later wins a tie. The
 server serves each of them (`crates/magnus/src/ui/assets.rs`), and the

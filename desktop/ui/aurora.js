@@ -68,7 +68,7 @@
   let parY = 0;
 
   function styleName() { return document.documentElement.dataset.style || ""; }
-  function isDynamicStyle() { const s = styleName(); return s === "aurora" || s === "obsidian-aurora"; }
+  function isDynamicStyle() { const s = styleName(); return typeof Theme !== "undefined" && typeof Theme.stage === "function" ? Theme.stage(s) : (s === "aurora" || s === "obsidian-aurora" || s === "nova"); }
   function statePalette() { return styleName() === "obsidian-aurora" ? OBSIDIAN_STATES : AURORA_STATES; }
   function isLight() { return document.documentElement.dataset.mode === "light"; }
   function motionMode() { return document.documentElement.dataset.motion || "full"; }
