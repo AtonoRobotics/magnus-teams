@@ -11,8 +11,8 @@ use serde_json::json;
 use std::time::Duration;
 
 /// How often, and how many times, a test looks for a run to stop.
-const POLL_EVERY: Duration = Duration::from_millis(20);
-const POLLS: u32 = 500;
+pub(crate) const POLL_EVERY: Duration = Duration::from_millis(20);
+pub(crate) const POLLS: u32 = 500;
 
 /// mo's run, stopped by its driver (this server has no model) and set
 /// running again with no driver, so the test's own actions are its next.

@@ -141,6 +141,9 @@ pub(super) static DECLS: &[Decl] = &[
     Decl::record("interrupt", ALWAYS, |_| obj(json!({ "what": { "type": "string" }, "why": { "type": "string" } }), &["what", "why"])),
     Decl::tool("web_fetch", WEB, Exec::Core(Op::WebFetch), ALWAYS, |_| obj(json!({ "url": { "type": "string" } }), &["url"])).doing(PAGE_WORDS).web(WebRead::OpensUrl).in_team(),
     Decl::tool("memory_write", MEMORY, Exec::Core(Op::MemoryWrite), ALWAYS, |_| obj(json!({ "fact": { "type": "string" }, "topic": { "type": "string" } }), &["fact"])),
+    // A remembered fact that is wrong or taken back, by the id shown with
+    // it: into the person's trash, where they can restore it.
+    Decl::tool("memory_forget", MEMORY, Exec::Core(Op::MemoryForget), ALWAYS, |_| obj(json!({ "id": { "type": "string" } }), &["id"])),
     // The person's relationship memory (behavior spec, Per-user
     // relationship): their own notes, on the server, versioned.
     Decl::tool("relationship_note", MEMORY, Exec::Core(Op::Relationship), ALWAYS, |_| {

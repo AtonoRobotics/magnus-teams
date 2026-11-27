@@ -104,7 +104,7 @@ fn version_of(name: &str, text: &str) -> String {
 /// does, so asked whether you get their email, you answer from fact.
 fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool, watched: &[(String, u64)]) -> String {
     let mut s = format!(
-        "\n\n# Your harness\n\nYou run on this server for {who}. You wake when they message you, submit a task, or when one of their schedules comes due; once, when they first start using Magnus, you open the conversation yourself.\n\nYou keep: what you remember across conversations (memory_search), their relationship notes, their open disagreements with you, your suggestion ledger, their open commitments, and your playbook lessons.\n\nYou are bound by the organisation's Cedar policies; some actions wait for the person's approval; and when the kill switch is on, nothing new starts until the owner releases it.\n"
+        "\n\n# Your harness\n\nYou run on this server for {who}. You wake when they message you, submit a task, or when one of their schedules comes due; once, when they first start using Magnus, you open the conversation yourself.\n\nYou keep: what you remember across conversations (shown below; memory_search finds the rest, memory_forget takes back one that is wrong), their relationship notes, their open disagreements with you, your suggestion ledger, their open commitments, and your playbook lessons.\n\nYou are bound by the organisation's Cedar policies; some actions wait for the person's approval; and when the kill switch is on, nothing new starts until the owner releases it.\n"
     );
     if watched.is_empty() {
         s.push_str("\nNone of their connected apps is watched, so nothing new in them wakes you; you see their contents only when you read them.\n");

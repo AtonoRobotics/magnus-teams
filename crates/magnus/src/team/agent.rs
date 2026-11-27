@@ -296,6 +296,7 @@ mod tests {
         for t in [
             "memory_search",
             "memory_write",
+            "memory_forget",
             "browser_as_click",
             "browser_sign_in",
             "local_read_file",

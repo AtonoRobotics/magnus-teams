@@ -32,6 +32,7 @@ pub(crate) enum Op {
     Computer,
     DeliverFile,
     MemoryWrite,
+    MemoryForget,
     MemorySearch,
     KnowledgeSearch,
     Bundle,
@@ -48,7 +49,7 @@ pub(crate) enum Op {
 
 /// Every op, for the test that each is declared: a new one is added here too.
 #[cfg(test)]
-pub(crate) const ALL: [Op; 31] = [
+pub(crate) const ALL: [Op; 32] = [
     Op::WebFetch,
     Op::WebSearch,
     Op::CreateTask,
@@ -68,6 +69,7 @@ pub(crate) const ALL: [Op; 31] = [
     Op::Computer,
     Op::DeliverFile,
     Op::MemoryWrite,
+    Op::MemoryForget,
     Op::MemorySearch,
     Op::KnowledgeSearch,
     Op::Bundle,
@@ -245,6 +247,7 @@ impl Kernel {
                 Ok((format!("remembered ({id})"), false, None))
             }
             // execute() answers memory_search itself, with its taint from the same lookup.
+            Op::MemoryForget => Ok(self.memory_forget(&a.run, &s("id")).await?),
             Op::MemorySearch => Ok(crate::boundary::memory_result(&self.memory_hits(&a.run, &s("query")).await?)),
             Op::KnowledgeSearch => Ok(self.knowledge_search(&a.run, &s("query")).await?),
             Op::Bundle => Ok(self.bundle_tool(&a.run, &a.tool, &a.input).await?),
@@ -319,11 +322,12 @@ impl Kernel {
     }
 }
 
-/// How many memories a run has written: its memory writes that were done,
-/// the model's and the memory pass's. A memory forgotten or deleted since
-/// still counts, so forgetting does not make room under the cap.
-fn memories_written(run: &crate::state::Run) -> usize {
-    run.intents.values().filter(|i| i.tool == "memory_write" && i.result.as_ref().is_some_and(|r| !r.is_error && r.status == "done")).count()
+/// How many changes a run has made to memory: its memory writes and
+/// forgets that were done, the model's and the memory pass's. A memory
+/// forgotten or restored since still counts, so neither makes room under
+/// the cap.
+pub(crate) fn memories_written(run: &crate::state::Run) -> usize {
+    run.intents.values().filter(|i| (i.tool == "memory_write" || i.tool == "memory_forget") && i.result.as_ref().is_some_and(|r| !r.is_error && r.status == "done")).count()
 }
 
 #[cfg(test)]

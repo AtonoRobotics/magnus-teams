@@ -539,8 +539,8 @@ impl Kernel {
             let why = format!("{} does not have access to {} (identity-provider groups)", person.id, f.app);
             return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
         }
-        if a.issuer == Issuer::Memory && f.name != "memory_write" {
-            return Ok(Err(self.deny(a, "policy", "the memory pass may only write memory", false, None).await?));
+        if a.issuer == Issuer::Memory && f.name != "memory_write" && f.name != "memory_forget" {
+            return Ok(Err(self.deny(a, "policy", "the memory pass may only write and forget memory", false, None).await?));
         }
         // The person's own memory is not the world: writing it sends nothing (M1).
         let own_memory = f.connector.is_none() && f.app == "memory";

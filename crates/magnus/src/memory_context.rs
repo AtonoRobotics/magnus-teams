@@ -37,8 +37,8 @@ pub(crate) fn section(facts: &[Remembered]) -> String {
     let mut more = 0;
     for f in facts.iter().rev() {
         let line = match &f.topic {
-            Some(topic) => format!("- {} ({topic})\n", f.fact.trim()),
-            None => format!("- {}\n", f.fact.trim()),
+            Some(topic) => format!("- [{}] {} ({topic})\n", f.entry.id, f.fact.trim()),
+            None => format!("- [{}] {}\n", f.entry.id, f.fact.trim()),
         };
         if f.entry.label.untrusted || f.entry.label.private || lines.len() + line.len() > MAX_LOADED_MEMORY_BYTES {
             more += 1;
@@ -49,7 +49,7 @@ pub(crate) fn section(facts: &[Remembered]) -> String {
     if lines.is_empty() && more == 0 {
         return String::new();
     }
-    let mut s = String::from("\n\n# What you remember about this person\n\nFacts they told you in earlier conversations, newest first. Use them where they bear on what they ask, without being asked and without reciting them. When they correct one, remember the correction.\n\n");
+    let mut s = String::from("\n\n# What you remember about this person\n\nFacts they told you in earlier conversations, newest first. Use them where they bear on what they ask, without being asked and without reciting them. When they correct one or take it back, forget it with memory_forget (its id is in brackets), and remember the correction.\n\n");
     s.push_str(&lines);
     if more > 0 {
         s.push_str(&format!("\n{more} more remembered facts are not shown here; memory_search finds them.\n"));

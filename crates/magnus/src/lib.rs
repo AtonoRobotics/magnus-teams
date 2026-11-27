@@ -99,6 +99,7 @@ pub mod mail_settings;
 pub mod mailer;
 pub mod measured;
 pub mod memory_context;
+pub mod memory_forget;
 pub mod memory_fresh_start;
 pub mod memory_index;
 pub mod mental_model;
