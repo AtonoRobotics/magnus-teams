@@ -7,3 +7,5 @@
 **Not one run per commit.** Running every commit's checks side by side, in a group per commit, would give each commit its own verdict. But runs that finish out of order would start releases out of order, and an older commit could replace a newer one on the server. One run at a time keeps releases in commit order. A commit skipped in the queue is checked as part of the next one.
 
 **Cost.** A push can wait up to one run, about five to ten minutes, before its own run starts.
+
+**Replaced** the same day by decisions/2026-11-27-fast-runs-fifo.md: one waiting run per group dropped the pushes in between.

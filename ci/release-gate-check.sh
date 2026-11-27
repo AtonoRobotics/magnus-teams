@@ -4,7 +4,8 @@
 #   - release.yml starts when the "fast" workflow completes on main, not on
 #     the push, and builds only when that run passed;
 #   - release.yml checks out the commit the fast run checked;
-#   - fast.yml runs queue per branch, never cancelling the run in progress;
+#   - fast.yml runs are a FIFO queue: one per push, none cancelled or
+#     replaced, completing in push order;
 #   - fast.yml and a manual release run the same script, ci/fast.sh;
 #   - ci/fast.sh runs every desktop/tests/*-check.mjs and every ci/*-check.sh.
 # It reads the files only; nothing is built or run.
@@ -34,16 +35,22 @@ checkouts=$(grep -c 'uses: actions/checkout@' "$release")
 refs=$(grep -cF 'ref: ${{ github.event.workflow_run.head_sha || github.sha }}' "$release")
 [ "$checkouts" -gt 0 ] && [ "$checkouts" -eq "$refs" ] || bad "release.yml has $checkouts checkouts and $refs of the fast run's commit"
 
-# Fast runs queue per branch: a newer push never cancels the run in progress
-# (decisions/2026-11-27-fast-runs-queue.md).
+# Fast runs are a first-in, first-out queue: each push has a group of its own
+# commit, so none is cancelled or replaced, and the in-order job makes runs
+# complete in push order (decisions/2026-11-27-fast-runs-fifo.md).
 fast_conc=$(awk '/^concurrency:/ { c = 1; next } c && /^[^ #]/ { exit } c' "$fast")
-case $fast_conc in *'group: fast-${{ github.ref }}'*) ;; *) bad "fast.yml's runs do not share one queue per branch" ;; esac
+case $fast_conc in *'group: fast-${{ github.ref }}-${{ github.sha }}'*) ;; *) bad "fast.yml's concurrency group is not one per commit, so a newer push can replace a waiting one" ;; esac
 case $fast_conc in *"cancel-in-progress: false"*) ;; *) bad "fast.yml lets a newer push cancel the run in progress" ;; esac
+in_order=$(awk '/^  in-order:/ { j = 1; next } j && /^  [a-z]/ { exit } j' "$fast")
+case $in_order in *"needs: fast"*) ;; *) bad "fast.yml has no in-order job after the fast job" ;; esac
+case $in_order in *"if: always()"*) ;; *) bad "fast.yml's in-order job does not run when the checks fail" ;; esac
+case $in_order in *'sh ci/fast-wait-previous.sh "$REPOSITORY" "$PREVIOUS_SHA"'*) ;; *) bad "fast.yml's in-order job does not wait for the previous push's run" ;; esac
+case $in_order in *'PREVIOUS_SHA: ${{ github.event.before }}'*) ;; *) bad "fast.yml's in-order job does not wait on the commit before the push" ;; esac
 
 # One list of checks.
 grep -qx 'name: fast' "$fast" || bad "fast.yml is not named 'fast', which release.yml waits for"
 has "$fast" 'run: sh ci/fast.sh' || bad "fast.yml does not run ci/fast.sh"
-others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' || true)
+others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' | grep -vF 'sh ci/fast-wait-previous.sh' || true)
 [ -z "$others" ] || bad "fast.yml runs checks outside ci/fast.sh: $others"
 has "$release" 'run: sh ci/fast.sh' || bad "a manual release does not run ci/fast.sh"
 has "$script" 'for f in desktop/tests/*-check.mjs; do' || bad "ci/fast.sh does not run every desktop/tests/*-check.mjs"

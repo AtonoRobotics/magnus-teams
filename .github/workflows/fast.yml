@@ -15,21 +15,22 @@
 # (decisions/2026-11-20-release-waits-for-fast.md). The workflow's name,
 # "fast", is what release.yml waits for; renaming it stops releases.
 #
-# Runs on one branch queue: a run in progress always finishes, and a push
-# waits for it. GitHub keeps one waiting run per group, the newest push, which
-# contains every commit before it. Cancelling the run in progress let pushes
-# three minutes apart keep main from ever being checked or released
-# (decisions/2026-11-27-fast-runs-queue.md). One run at a time also keeps
-# releases in commit order.
+# Runs are a first-in, first-out queue (decisions/2026-11-27-fast-runs-fifo.md).
+# Every push gets its own run, in a concurrency group of its own commit, so
+# no push is cancelled or replaced and each gets its own verdict. The checks
+# run in parallel; the last job, `in-order`, waits until the previous push's
+# run has completed. Runs therefore complete in push order, and so do the
+# releases that start on their completion.
 name: fast
 on:
   push:
   workflow_dispatch:
 concurrency:
-  group: fast-${{ github.ref }}
+  group: fast-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 permissions:
   contents: read
+  actions: read
 env:
   CARGO_TERM_COLOR: always
 jobs:
@@ -58,3 +59,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Every check is in ci/fast.sh, which a manual release runs too.
       - run: sh ci/fast.sh
+  in-order:
+    # Waits, whatever this run's verdict, for the previous push's run to
+    # complete, so runs complete in push order. The run's verdict stays the
+    # fast job's.
+    needs: fast
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - name: Wait for the previous push's run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PREVIOUS_SHA: ${{ github.event.before }}
+        run: sh ci/fast-wait-previous.sh "$REPOSITORY" "$PREVIOUS_SHA"
