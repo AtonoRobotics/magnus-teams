@@ -12,8 +12,8 @@ export const APP_MODULES = [
   "app-polling.js",
   "app-chat.js",
   "app-inbox.js",
-  "app-panel.js",
   "app-library.js",
+  "app-panel.js",
   "app-settings.js",
   "app-boot.js",
 ];
