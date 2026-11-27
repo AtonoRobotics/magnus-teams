@@ -138,7 +138,8 @@ assert.match(ui("nova-shell.css"), /--nav-width: 60px/, "Nova's compact rail is 
 assert.doesNotMatch(novaAll, /(?:width|--nav-width)\s*:\s*64px/, "no Nova sheet hard-codes the shared 64px rail width");
 assert.match(ui("nova.css"), /html\[data-style="nova"\] \.nav-inbox-count \{\s*background: var\(--warn\);/, "Nova's inbox badge is amber");
 
-// 13. Apps & Skills cards stack their head, text and foot.
-assert.match(ui("nova.css"), /html\[data-style="nova"\] \.lcard \{\s*flex-direction: column;/, "Nova's app cards stack head, text and foot");
+// 13. Apps & Skills rows are the mockup's .cat-row: tile, name over a
+// one-line summary, then the action, on a 40px / text / auto grid.
+assert.match(ui("nova.css"), /html\[data-style="nova"\] #lib-sections \.lcard \{\s*display: grid;\s*grid-template-columns: 40px minmax\(0, 1fr\) auto;/, "Nova's app rows are the mockup's catalog rows");
 
 console.log("nova theme & overhaul check ok");
