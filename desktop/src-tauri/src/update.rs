@@ -13,8 +13,9 @@
 //! AppImage updates itself (a .deb is updated with the package manager).
 
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -22,11 +23,29 @@ use tauri_plugin_updater::UpdaterExt;
 /// every app within the hour, and a look is one small request.
 const EVERY: Duration = Duration::from_secs(3600);
 
+/// How long the page has, from the app's start, to say it works (its first
+/// screen drawn with no error while its scripts loaded). A page that has not
+/// said so by then is broken: the "Restart to update" button it would draw
+/// is not there, so the app installs a downloaded release on its own.
+const PAGE_WORKS_WAIT: Duration = Duration::from_secs(90);
+
+/// How often an app whose page is broken looks for a release that mends it.
+const BROKEN_PAGE_LOOK_EVERY: Duration = Duration::from_secs(5 * 60);
+
 #[derive(Default)]
 pub struct Updates {
     ready: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
     error: Mutex<Option<String>>,
     looked: Mutex<Option<String>>,
+    page_works: AtomicBool,
+}
+
+/// Whether to install a downloaded release without the person's click:
+/// only when the page has not said it works within `PAGE_WORKS_WAIT`, as on
+/// 0.2.6-test.380, whose page stopped while loading and left the app an
+/// empty window that could not offer the update that mended it.
+fn install_unasked(page_works: bool, since_start: Duration, update_ready: bool) -> bool {
+    !page_works && since_start >= PAGE_WORKS_WAIT && update_ready
 }
 
 /// Whether this copy of the app can replace itself.
@@ -106,6 +125,42 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
     });
 }
 
+/// Watch for a page that never says it works, and when it has not, install
+/// a downloaded release unasked: the page is what offers "Restart to
+/// update", so a release whose page breaks would otherwise keep the app on
+/// it until the person reinstalled by hand. Stops once the page works.
+pub fn watch_page<R: Runtime>(handle: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let started = Instant::now();
+        tokio::time::sleep(PAGE_WORKS_WAIT).await;
+        loop {
+            let ups = handle.state::<Updates>();
+            if ups.page_works.load(Ordering::SeqCst) {
+                return;
+            }
+            let r = look(&handle).await;
+            if let Ok(mut e) = ups.error.lock() {
+                *e = r.err();
+            }
+            let ready = ups.ready.lock().map(|r| r.is_some()).unwrap_or(false);
+            if install_unasked(ups.page_works.load(Ordering::SeqCst), started.elapsed(), ready) {
+                if let Err(e) = install(&handle) {
+                    if let Ok(mut err) = ups.error.lock() {
+                        *err = Some(e);
+                    }
+                }
+            }
+            tokio::time::sleep(BROKEN_PAGE_LOOK_EVERY).await;
+        }
+    });
+}
+
+/// The page drew its first screen with no error while its scripts loaded.
+#[tauri::command]
+pub fn page_works<R: Runtime>(handle: AppHandle<R>) {
+    handle.state::<Updates>().page_works.store(true, Ordering::SeqCst);
+}
+
 fn whats_new_file<R: Runtime>(handle: &AppHandle<R>) -> Option<std::path::PathBuf> {
     handle.path().app_config_dir().ok().map(|d| d.join("whats-new.json"))
 }
@@ -135,9 +190,15 @@ pub async fn update_look<R: Runtime>(handle: AppHandle<R>) -> Result<Value, Stri
 /// Install the downloaded release and restart into it.
 #[tauri::command]
 pub async fn update_install<R: Runtime>(handle: AppHandle<R>) -> Result<(), String> {
+    install(&handle)
+}
+
+/// Install the downloaded release and restart into it: on the person's
+/// click, or unasked when the page is broken (`watch_page`).
+fn install<R: Runtime>(handle: &AppHandle<R>) -> Result<(), String> {
     let ups = handle.state::<Updates>();
     let Some((update, bytes)) = ups.ready.lock().unwrap().take() else { return Err("no update is ready".into()) };
-    if let Some(f) = whats_new_file(&handle) {
+    if let Some(f) = whats_new_file(handle) {
         if let Some(d) = f.parent() {
             let _ = std::fs::create_dir_all(d);
         }
@@ -168,4 +229,29 @@ pub fn whats_new<R: Runtime>(handle: AppHandle<R>, again: Option<bool>) -> Optio
     let v = read(&pending)?;
     let _ = std::fs::rename(&pending, &shown);
     Some(v)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_page_that_never_works_gets_the_downloaded_release_unasked() {
+        assert!(install_unasked(false, PAGE_WORKS_WAIT, true));
+    }
+
+    #[test]
+    fn a_working_page_waits_for_the_persons_click() {
+        assert!(!install_unasked(true, PAGE_WORKS_WAIT * 10, true));
+    }
+
+    #[test]
+    fn a_page_still_starting_is_given_its_time() {
+        assert!(!install_unasked(false, PAGE_WORKS_WAIT - Duration::from_secs(1), true));
+    }
+
+    #[test]
+    fn nothing_is_installed_before_a_release_is_downloaded() {
+        assert!(!install_unasked(false, PAGE_WORKS_WAIT * 10, false));
+    }
 }

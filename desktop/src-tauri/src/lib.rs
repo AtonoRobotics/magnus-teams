@@ -671,6 +671,7 @@ pub fn run() {
         .setup(|app| {
             let _ = VERSION.set(app.package_info().version.to_string());
             update::start(app.handle().clone());
+            update::watch_page(app.handle().clone());
             look::start_solid(app);
             bridge::start(app.handle().clone());
             Ok(())
@@ -682,7 +683,7 @@ pub fn run() {
             use tauri::Manager;
             frames::serve(&ctx.app_handle().state::<frames::Frames>(), request.uri().path())
         })
-        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, bridge::desktop_device, bridge::desktop_refresh, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::whats_new, look::set_background, look::system_look])
+        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, bridge::desktop_device, bridge::desktop_refresh, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::page_works, update::whats_new, look::set_background, look::system_look])
         .run(tauri::generate_context!())
         .expect("start the Magnus app");
 }

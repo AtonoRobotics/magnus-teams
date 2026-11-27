@@ -5,6 +5,22 @@
 // page cannot set.
 "use strict";
 
+// Errors while the page's scripts load. A page with one did not load whole
+// (0.2.6-test.380 stopped at a name used before its script, and showed an
+// empty window), so it never tells the app it works (`pageWorks`), and the
+// app installs a downloaded release on its own (update.rs, watch_page).
+/** @type {string[]} */
+const loadErrors = [];
+{
+  const record = (/** @type {any} */ e) => { loadErrors.push(String(e?.message || e?.reason || e)); };
+  window.addEventListener("error", record);
+  window.addEventListener("unhandledrejection", record);
+  document.addEventListener("DOMContentLoaded", () => {
+    window.removeEventListener("error", record);
+    window.removeEventListener("unhandledrejection", record);
+  }, { once: true });
+}
+
 class ApiError extends Error {
   constructor(status, message, body) { super(message); this.status = status; this.body = body; }
 }
@@ -129,6 +145,9 @@ const appBridge = tauri && {
   async updateState() { return this.invoke("update_state"); },
   async updateLook() { return this.invoke("update_look"); },
   async updateInstall() { return this.invoke("update_install"); },
+  // The first screen is drawn: tell the app this page works, unless a
+  // script failed while loading.
+  pageWorks() { if (!loadErrors.length) this.invoke("page_works").catch(() => {}); },
   // `again`: also after it was shown once (for Settings).
   async whatsNew(again = false) { return this.invoke("whats_new", { again }); },
   onUpdateReady(fn) { tauri.event.listen("update-ready", e => fn(e.payload)); },
@@ -224,6 +243,7 @@ const webBridge = {
   // The appliance serves this page, so it is always the appliance's own version.
   async updateState() { return null; },
   async updateLook() { return null; },
+  pageWorks() {},
   async whatsNew() { return null; },
   onUpdateReady() {},
   // A browser draws the page itself: there is no window to color.

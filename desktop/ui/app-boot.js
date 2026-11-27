@@ -54,6 +54,7 @@ async function updateRequiredScreen(info) {
   stop();
   document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><h3>Update required</h3>
     <p class="muted">${esc(info?.error || "The server needs a newer version of this app.")}</p><div class="card" id="ur"></div></div>`;
+  Magnus.pageWorks();
   const draw = async () => {
     let st = null;
     try { st = await Magnus.updateState(); } catch { /* shown below */ }
@@ -90,6 +91,7 @@ async function boot() {
   if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", () => { canRead(); App.redraw?.(); });
   shell();
   adminStart();
+  Magnus.pageWorks();
   window.onhashchange = go;
   Magnus.onUpdateReady(() => refreshUpdate());
   refreshUpdate(true);

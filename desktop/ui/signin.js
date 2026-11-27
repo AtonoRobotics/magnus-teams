@@ -4,6 +4,7 @@
 
 async function signInScreen(note) {
   document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><p class="muted">Sign in to your server.</p><div class="card" id="si"></div></div>`;
+  Magnus.pageWorks();
   const box = $("#si");
   // Signed in. Pair this computer for the public name once, on the private
   // address; a failure is said and sign-in still stands.
