@@ -1,7 +1,7 @@
 //! Relay `/v1/events` SSE invalidation frames to the desktop app's WebView.
 
 use crate::{App, Res};
-use futures::StreamExt;
+use futures_util::StreamExt;
 use serde_json::Value;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
