@@ -14,7 +14,16 @@ use serde_json::{json, Value};
 const AGED: &str = "UPDATE public.events SET at = '2026-11-01T00:00:00Z' WHERE kind = 'memory' AND body->>'id' LIKE 'm_old%'";
 
 fn memory(id: &str, fact: &str) -> Ev {
-    Ev::Memory { id: id.into(), person: "mo".into(), run: String::new(), fact: fact.into(), topic: None, label: Label::default(), sources: vec![], by: None }
+    Ev::Memory(crate::events::MemoryPayload {
+        id: id.into(),
+        person: "mo".into(),
+        run: String::new(),
+        fact: fact.into(),
+        topic: None,
+        label: Label::default(),
+        sources: vec![],
+        by: None,
+    })
 }
 
 /// A server whose log holds two memories of mo's filed before the update,
