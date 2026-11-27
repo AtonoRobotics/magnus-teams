@@ -1172,7 +1172,7 @@ async function refresh() {
       if (App.tasks) UIStore.setTasks(App.tasks);
       UIStore.patch({
         route: location.hash || "",
-        asks: Array.isArray(App.asks) ? App.asks : [],
+        asks: typeof needsMe === "function" ? needsMe() : [],
         connectedApps: (App.connectors || []).filter(c => c.connected).map(c => c.name || c.id).filter(Boolean),
       });
     }
@@ -1615,7 +1615,7 @@ function entry(e, ui = {}) {
     case "opener": return `<div class="msg magnus" data-opener><div class="small faint">Magnus · ${esc(when(e.at))}</div><div class="small muted">${e.app_title ? `You connected ${esc(e.app_title)}, so I had a look at what I could take over there.` : "You are new here, so I had a look at what I could take over for you."}</div></div>`;
     case "turn": return e.status === "failed" || e.status === "cancelled"
       ? `<div class="msg magnus"><div class="small bad">Could not answer: ${esc(e.text || e.status)}</div></div>`
-      : `<div class="msg magnus"><div class="small faint">${e.status === "running" ? "Working on an answer…" : esc(WAITING[e.waiting_on] || "paused")}</div>${e.status === "running" ? `<div class="pre" data-live="${esc(e.task_id)}"></div>` : ""}</div>${waitingCard(e.waiting_item, ui)}`;
+      : `<div class="msg magnus"><div class="small faint">${e.status === "running" ? "Working on an answer…" : esc(WAITING[e.waiting_on] || "paused")}</div>${typeof PlanSurface !== "undefined" ? PlanSurface.renderLiveCard(e.task_id) : ""}${e.status === "running" ? `<div class="pre" data-live="${esc(e.task_id)}"></div>` : ""}</div>${waitingCard(e.waiting_item, ui)}`;
     case "tasks": {
       const done = e.tasks.filter(t => t.status === "completed").length, need = e.tasks.filter(needsYou).length;
       const showHead = e.tasks.length > 1 || need > 0;

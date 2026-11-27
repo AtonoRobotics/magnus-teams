@@ -19,7 +19,10 @@ async function pollInbox() {
     // Each item is considered once, so turning a kind on later does not
     // bring back everything already waiting.
     const fresh = needsMe().filter(i => !told.has(i.id));
-    for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox", blocking: !!i.blocking });
+    for (const i of fresh.filter(wants)) {
+      const mobileHref = i.blocking && typeof window !== "undefined" && window.innerWidth <= 760 ? `#/approve?ask=${enc(i.id)}` : "#/inbox";
+      Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: mobileHref, blocking: !!i.blocking });
+    }
     // Ideas waiting in Explore: only notify while open suggestions still wait.
     const hasOpenIdeas = ExploreIdeas.open(items).length > 0;
     const ideas = hasOpenIdeas ? items.filter(i => ExploreIdeas.isNotice(i) && i.status === "open" && !told.has(i.id)) : [];

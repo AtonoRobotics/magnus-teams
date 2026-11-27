@@ -84,6 +84,7 @@ const appBridge = tauri && {
   async localStart(how) { return this.invoke("local_start", how); },
   async localPause(paused) { return this.invoke("local_pause", { paused }); },
   async localStop() { return this.invoke("local_stop"); },
+  async pickFolder() { return this.invoke("pick_folder").catch(() => null); },
   // This computer as the bridge to its programs names it: { id, name }.
   async desktopDevice() { return this.invoke("desktop_device"); },
   // Report this computer's programs again now, after a consent.

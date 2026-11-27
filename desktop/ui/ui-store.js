@@ -78,11 +78,12 @@ const UIStore = (() => {
   /** Store or update a single task snapshot and track completion transitions.
    * @param {any} task */
   function setTask(task) {
-    if (!task || !task.id) return;
-    const prev = state.tasksById[task.id];
+    const id = task?.task_id || task?.id;
+    if (!id) return;
+    const prev = state.tasksById[id];
     const now = Date.now();
-    state.tasksById = { ...state.tasksById, [task.id]: task };
-    state.taskUpdatedAt[task.id] = now;
+    state.tasksById = { ...state.tasksById, [id]: task };
+    state.taskUpdatedAt[id] = now;
     hydrated = true;
     const prevStatus = prev?.status || "";
     const nextStatus = task.status || "";
@@ -100,14 +101,15 @@ const UIStore = (() => {
     const now = Date.now();
     const next = { ...state.tasksById };
     for (const t of list) {
-      if (!t || !t.id) continue;
-      const prev = next[t.id];
+      const id = t?.task_id || t?.id;
+      if (!id) continue;
+      const prev = next[id];
       if (prev && prev.status !== t.status && ["running", "working", "queued", "suspended"].includes(prev.status)) {
         if (t.status === "completed") ending = { state: "done", until: now + STORE_DONE_HOLD_MS };
         else if (t.status === "failed") ending = { state: "failed", until: now + STORE_FAILED_HOLD_MS };
       }
-      next[t.id] = t;
-      state.taskUpdatedAt[t.id] = now;
+      next[id] = t;
+      state.taskUpdatedAt[id] = now;
     }
     state.tasksById = next;
     hydrated = true;
