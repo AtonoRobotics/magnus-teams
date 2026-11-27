@@ -234,6 +234,37 @@ try {
     sent: [...document.querySelectorAll("#thread .msg.me")].map(m => (m.textContent || "").trim()).some(t => t.includes("interactive summary dashboard")),
   }));
   check("the Live Workspace tile starts the work in a conversation", () => assert.ok(/^#\/chat\/(?!new)/.test(launched.hash) && launched.sent, JSON.stringify(launched)));
+  // On a touchscreen, a connected app's check and another app's + line up:
+  // each action is one box with its mark centred (owner's touchscreen laptop,
+  // 2026-11-27: the checks sat 12px left of the +).
+  const touch = await browser.newContext({ hasTouch: true, viewport: { width: 1344, height: 860 } });
+  const tp = await touch.newPage();
+  tp.on("pageerror", e => errors.push(e.message));
+  await tp.goto(process.env.MAGNUS_URL || "");
+  await tp.getByLabel("Username").fill("alice");
+  await tp.getByLabel("Password").fill(process.env.MAGNUS_PASSWORD || "");
+  await tp.getByRole("button", { name: "Sign in", exact: true }).click();
+  await tp.locator("#msg").waitFor();
+  await tp.evaluate(() => { Theme.set({ style: "nova", mode: "dark", motion: "reduced", sidebar: "rail" }); location.hash = "#/library"; });
+  await tp.locator("#lib-sections .lgrid .lcard").first().waitFor();
+  const marks = await tp.evaluate(() => {
+    const grid = /** @type {HTMLElement} */ (document.querySelector("#lib-sections .lgrid"));
+    const c = App.connectors[0];
+    grid.insertAdjacentHTML("afterbegin", connectorCard({ ...c, state: "connected", more_access: false }) + connectorCard({ ...c, state: "not_connected" }));
+    return {
+      coarse: matchMedia("(any-pointer: coarse)").matches,
+      rows: [...grid.querySelectorAll(".lcard")].slice(0, 2).map(row => {
+        const act = /** @type {HTMLElement} */ (row.querySelector(".lc-act")), mark = /** @type {Element} */ (act.querySelector("svg"));
+        const r = row.getBoundingClientRect(), m = mark.getBoundingClientRect();
+        return { tag: act.tagName, width: Math.round(act.getBoundingClientRect().width), fromRight: Math.round(r.right - (m.left + m.right) / 2) };
+      }),
+    };
+  });
+  if (shots) await tp.screenshot({ path: join(shots, "nova-dark-apps-touch.png") });
+  check("on a touchscreen, a connected app's check lines up with another app's +", () => assert.ok(marks.coarse
+    && marks.rows.length === 2 && marks.rows[0].tag === "A" && marks.rows[1].tag === "BUTTON"
+    && marks.rows[0].width === marks.rows[1].width && Math.abs(marks.rows[0].fromRight - marks.rows[1].fromRight) <= 1, JSON.stringify(marks)));
+  await touch.close();
   check("no page errors", () => assert.deepEqual(errors, []));
 } finally {
   await browser.close();

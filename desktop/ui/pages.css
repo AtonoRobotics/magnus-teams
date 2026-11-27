@@ -241,7 +241,11 @@ html[data-style="prism"] .ctile, html[data-style="studio"] .ctile { border-radiu
 .tcard .card-acts { padding-top: 0; }
 @media (any-pointer: coarse) {
   
-  .ghead > a, .feed-row > a, a.lc-act, .t td > a:not([data-prose-link]) { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; max-width: 100%; }
+  .ghead > a, .feed-row > a, .t td > a:not([data-prose-link]) { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; max-width: 100%; }
+  /* Every app action, link or button, is the same 44px box with its mark
+     centred, so a connected check lines up with a + (owner's touchscreen
+     laptop, 2026-11-27: the checks sat 12px left of the +). */
+  .lc-act { min-width: 44px; min-height: 44px; justify-content: center; }
 }
 .libpage { margin: 0 auto; display: flex; flex-direction: column; gap: 20px; min-width: 0; max-width: 100%; }
 .activity-views { flex-wrap: wrap; display: inline-flex; padding: 4px; gap: 4px; border-radius: var(--r-pill); background: var(--seg); margin-bottom: 12px; }
