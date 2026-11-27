@@ -62,50 +62,55 @@ async fn set_registration(AxState(k): K, Owner(p): Owner, Path(provider): Path<S
 /// classification the app's own hints suggest.
 async fn list(AxState(k): K, Caller(p): Caller) -> ApiResult {
     let added: Vec<String> = k.read(|s| s.apps.connectors().keys().cloned().collect());
-    let mut out = vec![];
-    for c in k.connectors() {
-        // An app blocked for the person's groups, or for groups they are
-        // not in, is not in their Library (connectors spec, Org policy).
-        // The owner still manages it in Settings, marked as not theirs.
-        let theirs = crate::policy::may_use_app(&p, &c);
-        if !theirs && (!rights(&p).manages_shared_apps() || c.owner.is_some()) {
-            continue;
-        }
-        let from_app = added.contains(&c.name) && k.cfg.connectors.iter().all(|f| f.name != c.name);
-        let mut card = card(&k, &c, &p.id).await;
-        card["for_you"] = json!(theirs);
-        let secret = k.connector_secret(&c, &p.id).await.ok().flatten();
-        let signed_in = c.credential.is_none() || secret.is_some();
-        if !rights(&p).manages_shared_apps() {
-            out.push(card);
-            continue;
-        }
-        let (tools, problem) = if !signed_in {
-            (vec![], Some(if c.auth.as_deref() == Some(OAUTH) { "sign in to this app".to_string() } else { "no credential is stored".to_string() }))
-        } else {
-            match k.app_tools(&c, secret.as_ref().map(|s| s.expose())).await {
-                Ok(ts) => (
-                    ts.iter()
-                        .map(|t| {
-                            // No description: it is screened, not shown (spec rev 140).
-                            json!({ "name": t.name, "risk": c.tools.get(&t.name).map(|x| x.risk.clone()), "suggested": suggested_risk(&t.annotations) })
-                        })
-                        .collect(),
-                    None,
-                ),
-                Err(e) => (vec![], Some(format!("{e:#}"))),
-            }
-        };
-        let admin = json!({
-            "url": c.url, "audience": c.audience, "label": c.label, "access_groups": c.access_groups, "blocked_groups": c.blocked_groups,
-            "source": if c.catalog { "catalog" } else if from_app { "app" } else { "config" }, "problem": problem, "tools": tools,
-        });
-        for (k, v) in admin.as_object().into_iter().flatten() {
-            card[k] = v.clone();
-        }
-        out.push(card);
+    // Every app's card at once: an owner's listing asks each signed-in app
+    // for its tools, and one after another that kept Apps blank for seconds
+    // (owner, 2026-11-27: "Apps opens with a very long delay").
+    let all = k.connectors();
+    let cards = futures::future::join_all(all.iter().map(|c| listed(&k, &p, c, &added))).await;
+    Ok(Json(json!({ "connectors": cards.into_iter().flatten().collect::<Vec<_>>() })).into_response())
+}
+
+/// One app as the person's listing shows it, or none when it is not theirs.
+async fn listed(k: &Kernel, p: &crate::config::Person, c: &Connector, added: &[String]) -> Option<Value> {
+    // An app blocked for the person's groups, or for groups they are
+    // not in, is not in their Library (connectors spec, Org policy).
+    // The owner still manages it in Settings, marked as not theirs.
+    let theirs = crate::policy::may_use_app(p, c);
+    if !theirs && (!rights(p).manages_shared_apps() || c.owner.is_some()) {
+        return None;
     }
-    Ok(Json(json!({ "connectors": out })).into_response())
+    let from_app = added.contains(&c.name) && k.cfg.connectors.iter().all(|f| f.name != c.name);
+    let mut card = card(k, c, &p.id).await;
+    card["for_you"] = json!(theirs);
+    let secret = k.connector_secret(c, &p.id).await.ok().flatten();
+    let signed_in = c.credential.is_none() || secret.is_some();
+    if !rights(p).manages_shared_apps() {
+        return Some(card);
+    }
+    let (tools, problem) = if !signed_in {
+        (vec![], Some(if c.auth.as_deref() == Some(OAUTH) { "sign in to this app".to_string() } else { "no credential is stored".to_string() }))
+    } else {
+        match k.app_tools(c, secret.as_ref().map(|s| s.expose())).await {
+            Ok(ts) => (
+                ts.iter()
+                    .map(|t| {
+                        // No description: it is screened, not shown (spec rev 140).
+                        json!({ "name": t.name, "risk": c.tools.get(&t.name).map(|x| x.risk.clone()), "suggested": suggested_risk(&t.annotations) })
+                    })
+                    .collect(),
+                None,
+            ),
+            Err(e) => (vec![], Some(format!("{e:#}"))),
+        }
+    };
+    let admin = json!({
+        "url": c.url, "audience": c.audience, "label": c.label, "access_groups": c.access_groups, "blocked_groups": c.blocked_groups,
+        "source": if c.catalog { "catalog" } else if from_app { "app" } else { "config" }, "problem": problem, "tools": tools,
+    });
+    for (k, v) in admin.as_object().into_iter().flatten() {
+        card[k] = v.clone();
+    }
+    Some(card)
 }
 
 /// A name for an app: what it calls itself, else the first part of its

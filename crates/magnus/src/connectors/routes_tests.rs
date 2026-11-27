@@ -29,3 +29,31 @@ async fn a_body_that_does_not_fit_is_refused_not_read_as_empty() {
     assert_eq!(st, 404, "a null risk fits, and the app is unknown");
     s.done().await;
 }
+
+/// An owner's Apps asks every app for its tools at once. One after another,
+/// a few slow apps kept Apps blank for seconds (owner, 2026-11-27: "Apps
+/// opens with a very long delay"). Each fake answers only once all three
+/// are being asked, so the old way never answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_owners_apps_asks_every_app_at_once() {
+    use crate::transport::fake::Fake;
+    const APPS: usize = 3;
+    const WAIT_SECONDS: u64 = 20;
+    let all = std::sync::Arc::new(tokio::sync::Barrier::new(APPS));
+    let mut config = String::new();
+    for n in 0..APPS {
+        let (url, _) = Fake { listing: Some(all.clone()), ..Fake::new(crate::transport::Kind::Brokered) }.install();
+        config += &format!("[[connectors]]\nname = \"app{n}\"\nurl = \"{url}\"\naudience = \"internal\"\nlabel = \"private\"\n");
+    }
+    let s = server_with(&config, |_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let listed = tokio::time::timeout(std::time::Duration::from_secs(WAIT_SECONDS), s.call(&sam, Method::GET, "/v1/connectors", None)).await;
+    let (st, v) = listed.expect("the apps were asked one after another");
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(
+        v["connectors"].as_array().map(|c| c.iter().filter(|c| c["name"].as_str().is_some_and(|n| n.starts_with("app")) && c["problem"].is_null()).count()),
+        Some(APPS),
+        "{v}"
+    );
+    s.done().await;
+}

@@ -98,7 +98,12 @@ impl Transport<'_> {
             Transport::Mcp { mcp, url } => mcp.list_tools(url, bearer).await,
             Transport::Brokered { brokered, c } => brokered.list_tools(c).await,
             #[cfg(test)]
-            Transport::Fake(f) => Ok(f.tools.clone()),
+            Transport::Fake(f) => {
+                if let Some(all) = &f.listing {
+                    all.wait().await;
+                }
+                Ok(f.tools.clone())
+            }
         }
     }
 
@@ -190,6 +195,9 @@ pub(crate) mod fake {
         /// When set, a call says it is waiting (the first) and goes on to its
         /// fence only once told to (the second), as a microVM's boot waits.
         pub hold: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
+        /// When set, listing the tools waits here until every app sharing it
+        /// is being listed: listed one after another, none answers.
+        pub listing: Option<Arc<tokio::sync::Barrier>>,
     }
 
     fn fakes() -> &'static Mutex<HashMap<String, Arc<Fake>>> {
@@ -203,7 +211,7 @@ pub(crate) mod fake {
 
     impl Fake {
         pub(crate) fn new(kind: Kind) -> Fake {
-            Fake { kind, tools: vec![], answers: Mutex::default(), sent: Mutex::default(), hold: None }
+            Fake { kind, tools: vec![], answers: Mutex::default(), sent: Mutex::default(), hold: None, listing: None }
         }
 
         /// Install it under a fresh url, for the connector it stands for.
