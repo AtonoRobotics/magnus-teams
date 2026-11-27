@@ -1101,18 +1101,33 @@ function attachButton(label = "Add files", iconOnly = false) {
 
 // A file shown where it is mentioned: a glimpse of it (an image, or the
 // first lines of a text file), its name to open it beside the conversation,
-// and Download. Glimpses are fetched once, by the app itself.
+// and Download. Glimpses are fetched once, by the app itself. A page runs
+// live where it is shown and waits for no click (owner, 2026-11-27); when the
+// entry already runs it live, the card keeps only its name and Download.
 const GLIMPSE_IMAGE = /^image\/(png|jpeg|gif|webp)$/;
-const glimpses = {};
-function filePreview(f) {
-  // A page's preview is no glimpse of its source: it opens live.
-  const page = /^text\/html\b/i.test(f.media_type) || /\.html?$/i.test(f.name || "");
-  const can = !page && ((GLIMPSE_IMAGE.test(f.media_type) && f.size <= 4 << 20) || (Compose.TEXT.test(f.media_type) && f.size <= 256 << 10));
-  const g = page ? `<span class="small faint">Interactive page · open to use it</span>` : !can ? `<span class="small faint">${esc(f.media_type)}</span>` : glimpses[f.id] ?? `<span class="small faint">Loading a preview…</span>`;
+const glimpses = {}, pageTexts = {};
+const isPageFile = f => /^text\/html\b/i.test(f.media_type || "") || /\.html?$/i.test(f.name || "");
+function filePreview(f, live) {
+  if (isPageFile(f)) return live instanceof Set && live.has(f.name) ? `<div class="fprev">${fileChip(f)}</div>`
+    : `<div class="fprev fpage" data-preview="${esc(f.id)}" data-live-file="${esc(f.id)}" data-name="${esc(f.name)}" data-type="${esc(f.media_type || "text/html")}">${fileChip(f)}</div>`;
+  const can = (GLIMPSE_IMAGE.test(f.media_type) && f.size <= 4 << 20) || (Compose.TEXT.test(f.media_type) && f.size <= 256 << 10);
+  const g = !can ? `<span class="small faint">${esc(f.media_type)}</span>` : glimpses[f.id] ?? `<span class="small faint">Loading a preview…</span>`;
   return `<div class="fprev" data-preview="${esc(f.id)}"${can && !(f.id in glimpses) ? ` data-glimpse="${esc(f.media_type)}"` : ""}>
     <a class="glimpse" href="#/file/${enc(f.id)}" data-open="file:${esc(f.id)}" aria-hidden="true" tabindex="-1">${g}</a>${fileChip(f)}</div>`;
 }
+// The page files in a deliverable that its view already runs live.
+const livePages = e => new Set((e.view || []).filter(c => c.type === "file" && isPageFile({ name: c.file })).map(c => c.file));
+async function drawPageCards(root) {
+  await Promise.all($$("[data-live-file]", root).filter(el => !el.querySelector(".live-page")).map(async el => {
+    const id = el.dataset.liveFile;
+    try {
+      pageTexts[id] ??= decodeText(await Magnus.dataUrl(`/v1/files/${enc(id)}`, el.dataset.type));
+      if (el.isConnected && !el.querySelector(".live-page")) el.prepend(livePage(el.dataset.name || "Page", pageTexts[id]));
+    } catch (e) { if (!el.querySelector(".bad")) el.insertAdjacentHTML("afterbegin", `<div class="small bad">This page could not be drawn: ${esc(e.message)}</div>`); }
+  }));
+}
 async function loadGlimpses(root) {
+  drawPageCards(root);
   const want = $$("[data-glimpse]", root).filter(el => !(el.dataset.preview in glimpses));
   if (!want.length) return;
   for (const el of want) glimpses[el.dataset.preview] = undefined;
@@ -1707,7 +1722,7 @@ function entry(e, ui = {}) {
     }
     case "sub_agents": return subAgentsCard(e, ui);
     case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details open data-key="result:${esc(e.task_id)}"><summary><span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span><a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">Outcome</a></summary>
-      <div class="pre">${esc(e.summary || "")}</div>${e.view ? shownFrame(e.id, "The deliverable") : ""}${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}</details></div>`;
+      <div class="pre">${esc(e.summary || "")}</div>${e.view ? shownFrame(e.id, "The deliverable") : ""}${e.files?.length ? `<div class="previews">${e.files.map(f => filePreview(f, livePages(e))).join("")}</div>` : ""}${evidenceSection(e)}</details></div>`;
     case "connector_card": return appOfferCard(e);
     case "suggestion_card": {
       // Put off ("Not now"), it is kept, to accept or delete later.

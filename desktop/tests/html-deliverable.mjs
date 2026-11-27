@@ -35,8 +35,8 @@ try { await result.waitFor({ timeout: T }); } catch { await fail("the dashboard'
 
 // The page is in the result, in a sandbox that runs its script and keeps
 // its own origin away from the app's.
-const live = result.locator("iframe.ui-html");
-try { await live.first().waitFor({ timeout: T }); } catch { await fail("the delivered page is not drawn live in the conversation"); }
+const live = result.locator('.live-page[data-file="project-dashboard.html"] iframe.ui-html');
+try { await live.first().waitFor({ timeout: T }); } catch { await fail(`the delivered page is not drawn live in the conversation (frames: ${JSON.stringify(await page.evaluate(() => [...document.querySelectorAll("#thread iframe")].map(f => [f.closest("[data-result]")?.dataset.result || "-", f.className, f.closest(".live-page")?.dataset.file || ""])))})`); }
 const sandbox = await live.first().getAttribute("sandbox");
 if (sandbox !== "allow-scripts") await fail(`the page's sandbox is "${sandbox}", not "allow-scripts"`);
 
@@ -60,6 +60,20 @@ const stat = await page.waitForFunction(id => {
   return f?.contentDocument?.querySelector(".stat .sv")?.textContent?.trim() || null;
 }, task, { timeout: T }).then(h => h.jsonValue()).catch(() => null);
 if (stat !== "19") await fail(`the stat beside the page shows ${JSON.stringify(stat)}`);
+
+// Nothing in the result waits to be opened: the page the view runs is not
+// run twice, and a page delivered only as a file runs in its card.
+const cardFrame = result.locator('.fprev .live-page[data-file="status-board.html"] iframe.ui-html');
+try { await cardFrame.waitFor({ timeout: T }); } catch { await fail("a page delivered as a file is not drawn live in its card"); }
+const cards = await page.evaluate(id => {
+  const r = document.querySelector(`#thread [data-result="${id}"]`);
+  return { ask: /open to use it/i.test(r.textContent || ""), dashboards: r.querySelectorAll('.live-page[data-file="project-dashboard.html"]').length };
+}, task);
+if (cards.ask) await fail("a page's card asks to be opened");
+if (cards.dashboards !== 1) await fail(`the dashboard is drawn ${cards.dashboards} times`);
+const cardRan = await (await (await cardFrame.elementHandle())?.contentFrame())?.waitForFunction(() => document.getElementById("card")?.textContent === "Card page drawn live", null, { timeout: T }).then(() => true, () => false);
+if (!cardRan) await fail("the card's page did not run");
+await cardFrame.scrollIntoViewIfNeeded();
 await shoot("html-deliverable.png");
 
 if (errors.length) await fail(`page errors: ${errors.join("; ")}`);

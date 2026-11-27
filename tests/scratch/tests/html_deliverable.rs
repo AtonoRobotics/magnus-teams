@@ -14,6 +14,10 @@ use serde_json::json;
 const CHAT: &str = "talking with the person you work for in a chat";
 const ASK: &str = "Build an interactive summary dashboard from my recent project files.";
 const GOAL: &str = "Build the project dashboard as one HTML page.";
+/// A page delivered as a file only, outside the deliverable's view: its card
+/// runs it, with nothing to open (owner, 2026-11-27: "You have to open the
+/// file. It should have just opened.").
+const CARD_PAGE: &str = "<!doctype html><html><body><p id=\"card\">Not run</p><script>document.getElementById('card').textContent='Card page drawn live';</script></body></html>";
 const PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Projects</title></head><body><h1 id=\"state\">Not run</h1><button id=\"more\">More</button><script>document.getElementById('state').textContent='Dashboard drawn live';</script></body></html>";
 
 #[tokio::test(flavor = "multi_thread")]
@@ -32,6 +36,8 @@ async fn a_delivered_page_runs_live_in_the_conversation() {
             0 => plan("build the dashboard"),
             1 => tool("sandbox_write_file", json!({ "path": "project-dashboard.html", "content": PAGE })),
             2 => tool("deliver_file", json!({ "path": "project-dashboard.html" })),
+            3 => tool("sandbox_write_file", json!({ "path": "status-board.html", "content": CARD_PAGE })),
+            4 => tool("deliver_file", json!({ "path": "status-board.html" })),
             _ => tool(
                 "task_complete",
                 json!({

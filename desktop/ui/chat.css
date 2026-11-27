@@ -103,6 +103,7 @@ section.conv .thread { flex: 1; min-height: 0; overflow-y: auto; width: 100%; pa
 .fprev .glimpse img { display: block; max-width: 100%; max-height: 120px; border-radius: var(--r-xs); }
 .fprev .glimpse pre { font-size: 13px; line-height: 1.45; }
 .fprev .fchip { margin: 0; }
+.fprev.fpage { width: 100%; }
 @media (max-width: 720px) {
   .trow .why, .trow .when { display: none; }
 }

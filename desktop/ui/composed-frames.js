@@ -79,6 +79,7 @@ const isHtmlFile = (name, f) => typeof f?.text === "string" && (/\.html?$/i.test
 function livePage(name, html) {
   const block = document.createElement("div");
   block.className = "live-page";
+  block.dataset.file = name;
   drawLiveHtml(block, html, name, "", true);
   return block;
 }
