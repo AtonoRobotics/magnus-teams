@@ -117,7 +117,7 @@ assert.match(app, /inbox: "Inbox \/ Approvals", briefing: "Briefing & Routines",
 
 // 5. Home title and the Apps spotlight.
 assert.match(discover, /"Where should we start\?"/, "Nova's home asks where to start");
-assert.match(ux, /\.libpage > \.lhead/, "the spotlight goes straight under the Apps header");
+assert.match(ux, /:scope > \.lhead[\s\S]*head\.insertAdjacentElement\("afterend", hero\)/, "the spotlight goes straight under the Apps header");
 assert.match(stage, /\$\{v\.foot \|\| ""\}/, "the stage shell can carry the computer footer");
 
 console.log("nova-ux-fixes-check: ok");
