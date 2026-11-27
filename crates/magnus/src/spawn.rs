@@ -49,10 +49,16 @@ pub struct HostEnv {
     pub path: String,
     /// `HOME`, when set and UTF-8.
     pub home: Option<String>,
+    /// Inherited listening socket fd (`MAGNUS_LISTEN_FD`), when passed by a test harness.
+    pub listen_fd: Option<i32>,
 }
 
 impl HostEnv {
     pub fn from_process() -> HostEnv {
-        HostEnv { path: std::env::var("PATH").unwrap_or_default(), home: std::env::var("HOME").ok() }
+        HostEnv {
+            path: std::env::var("PATH").unwrap_or_default(),
+            home: std::env::var("HOME").ok(),
+            listen_fd: std::env::var("MAGNUS_LISTEN_FD").ok().and_then(|raw| raw.parse::<i32>().ok()),
+        }
     }
 }

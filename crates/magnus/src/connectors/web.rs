@@ -16,8 +16,7 @@
 use crate::config::Connector;
 use crate::kernel::Kernel;
 use crate::public_url::PublicUrl;
-use axum::extract::Path;
-use axum::http::{header, HeaderValue};
+use axum::http::{header, HeaderMap, HeaderValue};
 use axum::response::Response;
 
 /// Where a browser's sign-in comes back to on this server.
@@ -85,8 +84,8 @@ impl Kernel {
 /// `/connected`: the app, which finishes the sign-in the provider sent the
 /// browser back with. The address carries the code, so no page it loads is
 /// told where it came from.
-pub(crate) async fn connected() -> Response {
-    let mut r = crate::ui::assets::ui_file(Path("index.html".into())).await;
+pub(crate) async fn connected(headers: HeaderMap) -> Response {
+    let mut r = crate::ui::assets::ui_index(headers).await;
     r.headers_mut().insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
     r
 }
@@ -144,7 +143,7 @@ mod tests {
     /// the code in it.
     #[tokio::test]
     async fn the_return_page_is_the_app_and_sends_no_referrer() {
-        let r = connected().await;
+        let r = connected(HeaderMap::new()).await;
         assert_eq!(r.status(), 200);
         assert_eq!(r.headers()[header::REFERRER_POLICY], "no-referrer");
         assert!(r.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"));

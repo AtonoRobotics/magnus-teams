@@ -1,8 +1,13 @@
 //! The people's web app: the desktop app's own frontend, served as is.
 use crate::api::err;
 use axum::extract::Path;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use std::collections::HashMap;
+use std::io::Write;
+use std::sync::LazyLock;
 
 const UI: &[(&str, &str, &[u8])] = &[
     ("index.html", "text/html; charset=utf-8", include_bytes!("../../../../desktop/ui/index.html")),
@@ -130,32 +135,75 @@ pub(crate) const FONTS: &[(&str, &[u8])] = &[
 ];
 const UI_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src blob:; font-src 'self'; connect-src 'self'; frame-src 'self' about:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-fn static_file(media: &str, body: impl Into<axum::body::Body>) -> Response {
-    let built = Response::builder()
+const NO_STORE_CACHE: &str = "private, no-store, no-cache, must-revalidate, max-age=0";
+const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
+
+fn gzip_bytes(raw: &[u8]) -> Option<Vec<u8>> {
+    let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+    enc.write_all(raw).ok()?;
+    enc.finish().ok()
+}
+
+static UI_GZIP: LazyLock<HashMap<&'static str, Vec<u8>>> = LazyLock::new(|| {
+    UI.iter().filter(|(name, _, _)| name.ends_with(".js") || name.ends_with(".css")).filter_map(|(name, _, body)| gzip_bytes(body).map(|gz| (*name, gz))).collect()
+});
+
+fn accepts_gzip(headers: &HeaderMap) -> bool {
+    headers
+        .get(axum::http::header::ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|part| part.split(';').next().is_some_and(|enc| enc.trim().eq_ignore_ascii_case("gzip"))))
+}
+
+fn static_file(media: &str, cache_control: &str, gzipped: bool, vary_encoding: bool, body: impl Into<axum::body::Body>) -> Response {
+    let mut builder = Response::builder()
         .header("content-type", media)
         .header("content-security-policy", UI_CSP)
         .header("x-frame-options", "DENY")
         .header("x-content-type-options", "nosniff")
-        .header("cache-control", "private, no-store, no-cache, must-revalidate, max-age=0")
-        .body(body.into());
-    built.unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "the file could not be served"))
+        .header("cache-control", cache_control);
+    if vary_encoding {
+        builder = builder.header("vary", "accept-encoding");
+    }
+    if gzipped {
+        builder = builder.header("content-encoding", "gzip");
+    }
+    builder.body(body.into()).unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "the file could not be served"))
 }
 
-pub async fn ui_file(Path(file): Path<String>) -> Response {
+pub async fn ui_index(headers: HeaderMap) -> Response {
+    ui_file(headers, Path("index.html".into())).await
+}
+
+pub async fn ui_file(headers: HeaderMap, Path(file): Path<String>) -> Response {
     match UI.iter().find(|(n, _, _)| *n == file) {
         Some(("index.html", media, body)) => {
             let v = crate::update::version();
             let html = String::from_utf8_lossy(body).replace(".css\"", &format!(".css?v={v}\"")).replace(".js\"", &format!(".js?v={v}\""));
-            static_file(media, html)
+            if accepts_gzip(&headers) {
+                if let Some(gz) = gzip_bytes(html.as_bytes()) {
+                    return static_file(media, NO_STORE_CACHE, true, true, gz);
+                }
+            }
+            static_file(media, NO_STORE_CACHE, false, true, html)
         }
-        Some((_, media, body)) => static_file(media, *body),
+        Some((name, media, body)) => {
+            let cache = if *name == "manifest.webmanifest" { NO_STORE_CACHE } else { IMMUTABLE_CACHE };
+            let compressible = name.ends_with(".js") || name.ends_with(".css");
+            if compressible && accepts_gzip(&headers) {
+                if let Some(gz) = UI_GZIP.get(name) {
+                    return static_file(media, cache, true, true, gz.clone());
+                }
+            }
+            static_file(media, cache, false, compressible, *body)
+        }
         None => err(StatusCode::NOT_FOUND, "not found"),
     }
 }
 
 pub async fn ui_font(Path(file): Path<String>) -> Response {
     match FONTS.iter().find(|(n, _)| *n == file) {
-        Some((_, body)) => static_file("font/woff2", *body),
+        Some((_, body)) => static_file("font/woff2", IMMUTABLE_CACHE, false, false, *body),
         None => err(StatusCode::NOT_FOUND, "not found"),
     }
 }
@@ -163,6 +211,9 @@ pub async fn ui_font(Path(file): Path<String>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use flate2::read::GzDecoder;
+    use std::io::Read;
 
     #[test]
     fn everything_the_page_loads_is_served() {
@@ -172,5 +223,35 @@ mod tests {
         for script in loaded {
             assert!(UI.iter().any(|(n, _, _)| *n == script), "{script} is not served");
         }
+    }
+
+    #[tokio::test]
+    async fn cache_control_and_gzip_headers_on_ui_assets() {
+        let mut gz_headers = HeaderMap::new();
+        gz_headers.insert(axum::http::header::ACCEPT_ENCODING, "gzip, deflate, br".parse().unwrap());
+
+        let idx = ui_file(HeaderMap::new(), Path("index.html".into())).await;
+        assert_eq!(idx.headers().get("cache-control").unwrap(), NO_STORE_CACHE);
+        assert!(idx.headers().get("content-encoding").is_none());
+
+        let js_raw = ui_file(HeaderMap::new(), Path("app.js".into())).await;
+        assert_eq!(js_raw.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
+        assert_eq!(js_raw.headers().get("vary").unwrap(), "accept-encoding");
+        assert!(js_raw.headers().get("content-encoding").is_none());
+        let raw_bytes = to_bytes(js_raw.into_body(), usize::MAX).await.unwrap();
+
+        let js_gz = ui_file(gz_headers, Path("app.js".into())).await;
+        assert_eq!(js_gz.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
+        assert_eq!(js_gz.headers().get("content-encoding").unwrap(), "gzip");
+        assert_eq!(js_gz.headers().get("vary").unwrap(), "accept-encoding");
+        let gz_bytes = to_bytes(js_gz.into_body(), usize::MAX).await.unwrap();
+        assert!(gz_bytes.len() < raw_bytes.len(), "gzip should shrink app.js");
+        let mut dec = GzDecoder::new(&gz_bytes[..]);
+        let mut roundtrip = Vec::new();
+        dec.read_to_end(&mut roundtrip).unwrap();
+        assert_eq!(roundtrip, raw_bytes.as_ref());
+
+        let font = ui_font(Path("inter-latin-wght-normal.woff2".into())).await;
+        assert_eq!(font.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
     }
 }

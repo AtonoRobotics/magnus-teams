@@ -143,16 +143,18 @@ fn set_cloexec(fd: i32, on: bool) {
     unsafe { libc::fcntl(fd, libc::F_SETFD, flags) };
 }
 
+static INHERITED_LISTEN_FD: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+
 /// The listening socket a test harness passed as `MAGNUS_LISTEN_FD`, when
 /// this process should serve on it. The numbered fd stays open and
 /// close-on-exec, so a later exec (an update, a rollback) still has it and
 /// child processes do not; the listener returned is a duplicate. A
 /// configured address that is neither port 0 nor this socket is bound by
 /// the caller (a release under test that must fail to listen).
-pub(crate) fn take_listen_fd(configured: &str) -> Result<Option<tokio::net::TcpListener>> {
+pub(crate) fn take_listen_fd(configured: &str, listen_fd: Option<i32>) -> Result<Option<tokio::net::TcpListener>> {
     use std::os::unix::io::{AsRawFd, FromRawFd};
-    let Ok(raw) = std::env::var("MAGNUS_LISTEN_FD") else { return Ok(None) };
-    let fd: i32 = raw.parse().with_context(|| format!("MAGNUS_LISTEN_FD={raw}"))?;
+    let Some(fd) = listen_fd else { return Ok(None) };
+    let _ = INHERITED_LISTEN_FD.set(fd);
     set_cloexec(fd, true);
     let dup = unsafe { libc::dup(fd) };
     if dup < 0 {
@@ -174,9 +176,9 @@ pub(crate) fn take_listen_fd(configured: &str) -> Result<Option<tokio::net::TcpL
 /// Clear close-on-exec on the harness socket so the process that replaces
 /// this one (an update or a rollback) inherits it. The variable stays set.
 pub(crate) fn release_listen_socket_for_exec() {
-    let Ok(raw) = std::env::var("MAGNUS_LISTEN_FD") else { return };
-    let Ok(fd) = raw.parse::<i32>() else { return };
-    set_cloexec(fd, false);
+    if let Some(fd) = INHERITED_LISTEN_FD.get().copied() {
+        set_cloexec(fd, false);
+    }
 }
 
 async fn run(cfg: Config) -> Result<()> {
@@ -192,7 +194,7 @@ async fn run(cfg: Config) -> Result<()> {
     };
     // Before anything this process spawns: the inherited socket must not be
     // handed to an adapter, and the harness is already holding its own copy.
-    let inherited = take_listen_fd(&listen)?;
+    let inherited = take_listen_fd(&listen, cfg.host.listen_fd)?;
     crate::reap::reap_inherited();
     let k = crate::kernel::Kernel::boot(cfg).await?;
     let plain = match inherited {
