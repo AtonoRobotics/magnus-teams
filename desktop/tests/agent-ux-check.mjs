@@ -148,7 +148,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
 
 // 5. Right sidebar top-bar tabs (both standard & Aurora), keeping sidebar open on task delete, and dynamic bento wiring.
 const app = read("app.js");
-const stage = read("aurora-stage.js");
+const stage = read("aurora-stage.js") + "\n" + read("aurora-stage-view.js");
 const chatCss = read("chat.css");
 
 assert.doesNotMatch(chatCss, /\.chatcard\s+\.rg-main\s+\.sub\s*\{\s*display:\s*none/, "chat.css no longer hides task/sub-agent status subtitles");

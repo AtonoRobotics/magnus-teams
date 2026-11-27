@@ -101,9 +101,10 @@ const NovaFrame = (() => {
   });
   window.addEventListener("hashchange", soon);
   window.addEventListener("magnus-theme", soon);
+  window.addEventListener("magnus-render", soon);
+  if (typeof UIStore !== "undefined") UIStore.subscribe("*", soon);
   const start = () => {
     if (typeof AuroraCore !== "undefined") AuroraCore.onMain(soon);
-    else new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
     sync();
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();

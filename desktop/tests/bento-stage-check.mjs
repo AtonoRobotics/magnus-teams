@@ -21,7 +21,7 @@ const read = f => fs.readFileSync(path.join(uiDir, f), "utf8");
 
 const stageCss = read("aurora-stage.css");
 const compactCss = read("aurora-compact.css");
-const stageJs = read("aurora-stage.js");
+const stageJs = read("aurora-stage.js") + "\n" + read("aurora-stage-view.js");
 
 // 1. Container query targets parent main (aurora-main), never self-querying aurora-conv.
 assert.match(stageCss, /main:has\(> section\.conv\)\s*\{[^}]*container-name:\s*aurora-main;/s, "main:has(> section.conv) must declare container-name: aurora-main");

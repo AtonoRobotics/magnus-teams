@@ -1,39 +1,7 @@
 // The Aurora stage: in a style that has one (Theme.stage), the conversation
-// and its cards work as the mockup's agent demo does
-// (decisions/2026-11-20-aurora-stage.md).
-// - One frame holds the conversation and the canvas
-//   (decisions/2026-11-21-aurora-composition.md). The input stays at the
-//   bottom; just above it is the bento: a box appears
-//   while something is relevant and leaves when it is not, and the others
-//   move to their new places. Live Workspace while work in this conversation
-//   runs (with the beam and what it is doing), waits on the person (amber) or
-//   has just finished (mint, with its result); Approvals while a decision
-//   waits; Up Next while a routine is due soon; Files while a new file is
-//   fresh; Apps while one needs attention; the computer while it works or
-//   asks for the person; Recent Work while work elsewhere has just finished;
-//   Messages while a teammate has written and the person has not looked.
-// - A decision is made where it shows (decisions/2026-11-21-aurora-alerts.md):
-//   one about this conversation opens the canvas beside it, with what it
-//   would do and its answers; one from elsewhere is a box in the bento with
-//   its answers in the box. Answered, it says so in place, then goes.
-// - Nothing floats over the stage: a message that would be a pop-up is a
-//   box here instead (`takes`). One that comes while the page is still being
-//   drawn waits to see whether there is a stage to show it on.
-// - Every view stays one click away in the conversation's head: a row of the
-//   panel's icons (Approvals, Tasks, Routines, Rules, Files, Apps).
-// - There is no panel beside the conversation. Anything opened is the
-//   artifact canvas: it slides in on the right, and the conversation and its
-//   boxes narrow and move over. When work the person is watching finishes or
-//   needs them, its result slides open on its own. Close slides it out.
-// - A new block of an answer streams in word by word.
-// - Sizes move (decisions/2026-11-21-aurora-sizes.md): when boxes come or go
-//   the bento grows or shrinks over time, and the conversation with it,
-//   instead of jumping; a box that keeps its place rides with the bento, and
-//   a conversation read to its end stays at its end.
-// - Boxes come and go (decisions/2026-11-21-aurora-boxes-come-and-go.md,
-//   aurora-boxes.js): one that wants the person stays until it is dealt
-//   with; any other shows when it appears or changes, then leaves. Each has
-//   a Close, which puts it away until it changes.
+// and its bento cards compose in one frame (decisions/2026-11-20-aurora-stage.md,
+// decisions/2026-11-21-aurora-composition.md). Canvas shell, decision preview,
+// history compaction, and word streaming live in aurora-stage-view.js.
 "use strict";
 
 const AuroraStage = (() => {
@@ -44,18 +12,9 @@ const AuroraStage = (() => {
   const JUMP_PX = 24;
   /** How near its end a conversation counts as read to its end. */
   const END_PX = 24;
-  const WORD_STEP_MS = 34;
-  const WORD_ANIM_MS = 340;
-  const WORD_UNWRAP_BUFFER_MS = 80;
-  const WORDS_STREAMED = 120;
   const SHOWN_BOXES = 3;
   const MAX_APPROVAL_BOXES = 1;
   const MAX_CONCURRENT_TASK_BOXES = 1;
-  const PREVIEW_ROWS_MAX = 6;
-  const PREVIEW_BODY_MAX_CHARS = 600;
-  const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files", "shared"]);
-  const PREVIEW_HEADER_RE = /^(to|recipient|recipients|cc|bcc|channel|room|destination|url|host|site|file|path|calendar|event|subject|title|summary|amount|total|price|max_usd)$/i;
-  const PREVIEW_BODY_RE = /^(body|message|text|content|note|description|html|draft)$/i;
   /** After a box's time is up, so it is up when it is looked at. */
   const LEAVE_SLACK_MS = 50;
   /** How long a message stays a box when the person does not open it. */
@@ -644,64 +603,9 @@ const AuroraStage = (() => {
   /** @type {?HTMLElement} */
   let keptBottom = null;
 
-  /**
-   * Keeps the chat stream calm and Antigravity-like: process cards (tasks,
-   * sub-agents, intermediate results) render as quiet vertical change history
-   * with auto-collapsed details instead of filling the chat box inline while
-   * the live interactive cards compose in the Side and Bottom bento.
-   * @param {Element} conv
-   */
-  function compactThreadHistory(conv) {
-    const thread = conv.querySelector(":scope > .thread");
-    if (!thread) return;
-    const apply = () => {
-      thread.querySelectorAll(".reqgroup.chatcard[data-chat-tasks], .reqgroup.chatcard.sub-agents, .result[data-result]").forEach(el => {
-        if (!(el instanceof HTMLElement)) return;
-        el.dataset.history = "1";
-        el.querySelectorAll("details").forEach(d => {
-          if (d.dataset.historyInit) return;
-          // Keep interactive iframe/composed deliverables visible if directly attached; collapse verbose text/sub-agent logs.
-          if (d.querySelector("iframe.composed, .composed-wrap")) return;
-          d.dataset.historyInit = "1";
-          d.open = false;
-        });
-      });
-      thread.querySelectorAll(".decide").forEach(dec => {
-        if (!(dec instanceof HTMLElement)) return;
-        const cards = dec.querySelectorAll(".card.item[data-id]");
-        if (cards.length && cards.length === dec.children.length) dec.dataset.historyHidden = "1";
-        else delete dec.dataset.historyHidden;
-      });
-    };
-    if (typeof ReadingAnchors !== "undefined" && ReadingAnchors.hold) ReadingAnchors.hold(thread, apply);
-    else apply();
-  }
-
-  /**
-   * Adds a quiet "Inspect Canvas →" footer row on completed answers backed by
-   * a finished task or rich artifact so users can reopen work in the right sidebar.
-   * @param {Element} conv
-   */
-  function annotateAnswers(conv) {
-    const tasks = typeof App !== "undefined" && Array.isArray(App.tasks) ? App.tasks : [];
-    const byId = new Map(tasks.map(t => [t.task_id, t]));
-    conv.querySelectorAll('.entry[data-kind="answer"] > .msg.magnus[data-task]').forEach(msg => {
-      if (msg.querySelector(":scope > .aurora-canvas-row")) return;
-      const id = /** @type {HTMLElement} */ (msg).dataset.task || "";
-      if (!id) return;
-      const t = byId.get(id);
-      const rich = Boolean(msg.querySelector(".shown-frame, .previews, .fchip-inline"));
-      if (!t && !rich) return;
-      if (t && !ended(t) && !rich) return;
-      const meta = t ? `${named(t)}${t.summary ? ` · ${firstLine(t.summary)}` : ""}` : "Work result";
-      const verified = !!(t && (t.verified || t.receipts_count > 0 || t.has_deliverable || (Array.isArray(t.receipts) && t.receipts.length > 0)));
-      const badge = verified ? `<span class="aurora-verified-pill">✓ Verified</span>` : "";
-      const row = document.createElement("div");
-      row.className = "aurora-canvas-row";
-      row.innerHTML = `${badge}<span class="aurora-canvas-meta">${html(meta)}</span><button type="button" class="aurora-canvas-open" data-open="task:${html(id)}">Inspect Canvas →</button>`;
-      msg.append(row);
-    });
-  }
+  // Thread history compaction and completed-answer annotations live in aurora-stage-view.js.
+  const compactThreadHistory = conv => typeof AuroraStageView !== "undefined" && AuroraStageView.compactThreadHistory(conv);
+  const annotateAnswers = conv => typeof AuroraStageView !== "undefined" && AuroraStageView.annotateAnswers(conv, ended, named, firstLine, html);
 
   /** Creates a kept bento nav element with hover-hold behavior. @param {string} cls @param {string} label */
   function makeBento(cls, label) {
@@ -819,113 +723,8 @@ const AuroraStage = (() => {
    * The column beside the conversation: the canvas for what is open.
    * @param {{ kind: string, title: string, head?: string|null, backBtn: string, tabsHtml?: string, body: string, foot?: string }} v
    */
-  function shell(v) {
-    const size = WIDE_CANVAS.has(v.kind) ? "wide" : "compact";
-    const tabs = v.tabsHtml || "";
-    const d = v.kind === "item" ? decision(v.body) : null;
-    if (d) {
-      return `<section class="stage-artifact stage-decision" data-canvas-size="compact" aria-label="${html(d.title)}">
-      <div class="artifact-top"><div class="artifact-title"><p class="decision-kind">${html(d.kind)}</p><h2>${html(d.title)}</h2></div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
-      ${tabs}
-      <div class="artifact-content detail-body" data-panel="item">${d.body}</div>
-    </section>`;
-    }
-    return `<section class="stage-artifact" data-canvas-size="${size}" aria-label="${html(v.title)}">
-      <div class="artifact-top">${v.backBtn}<div class="artifact-title">${v.head || `<h2>${html(v.title)}</h2>`}</div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
-      ${tabs}
-      <div class="artifact-content detail-body" data-panel="${html(v.kind)}">${v.body}</div>
-      ${v.foot || ""}
-    </section>`;
-  }
-
-  /**
-   * Extracts a clean read-only preview of human-facing fields (To, Subject,
-   * Body, URL, Amount) from `.ask-content .what .field` without altering the
-   * exact audit payload inside `<details>`.
-   * @param {Element} more
-   * @returns {HTMLElement|null}
-   */
-  function decisionPreview(more) {
-    const rows = [];
-    const seenKeys = new Set();
-    let bodyText = "";
-    for (const field of more.querySelectorAll(".what > .field")) {
-      const label = field.firstElementChild?.textContent?.trim() || "";
-      const valEl = field.children[1];
-      const val = valEl?.textContent?.trim() || "";
-      if (!label || !val || val === "none") continue;
-      const lower = label.toLowerCase();
-      if (PREVIEW_BODY_RE.test(lower)) {
-        if (!bodyText) bodyText = val.length > PREVIEW_BODY_MAX_CHARS ? `${val.slice(0, PREVIEW_BODY_MAX_CHARS).trimEnd()}…` : val;
-      } else if (PREVIEW_HEADER_RE.test(lower) && !seenKeys.has(lower) && rows.length < PREVIEW_ROWS_MAX) {
-        seenKeys.add(lower);
-        const nice = label.replace(/_/g, " ");
-        rows.push([nice[0].toUpperCase() + nice.slice(1), val]);
-      }
-    }
-    if (!rows.length && !bodyText) return null;
-    const card = document.createElement("div");
-    card.className = "decision-preview";
-    card.setAttribute("role", "region");
-    card.setAttribute("aria-label", "Action preview");
-    const rowsHtml = rows.length
-      ? `<div class="decision-preview-rows">${rows.map(([k, v]) => `<div class="decision-preview-row"><span class="decision-preview-key">${html(k)}</span><span class="decision-preview-val">${html(v)}</span></div>`).join("")}</div>`
-      : "";
-    const bodyHtml = bodyText ? `<p class="decision-preview-body">${html(bodyText)}</p>` : "";
-    card.innerHTML = `${rowsHtml}${bodyHtml}`;
-    return card;
-  }
-
-  /**
-   * A decision on the canvas is built around the decision
-   * (decisions/2026-11-21-aurora-canvas.md): its question is the title, what
-   * it would mean is under it, a scannable draft preview surfaces key fields,
-   * and its answers sit at the canvas's foot. Raw fields and metadata stay
-   * intact behind the single disclosure.
-   * @param {string} body the item's card (app.js card())
-   * @returns {?{ kind: string, title: string, body: string }}
-   */
-  function decision(body) {
-    const t = document.createElement("template");
-    t.innerHTML = body;
-    const card = t.content.querySelector("article.card.item");
-    const ask = card?.querySelector(".ask[data-ask]");
-    const sentence = ask?.querySelector(".ask-sentence");
-    if (!card || !ask || !sentence || !ask.querySelector(".ask-answers")) return null;
-    const head = card.querySelector(":scope > .spread");
-    const kind = head?.querySelector(".kind")?.textContent?.trim() || "Decision";
-    const title = sentence.textContent?.trim() || kind;
-    // The question is the canvas's title; the card keeps it, unseen, for
-    // what reads the card (aurora-alerts.js).
-    /** @type {HTMLElement} */ (sentence).hidden = true;
-    const about = document.createElement("div");
-    about.className = "decision-about";
-    for (const el of [...card.children]) if (el !== head && el !== ask) about.append(el);
-    const meta = head?.querySelector(".small.faint");
-    if (meta) { const p = document.createElement("p"); p.className = "small faint decision-meta"; p.innerHTML = meta.innerHTML; about.append(p); }
-    head?.remove();
-    // Avoid duplicating askCard's inline .ask-preview when the canvas builds its own .decision-preview.
-    ask.querySelector(":scope > .ask-preview")?.remove();
-    let more = ask.querySelector(":scope > details.ask-content");
-    if (!more && about.childNodes.length) {
-      more = document.createElement("details");
-      more.className = "ask-content";
-      const summary = document.createElement("summary");
-      summary.textContent = "Details";
-      more.append(summary);
-      ask.querySelector(":scope > .ask-answers")?.before(more);
-    }
-    if (more) {
-      const preview = decisionPreview(more);
-      if (preview) {
-        more.before(preview);
-        const sum = more.querySelector(":scope > summary");
-        if (sum && (sum.textContent === "See exactly what it would do" || sum.textContent === "Details")) sum.textContent = "See exact details";
-      }
-      if (about.childNodes.length) more.querySelector(":scope > summary")?.after(about);
-    }
-    return { kind, title, body: card.outerHTML };
-  }
+  const shell = v => typeof AuroraStageView !== "undefined" ? AuroraStageView.shell(v, html) : "";
+  const decision = body => typeof AuroraStageView !== "undefined" ? AuroraStageView.decision(body, html) : null;
 
   /** The canvas slides in when it first opens. @param {Element} el @param {boolean} changed */
   function settle(el, changed) {
@@ -940,43 +739,7 @@ const AuroraStage = (() => {
   /** The canvas is gone: the next one slides in again. */
   function closed() { lastArtifact = null; setTimeout(refresh, 0); }
 
-  /**
-   * A new block of an answer streams in word by word, continuing sequentially
-   * from `startIndex`, then unwraps its temporary spans back to plain text.
-   * @param {Element} block @param {number} [startIndex]
-   * @returns {number} next word cursor
-   */
-  function stream(block, startIndex = 0) {
-    if (!on() || !moving()) return startIndex;
-    const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-    const texts = [];
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.textContent.trim() && !n.parentElement?.closest("pre, code, svg")) texts.push(n);
-    let i = startIndex;
-    /** @type {HTMLSpanElement[]} */
-    const wrapped = [];
-    for (const n of texts) {
-      const frag = document.createDocumentFragment();
-      for (const p of n.textContent.split(/(\s+)/)) {
-        if (!p) continue;
-        if (/^\s+$/.test(p) || i >= WORDS_STREAMED) { frag.append(p); continue; }
-        const w = document.createElement("span");
-        w.className = "stream-word";
-        w.style.animationDelay = `${i++ * WORD_STEP_MS}ms`;
-        w.textContent = p;
-        wrapped.push(w);
-        frag.append(w);
-      }
-      n.replaceWith(frag);
-    }
-    if (wrapped.length) {
-      const waitMs = (i - 1) * WORD_STEP_MS + WORD_ANIM_MS + WORD_UNWRAP_BUFFER_MS;
-      setTimeout(() => {
-        for (const w of wrapped) if (w.isConnected) w.replaceWith(document.createTextNode(w.textContent || ""));
-        if (block.isConnected) block.normalize();
-      }, waitMs);
-    }
-    return i;
-  }
+  const stream = (block, startIndex = 0) => typeof AuroraStageView !== "undefined" ? AuroraStageView.stream(block, startIndex, on(), moving()) : startIndex;
 
   // The first conversation drawn starts the watch, without waiting for the
   // app's next poll; and once the page is drawn, what came before it is

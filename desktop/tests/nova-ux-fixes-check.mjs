@@ -16,7 +16,7 @@ const app = read("app.js");
 const pages = read("nova-pages.js");
 const ux = read("nova-ux.js");
 const rail = read("aurora-rail.js");
-const stage = read("aurora-stage.js");
+const stage = read("aurora-stage.js") + "\n" + read("aurora-stage-view.js");
 const discover = read("discover.js");
 
 // 1. Batch approval: ⌘K passes ids then body, as Server.inbox.batch takes them.

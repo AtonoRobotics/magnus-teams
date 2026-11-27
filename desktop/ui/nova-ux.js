@@ -381,9 +381,9 @@ const NovaUx = (() => {
   if (typeof AuroraCore !== "undefined") {
     AuroraCore.onDom(queueSync);
     AuroraCore.onState(queueSync);
-  } else {
-    new MutationObserver(queueSync).observe(document.documentElement, { childList: true, subtree: true });
   }
+  if (typeof UIStore !== "undefined") UIStore.subscribe("*", queueSync);
+  window.addEventListener("magnus-render", queueSync);
   window.addEventListener("magnus-theme", queueSync);
   window.addEventListener("hashchange", queueSync);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", queueSync);
