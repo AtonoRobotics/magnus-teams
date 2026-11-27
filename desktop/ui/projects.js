@@ -267,6 +267,145 @@ const Projects = (() => {
     };
   }
 
+  /** Render a shared project's unified Project Home in `#main` (`#/team/:ws`). */
+  function sharedPageHtml(home, panel) {
+    const ws = home.id;
+    const edit = home.role !== "guest";
+    const canDel = home.role === "owner" || home.role === "admin";
+    const chats = (home.channels || []).filter(c => !c.direct && !c.archived && !c.deleted);
+    const files = panel?.files || [];
+    const members = home.members || [];
+    return `<div class="project-page" data-shared-project-page="${esc(ws)}">
+      <header class="project-page-head">
+        <div class="project-title-wrap">
+          <a class="small muted project-crumb" href="#/projects">Projects</a>
+          <h1>${esc(home.name)} <span class="nav-shared-badge">Shared</span></h1>
+        </div>
+        <div class="row project-head-acts">
+          ${chats[0] ? `<a class="button primary" href="#/team/${enc(ws)}/c/${enc(chats[0].id)}">Open chat</a>` : ""}
+          <button type="button" class="shared-members-btn" data-open="shared:settings" title="People and project settings">${icon("team")}<span>${members.length} ${members.length === 1 ? "person" : "people"}</span></button>
+          ${canDel ? `<button type="button" class="icon-btn" data-shared-project-delete="${esc(ws)}" data-shared-project-name="${esc(home.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>` : ""}
+        </div>
+      </header>
+      ${edit && chats[0] ? `<form class="project-hero-composer" data-shared-project-ask="${esc(ws)}" data-shared-default-ch="${esc(chats[0].id)}">
+        <input type="text" name="prompt" placeholder="Ask @${esc(home.agent?.name || "Magnus")} anything in ${esc(home.name)}… (nothing runs until you send)" aria-label="Ask Magnus in ${esc(home.name)}" autocomplete="off">
+        <button type="submit" class="primary">Ask ${esc(home.agent?.name || "Magnus")}</button>
+      </form>` : ""}
+      <div class="project-sections project-hub-grid">
+        <div class="project-hub-main">
+          <section class="project-sec">
+            <div class="spread"><h2>Shared chats</h2></div>
+            ${chats.length ? `<ul class="tlist">${chats.map(c => `<li class="trow"><a href="#/team/${enc(ws)}/c/${enc(c.id)}"><span class="ttl">${esc(c.name)}</span>${c.unread ? `<span class="small faint when">${c.unread} new</span>` : ""}</a></li>`).join("")}</ul>` : `<p class="empty">No shared chats yet.</p>`}
+            ${edit ? `<form class="project-create-bar" data-shared-new-chat="${esc(ws)}"><input type="text" name="name" placeholder="New shared chat name…" aria-label="New shared chat name" autocomplete="off" required><button type="submit">New chat</button></form>` : ""}
+          </section>
+          <section class="project-sec">
+            <div class="spread"><h2>Shared documents</h2>${edit ? `<label class="button">${icon("file")}<span>Add files</span><input type="file" multiple data-shared-upload hidden></label>` : ""}</div>
+            ${files.length ? `<ul class="flist">${files.map(f => `<li data-shared-file="${esc(f.name)}"><span class="fchip"><span>${esc(f.name)}</span> <button type="button" class="link small" data-shared-file-dl="${esc(f.name)}">Download</button>${edit ? ` <button type="button" class="link small" data-shared-file-del="${esc(f.name)}">Delete</button>` : ""}</span> <span class="small faint">${esc(f.by_name || "")}${f.size ? ` · ${esc(kb(f.size))}` : ""}</span></li>`).join("")}</ul>` : `<p class="small muted">No shared documents yet.</p>`}
+          </section>
+        </div>
+        <div class="project-hub-side">
+          <section class="project-sec">
+            <div class="spread"><h2>People</h2><button type="button" class="link small" data-open="shared:settings">${edit ? "Add or invite" : "See all"}</button></div>
+            <ul class="tlist">${members.map(m => `<li class="trow"><span><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)}${m.id === home.me ? ` <span class="small faint">you</span>` : ""}</span><span class="small faint">${esc(typeof teamRoleLabel === "function" ? teamRoleLabel(m.role) : m.role)}</span></li>`).join("")}</ul>
+          </section>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /** Render a shared project's unified home in `#main` (`#/team/:ws`). */
+  async function showShared(main, wsId) {
+    App.thread = null;
+    if (typeof Team !== "undefined") { Team.ws = wsId; Team.place = { kind: "home" }; }
+    const draw = async () => {
+      try {
+        const [home, panel] = await Promise.all([
+          typeof loadHome === "function" ? loadHome(wsId) : Server.workspaces.home(wsId),
+          Server.workspaces.panel ? Server.workspaces.panel(wsId, null).catch(() => ({ files: [] })) : Promise.resolve({ files: [] }),
+        ]);
+        if (location.hash !== `#/team/${enc(wsId)}`) return;
+        App.shared = { ws: wsId, channel: firstChannel(home), project: null, home, panel };
+        if (typeof sidebar === "function") sidebar();
+        paint(main, sharedPageHtml(home, panel));
+      } catch (err) {
+        if (err?.status === 404 && typeof leftWorkspace === "function") return leftWorkspace(wsId);
+        paint(main, `<div class="project-page"><div class="banner bad">${esc(err.message)}</div><p><a href="#/projects">Back to Projects</a></p></div>`);
+      }
+    };
+    await draw();
+    if (typeof Team !== "undefined") Team.onWorkspaceEvent = () => { if (location.hash === `#/team/${enc(wsId)}` && main.isConnected) draw(); };
+    if (typeof onLeave === "function") {
+      onLeave(() => {
+        if (typeof Team !== "undefined") Team.onWorkspaceEvent = null;
+        if (App.shared?.ws === wsId) App.shared = null;
+        if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) closePanel(false);
+      });
+    }
+    main.onsubmit = async e => {
+      const askForm = /** @type {HTMLElement} */ (e.target).closest?.("[data-shared-project-ask]");
+      if (askForm) {
+        e.preventDefault();
+        const inp = /** @type {?HTMLInputElement} */ ($('input[name="prompt"]', askForm));
+        const text = (inp?.value || "").trim();
+        const ch = askForm.dataset.sharedDefaultCh || "";
+        if (!text || !ch) return;
+        const agentName = App.shared?.home?.agent?.name || "Magnus";
+        const body = /^@magnus\b/i.test(text) ? text : `@${agentName} ${text}`;
+        try {
+          await Server.channels.post(wsId, ch, { text: body });
+          location.hash = `#/team/${enc(wsId)}/c/${enc(ch)}`;
+        } catch (err) { toast(err.message); }
+        return;
+      }
+      const newChat = /** @type {HTMLElement} */ (e.target).closest?.("[data-shared-new-chat]");
+      if (newChat) {
+        e.preventDefault();
+        const inp = /** @type {?HTMLInputElement} */ ($('input[name="name"]', newChat));
+        const name = (inp?.value || "").trim();
+        if (!name) return;
+        try {
+          const r = await Server.workspaces.start(wsId, { kind: "channel", name });
+          if (typeof loadHome === "function") await loadHome(wsId);
+          location.hash = `#/team/${enc(wsId)}/c/${enc(r.channel)}`;
+        } catch (err) { toast(err.message); }
+      }
+    };
+    main.onchange = async e => {
+      const t = /** @type {HTMLInputElement} */ (e.target);
+      if (t.matches?.("[data-shared-upload]") && t.files?.length) {
+        try {
+          for (const f of t.files) {
+            await Magnus.putBytes(`/v1/workspaces/${enc(wsId)}/files/${enc(f.name)}`, new Uint8Array(await f.arrayBuffer()));
+          }
+          toast(`Uploaded ${[...t.files].map(f => f.name).join(", ")}.`);
+          t.value = "";
+          await draw();
+        } catch (err) { toast(err.message); }
+      }
+    };
+    main.onclick = async e => {
+      const t = /** @type {HTMLElement} */ (e.target);
+      const dl = t.closest?.("[data-shared-file-dl]");
+      if (dl) {
+        const name = dl.dataset.sharedFileDl || "";
+        try { await Magnus.download(`/v1/workspaces/${enc(wsId)}/files/${enc(name)}`, name); } catch (err) { toast(err.message); }
+        return;
+      }
+      const rm = t.closest?.("[data-shared-file-del]");
+      if (rm) {
+        const name = rm.dataset.sharedFileDel || "";
+        if (await ask(`Delete ${name}?`, "Delete")) {
+          try { await Server.workspaces.removeFile(wsId, name); await draw(); } catch (err) { toast(err.message); }
+        }
+        return;
+      }
+      const del = t.closest?.("[data-shared-project-delete]");
+      if (del) {
+        await deleteShared(del.dataset.sharedProjectDelete, del.dataset.sharedProjectName);
+      }
+    };
+  }
+
   /** Global sidebar handlers for `+` inline creation and quick hover delete. */
   function wireGlobal() {
     document.addEventListener("click", async e => {
@@ -314,5 +453,5 @@ const Projects = (() => {
 
   if (typeof document !== "undefined") wireGlobal();
 
-  return { inlineNewHtml, openInlineNew, closeInlineNew, listHtml, pageHtml, showList, show, deletePersonal, deleteShared };
+  return { inlineNewHtml, openInlineNew, closeInlineNew, listHtml, pageHtml, sharedPageHtml, showList, show, showShared, deletePersonal, deleteShared };
 })();

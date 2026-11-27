@@ -135,7 +135,7 @@ function teamConversation(s, thread) {
       const project = Team.home.projects.find(p => p.id === c.project);
       paint($(".conv-head", view.section), thread
         ? ChatView.head({ title: "Thread", where: `<a href="${teamHref(s.ws, { kind: "channel", id: s.channel })}">← ${esc(channelTitle(Team.home, c))}</a>`, tools: channelTools(Team.home, c, project) })
-        : ChatView.head({ title: channelTitle(Team.home, c), where: c.direct ? "" : `<a href="#/team/${enc(s.ws)}" data-open="shared:files">${esc(project ? project.name : Team.home.name)}</a>`, tools: channelTools(Team.home, c, project) }));
+        : ChatView.head({ title: channelTitle(Team.home, c), where: c.direct ? "" : `<a href="#/team/${enc(s.ws)}">${esc(project ? project.name : Team.home.name)}</a>`, tools: channelTools(Team.home, c, project) }));
     },
     // Retry and Feedback are for who asked the agent; what only they may see
     // is not shared or saved for the team, and the server holds to that too.

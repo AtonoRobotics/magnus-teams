@@ -23,9 +23,6 @@ const SharedCanvas = (() => {
     return [
       ["shared:files", `${base}/files`, "file", "Files"],
       ["shared:settings", `${base}/people`, "gear", "Project settings"],
-      ["shared:tasks", `${base}/p/board`, "clock", "Tasks"],
-      ["shared:routines", base, "calendar", "Routines"],
-      ["shared:knowledge", `${base}/knowledge`, "shield", "Knowledge"],
     ];
   }
 

@@ -6,7 +6,7 @@
 // team-chat.js, the right panel in team-panel.js and the command menu in
 // team-command.js.
 UI.team = '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18 14.5a6 6 0 0 1 3 5.5"/>';
-const TEAM_REFRESH_MS = 3000, TEAM_ROLES = ["guest", "member", "admin", "owner"];
+const TEAM_FALLBACK_POLL_MS = 30000, TEAM_ROLES = ["guest", "member", "admin", "owner"];
 
 /** A collaborator's standing as people read it: no Admin bureaucracy.
  * @param {string} r */
@@ -19,13 +19,13 @@ const teamRoleLabel = r => ({ owner: "Creator", admin: "Collaborator", member: "
  * @typedef {{ spent_usd: number, limit_usd: ?number, channels: Object<string, { spent_usd: number, limit_usd: ?number }> }} TeamSpend
  * @typedef {{ name: string, title: string, roles: string[], signs_in: boolean, signed_in: boolean }} TeamApp
  * @typedef {{ id: string, name: string, role: string, me: string, me_name: string, agent: { id: string, name: string }, members: TeamMember[], channels: TeamChannel[], projects: TeamProject[], computer: ?string, spend?: TeamSpend, apps?: TeamApp[] }} TeamHome
- * @typedef {{ kind: "channel"|"project"|"activity"|"search"|"people", id?: string, thread?: string, tab?: string, q?: string }} TeamPlace
+ * @typedef {{ kind: "home"|"channel"|"project"|"activity"|"search"|"people", id?: string, thread?: string, tab?: string, q?: string }} TeamPlace
  */
 
 /** What the open workspace looks like now, kept between views so a switch paints at once. */
-const Team = { ws: null, /** @type {?TeamHome} */ home: null, /** @type {TeamPlace} */ place: { kind: "channel" }, homes: {}, avatars: {}, capabilities: {}, loop: 0 };
+const Team = { ws: null, /** @type {?TeamHome} */ home: null, /** @type {TeamPlace} */ place: { kind: "home" }, homes: {}, avatars: {}, capabilities: {}, loop: 0, /** @type {?(() => void)} */ onWorkspaceEvent: null };
 
-route(/^#\/teams$/, main => showTeams(main));
+route(/^#\/teams$/, main => (typeof Projects !== "undefined" && Projects.showList ? Projects.showList(main) : showTeams(main)));
 route(/^#\/join\/([^/]+)$/, (main, code) => joinTeam(main, code));
 route(/^#\/team\/([^/]+)(\/.*)?$/, (main, ws, rest) => showTeam(main, ws, teamPlace(rest || "")), true);
 
@@ -33,18 +33,20 @@ route(/^#\/team\/([^/]+)(\/.*)?$/, (main, ws, rest) => showTeam(main, ws, teamPl
 function teamPlace(rest) {
   const decode = s => { try { return decodeURIComponent(s); } catch { return s; } };
   const [kind, id, sub, more] = rest.split("/").filter(Boolean).map(decode);
+  if (!kind) return { kind: "home" };
   if (kind === "c" || kind === "channels") return { kind: "channel", id, thread: sub === "t" ? more : undefined };
   if (kind === "p") return { kind: "project", id, tab: sub || "overview" };
   if (kind === "activity") return { kind: "activity" };
   if (kind === "search") return { kind: "search", q: id || "" };
   if (kind === "people" || kind === "members") return { kind: "people" };
   if (kind === "files" || kind === "knowledge") return { kind: "project", id: "", tab: kind };
-  return { kind: "channel" };
+  return { kind: "home" };
 }
 
 /** The hash for a place in a workspace. */
 function teamHref(ws, place) {
   const base = `#/team/${enc(ws)}`;
+  if (place.kind === "home") return base;
   if (place.kind === "channel") return place.id ? `${base}/c/${enc(place.id)}${place.thread ? `/t/${enc(place.thread)}` : ""}` : base;
   if (place.kind === "project") return `${base}/p/${enc(place.id || "")}${place.tab && place.tab !== "overview" ? `/${place.tab}` : ""}`;
   if (place.kind === "search") return `${base}/search/${enc(place.q || "")}`;
@@ -92,7 +94,7 @@ async function showTeams(main) {
 async function joinTeam(main, code) {
   paint(main, `<p class="empty">Joining…</p>`);
   try { const r = await Server.workspaces.join(code); location.hash = `#/team/${enc(r.workspace)}`; }
-  catch (err) { paint(main, `<div class="banner bad">${esc(err.message)}</div><p><a href="#/teams">Shared projects</a></p>`); }
+  catch (err) { paint(main, `<div class="banner bad">${esc(err.message)}</div><p><a href="#/projects">Projects</a></p>`); }
 }
 
 /** An avatar: UserAvatar (photo/preset/initials) for people, or the agent's mark. */
@@ -161,6 +163,9 @@ function sharedDeepLinkPanel(place) {
 }
 
 async function showTeam(main, ws, place) {
+  if (place.kind === "home" && typeof Projects !== "undefined" && Projects.showShared) {
+    return Projects.showShared(main, ws);
+  }
   const hash = location.hash, loop = ++Team.loop;
   Team.ws = ws;
   App.thread = null;
@@ -170,9 +175,23 @@ async function showTeam(main, ws, place) {
   const chanPlace = { kind: "channel", id: chId, thread: place.kind === "channel" ? place.thread : undefined };
   Team.place = place.kind === "channel" ? chanPlace : place;
   App.shared = { ws, channel: chId, project: Team.home.channels.find(x => x.id === chId)?.project || place.id || null, home: Team.home, panel: null };
+  const syncNow = async () => {
+    if (loop !== Team.loop || !main.isConnected || location.hash !== hash) return;
+    try {
+      await loadHome(ws);
+      await TeamChat.refresh();
+      if (typeof sidebar === "function") sidebar();
+      if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
+      if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) drawPanel();
+    } catch (err) {
+      if (err?.status === 404 && err?.body?.error === "no such workspace") return leftWorkspace(ws);
+    }
+  };
+  Team.onWorkspaceEvent = () => { syncNow(); };
   if (typeof onLeave === "function") {
     onLeave(() => {
       Team.loop++;
+      Team.onWorkspaceEvent = null;
       if (App.shared?.ws === ws) App.shared = null;
       App.redraw = null;
       if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) closePanel(false);
@@ -193,18 +212,10 @@ async function showTeam(main, ws, place) {
   if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
   const tick = async () => {
     if (loop !== Team.loop || !main.isConnected || location.hash !== hash) return;
-    try {
-      await loadHome(ws);
-      await TeamChat.refresh();
-      if (typeof sidebar === "function") sidebar();
-      if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
-      if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) drawPanel();
-    } catch (err) {
-      if (err?.status === 404 && err?.body?.error === "no such workspace") return leftWorkspace(ws);
-    }
-    setTimeout(tick, TEAM_REFRESH_MS);
+    await syncNow();
+    setTimeout(tick, TEAM_FALLBACK_POLL_MS);
   };
-  setTimeout(tick, TEAM_REFRESH_MS);
+  setTimeout(tick, TEAM_FALLBACK_POLL_MS);
 }
 
 /** The workspace is no longer the person's: back to the list, saying so. */

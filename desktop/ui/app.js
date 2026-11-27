@@ -521,7 +521,10 @@ async function refreshDomains(domains) {
     ? Server.computers.list().then(c => { App.computers = c; }, () => {})
     : Promise.resolve();
   const workspaces = want.has("workspaces") && typeof Server !== "undefined" && Server.workspaces?.list
-    ? Server.workspaces.list().then(w => { App.workspaces = w.workspaces || []; }, () => {})
+    ? Server.workspaces.list().then(w => {
+      App.workspaces = Array.isArray(w) ? w : (w?.workspaces || []);
+      if (typeof Team !== "undefined" && Team.onWorkspaceEvent) Team.onWorkspaceEvent();
+    }, () => {})
     : Promise.resolve();
   const staged = want.has("staged") && typeof Server !== "undefined" && Server.staged?.list
     ? Server.staged.list().then(r => { App.staged = r?.items || []; }, () => {})

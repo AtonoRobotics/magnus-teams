@@ -107,10 +107,10 @@ Team.ws = "ws1";
 // 1. Native Bento tiles: Missions are retired, so shared conversations stay quiet like private chat.
 assert.equal(SharedCanvas.boxes().length, 0, "retired Missions must not emit Bento tiles");
 
-// 2. Context-aware Views popover lists Files and Project settings first, with no Missions entry.
+// 2. Context-aware Views popover focuses on Files and Project settings (no Missions/Kanban/KB clutter).
 const dock = SharedCanvas.dockItems("ws1");
-assert.deepEqual([...dock.map(d => d[0])], ["shared:files", "shared:settings", "shared:tasks", "shared:routines", "shared:knowledge"]);
-assert.deepEqual([...dock.map(d => d[3])], ["Files", "Project settings", "Tasks", "Routines", "Knowledge"]);
+assert.deepEqual([...dock.map(d => d[0])], ["shared:files", "shared:settings"]);
+assert.deepEqual([...dock.map(d => d[3])], ["Files", "Project settings"]);
 
 // 3. Clean-room Share payload never leaks unselected private messages.
 const msgs = [

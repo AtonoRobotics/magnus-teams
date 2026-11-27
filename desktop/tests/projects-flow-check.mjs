@@ -129,8 +129,18 @@ assert.doesNotMatch(teamsHtml, /data-del-shared-ws="ws_2"/, "non-creator should 
 assert.equal(sharedDeepLinkPanel({ kind: "project", id: "p1", tab: "overview" }), null, "project deep link must not auto-open Missions panel");
 
 // 7. Shared conversation header gives creator a direct delete button.
-const ownerHome = { id: "ws_1", name: "Launch", role: "owner", me: "sam", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam", online: true }] };
+const ownerHome = { id: "ws_1", name: "Launch", role: "owner", me: "sam", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam", role: "owner", online: true }], channels: [{ id: "c1", name: "general", direct: null }] };
 const tools = channelTools(ownerHome, { id: "c1", name: "general", mode: "mentions", direct: null }, null);
 assert.match(tools, /data-nav-del-shared="ws_1"/, "creator missing direct delete button in shared header");
+
+// 8. Unified Shared Project Home renders shared chats, shared documents, people, and hero ask composer (no Missions).
+const sharedHtml = Projects.sharedPageHtml(ownerHome, { files: [{ name: "spec.pdf", size: 2048, by_name: "Sam" }] });
+assert.match(sharedHtml, /data-shared-project-page="ws_1"/, "shared project home missing root");
+assert.match(sharedHtml, /data-shared-project-ask="ws_1"/, "shared project home missing hero composer");
+assert.match(sharedHtml, /data-shared-new-chat="ws_1"/, "shared project home missing new chat form");
+assert.match(sharedHtml, /spec\.pdf/, "shared project home missing shared documents");
+assert.match(sharedHtml, /data-shared-project-delete="ws_1"/, "shared project home missing creator delete");
+assert.doesNotMatch(sharedHtml, /data-mission-new|Missions/, "shared project home must not show Missions");
+assert.deepEqual(JSON.parse(JSON.stringify(ctx.teamPlace(""))), { kind: "home" }, "bare #/team/:ws opens Shared Project Home");
 
 console.log("projects flow check passed");
