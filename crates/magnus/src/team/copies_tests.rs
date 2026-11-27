@@ -38,6 +38,9 @@ async fn replayed(s: &Server) -> State {
 }
 
 /// Whether any row of these kinds still holds `text`, in its record or its content.
+/// A record holds hex ids (task, run, workspace, channel), so `text` must not
+/// be one a hex id can contain: a bare number such as "4471" turns up in a
+/// random id about once in a hundred runs. Ask for the words themselves.
 async fn logged(s: &Server, kinds: &[&str], text: &str) -> bool {
     let seqs: Vec<i64> = s.k.log.of_kinds(kinds, 500).await.unwrap().into_iter().map(|(seq, ..)| seq).collect();
     s.k.log.contents(&seqs).await.unwrap().values().any(|b| b.to_string().contains(text))
@@ -105,11 +108,11 @@ async fn an_erased_members_words_leave_others_whispers() {
     s.k.erase_person("person:sam", "mo").await.unwrap();
 
     let context = s.k.whisper_context(&run).unwrap();
-    assert!(!context.contains("4471"), "sam's whisper still holds mo's words: {context}");
+    assert!(!context.contains("door code is 4471"), "sam's whisper still holds mo's words: {context}");
     assert!(context.contains("sam: sam's own plan"), "sam's whisper lost sam's own words: {context}");
-    assert!(!logged(&s, &["team"], "4471").await, "a whisper's copy of mo's words is still in the log");
+    assert!(!logged(&s, &["team"], "door code is 4471").await, "a whisper's copy of mo's words is still in the log");
     let (_, thread) = replayed(&s).await.team.whisper_thread(&task).unwrap();
-    assert!(!thread.contains("4471") && thread.contains("sam's own plan"), "after a restart: {thread}");
+    assert!(!thread.contains("door code is 4471") && thread.contains("sam's own plan"), "after a restart: {thread}");
     s.done().await;
 }
 
@@ -130,16 +133,16 @@ async fn an_erased_contributors_words_leave_the_deliverable() {
         TeamMissionEvent::DeliverableUpdated { workspace: ws.clone(), mission: "m1".into(), markdown: "### your quarter figures (mo)\nmo's figures: 9931".into(), complete: true };
     mission(&s, old).await;
     let view = |st: &State| st.missions.view_for_room(&ws, &c, "sam")[0].clone();
-    assert!(s.k.read(view)["deliverable"].as_str().unwrap().contains("9931"), "the deliverable does not show the release");
+    assert!(s.k.read(view)["deliverable"].as_str().unwrap().contains("figures: 9931"), "the deliverable does not show the release");
 
     s.k.erase_person("person:sam", "mo").await.unwrap();
 
     let live = s.k.read(view);
-    assert!(!live.to_string().contains("9931"), "the deliverable still shows mo's words: {live}");
+    assert!(!live.to_string().contains("figures: 9931"), "the deliverable still shows mo's words: {live}");
     assert!(live["deliverable"].is_string() && live["goal"] == "Board numbers", "sam's mission lost its own words: {live}");
-    assert!(!logged(&s, &["team_mission"], "9931").await, "a deliverable's copy of mo's words is still in the log");
+    assert!(!logged(&s, &["team_mission"], "figures: 9931").await, "a deliverable's copy of mo's words is still in the log");
     let after = view(&replayed(&s).await);
-    assert!(!after.to_string().contains("9931"), "after a restart: {after}");
+    assert!(!after.to_string().contains("figures: 9931"), "after a restart: {after}");
     s.done().await;
 }
 
