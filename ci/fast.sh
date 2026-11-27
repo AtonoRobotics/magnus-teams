@@ -44,13 +44,16 @@ check() {
 }
 
 # The desktop app, as the release builds it: its lock file as committed, its
-# formatting, and its code and tests compiled and its tests run. It needs
+# formatting, its code and tests compiled and its tests run, and its clippy
+# warnings held to their baseline. Its file sizes are in the size ratchet,
+# which covers every .rs file. It needs
 # Tauri's Linux libraries (ci/desktop-libs.sh installs them).
 desktop() {
   m=desktop/src-tauri/Cargo.toml
   check cargo fetch --locked --manifest-path "$m"
   check cargo fmt --manifest-path "$m" --all --check
   check cargo test --locked --manifest-path "$m" --lib --bins
+  check sh ci/ratchet.sh clippy-desktop
 }
 if [ "$part" = desktop ]; then
   desktop

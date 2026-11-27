@@ -58,6 +58,7 @@ others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | g
 has "$release" 'run: sh ci/fast.sh' || bad "a manual release does not run ci/fast.sh"
 has "$script" 'for f in desktop/tests/*-check.mjs; do' || bad "ci/fast.sh does not run every desktop/tests/*-check.mjs"
 has "$script" 'check cargo test --locked --manifest-path "$m" --lib --bins' || bad "ci/fast.sh does not compile and test the desktop app"
+has "$script" 'check sh ci/ratchet.sh clippy-desktop' || bad "ci/fast.sh does not hold the desktop app's clippy warnings to their baseline"
 # The lock file is checked as committed before any cargo command could
 # rewrite it, as the release build's `cargo fetch --locked` reads it.
 first_cargo=$(grep -E '^check cargo ' "$script" | grep -v 'cargo fmt' | head -1)

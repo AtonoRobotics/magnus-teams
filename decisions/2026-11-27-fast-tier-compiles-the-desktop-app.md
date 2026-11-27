@@ -12,4 +12,4 @@
 
 **Landing it.** Nothing had checked the desktop app's formatting either, so it is formatted in the same commit (whitespace only). Formatting put `desktop/src-tauri/src/lib.rs` at 852 lines, over the 800-line limit, so its tests moved to `lib_tests.rs`, as `bridge_tests.rs` and `detect_tests.rs` already are; it is 757. On Strix Beta the desktop part passes in 37 s with a warm cache (48 tests), and with b7cdb25's import put back it fails with `unresolved import futures`.
 
-**Limits.** `ci/ratchet.sh` (file sizes, the clippy baseline) still covers only the main workspace, not the desktop app.
+**Limits.** The ratchets came to cover the desktop app later the same day (decisions/2026-11-27-ratchets-cover-the-desktop-app.md).

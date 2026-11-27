@@ -39,6 +39,12 @@ tauri-plugin-updater = "2"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 uuid = { version = "1", features = ["v4"] }
 
+# As the main workspace's: unwrap and expect warn, and ci/ratchet.sh
+# clippy-desktop counts them against ci/clippy-baseline-desktop.
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
 [profile.release]
 codegen-units = 1
 lto = true
