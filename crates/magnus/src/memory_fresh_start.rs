@@ -11,8 +11,9 @@ use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
 
 /// The memory update: a memory written before it is archived at boot.
-/// 2026-11-27T18:39:23Z, in seconds since the Unix epoch.
-pub const MEMORY_FRESH_START: DateTime<Utc> = match DateTime::from_timestamp(1_795_804_763, 0) {
+/// 2026-11-27T18:47:00Z, in seconds since the Unix epoch: when the
+/// person-only write rules (3d0e543, test.392) went live on the server.
+pub const MEMORY_FRESH_START: DateTime<Utc> = match DateTime::from_timestamp(1_795_805_220, 0) {
     Some(at) => at,
     None => panic!("MEMORY_FRESH_START is not a time"),
 };
