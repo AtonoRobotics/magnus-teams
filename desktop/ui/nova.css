@@ -460,8 +460,8 @@ html[data-style="nova"] .appearance .seg button {
 }
 
 .nova-app-tile.lead {
-  width: 64px;
-  height: 64px;
+  width: 4rem;
+  height: 4rem;
   background: #0f1117;
   border: 2px solid #3b82f6;
   box-shadow: 0 0 24px rgba(59, 130, 246, 0.45);
