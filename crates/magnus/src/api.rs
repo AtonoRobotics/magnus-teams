@@ -4,6 +4,7 @@
 //! answers and policy arrive only here, a channel the agent cannot reach (its
 //! sandbox has no network and no tool calls this API).
 
+pub(crate) mod events_sse;
 mod owner;
 mod schedules;
 mod sign_in;
@@ -121,6 +122,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/{file}", get(crate::ui::assets::ui_file))
         .route("/fonts/{file}", get(crate::ui::assets::ui_font))
         .route("/v1/health", get(health))
+        .route("/v1/events", get(events_sse::events_stream))
         .route("/v1/sign-in", get(sign_in_method).post(sign_in))
         .route("/v1/devices", get(list_devices).post(enroll_device))
         .route("/v1/devices/{id}", axum::routing::delete(revoke_device))

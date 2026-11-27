@@ -509,6 +509,36 @@ async function refresh() {
   finally { refreshInFlight = null; }
 }
 
+async function refreshDomains(domains) {
+  if (!App.me || !Array.isArray(domains) || !domains.length) return;
+  const want = new Set(domains);
+  const get = (path, k) => Resources.read(({ tasks: "Tasks", schedules: "Schedules", threads: "Conversations", connectors: "Apps" })[k], path, k);
+  const [tasks, schedules, threads, connectors] = await Promise.all([
+    want.has("tasks") ? get("/v1/tasks", "tasks") : null,
+    want.has("schedules") ? get("/v1/schedules", "schedules") : null,
+    want.has("chat") ? get("/v1/chat", "threads") : null,
+    want.has("connectors") ? get("/v1/connectors", "connectors") : null,
+    want.has("inbox") ? pollInbox() : null,
+  ]);
+  if (!App.me) return;
+  if (tasks) App.tasks = tasks.filter(t => !t.review);
+  if (schedules) App.schedules = schedules;
+  if (threads) App.threads = threads;
+  if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
+  if (typeof UIStore !== "undefined") {
+    if (tasks) UIStore.setTasks(App.tasks);
+    UIStore.patch({
+      route: location.hash || "",
+      asks: typeof needsMe === "function" ? needsMe() : [],
+      connectedApps: (App.connectors || []).filter(c => c.connected).map(c => c.name || c.id).filter(Boolean),
+    });
+  }
+  lastRefreshMs = Date.now();
+  sidebar();
+  banners();
+  await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
+}
+
 // Above the conversation: how the agent changed since the person last
 // looked. A kill switch that is on has its own banner everywhere (admin.js).
 function banners() {

@@ -4,6 +4,8 @@
 // ---------- start ----------
 
 let background = [];
+let eventStream = null;
+let sseConnected = false;
 // ---------- the app's own updates ----------
 
 // `look`: ask the appliance now, as when a session begins (the app's hourly
@@ -112,7 +114,16 @@ async function boot() {
   banners();
   await Notices.poll();
   lastNoticesPollMs = Date.now();
+  if (eventStream) { eventStream.close(); eventStream = null; }
+  sseConnected = false;
+  if (typeof Magnus.events === "function") {
+    eventStream = Magnus.events(
+      msg => { if (typeof refreshDomains === "function") refreshDomains(msg.domains).catch(() => {}); },
+      ok => { sseConnected = !!ok; }
+    );
+  }
   const pollRefreshTick = () => {
+    if (sseConnected) return;
     if (document.hidden && Date.now() - lastRefreshMs < REFRESH_HIDDEN_MS) return;
     refresh();
   };
@@ -254,6 +265,8 @@ function stop() {
   App.sessionGeneration++;
   Resources.reset();
   background.forEach(clearInterval); background = [];
+  if (eventStream) { eventStream.close(); eventStream = null; }
+  sseConnected = false;
   if (visibilityHandler) { document.removeEventListener("visibilitychange", visibilityHandler); visibilityHandler = null; }
   lastVersionPollMs = 0; lastRefreshMs = 0; lastNoticesPollMs = 0;
   Notices.reset();

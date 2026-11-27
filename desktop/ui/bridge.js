@@ -287,6 +287,19 @@ const webBridge = {
     socket.onclose = () => onEnd();
     return { send: bytes => { if (socket.readyState === WebSocket.OPEN) socket.send(bytes); }, close: () => { socket.onclose = null; socket.close(); } };
   },
+  events(onInvalidation, onState) {
+    if (typeof EventSource === "undefined") return null;
+    const es = new EventSource("/v1/events", { withCredentials: true });
+    es.onopen = () => onState?.(true);
+    es.onmessage = e => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg && Array.isArray(msg.domains) && msg.domains.length) onInvalidation?.(msg);
+      } catch { /* ignore non-JSON frames */ }
+    };
+    es.onerror = () => onState?.(false);
+    return { close: () => { es.onopen = es.onmessage = es.onerror = null; es.close(); onState?.(false); } };
+  },
   async dataUrl(path) {
     const r = await fetch(path, { credentials: "same-origin" });
     if (!r.ok) throw errorOf(r.status, await r.text());

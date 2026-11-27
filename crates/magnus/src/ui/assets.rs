@@ -171,21 +171,90 @@ fn static_file(media: &str, cache_control: &str, gzipped: bool, vary_encoding: b
     builder.body(body.into()).unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "the file could not be served"))
 }
 
+struct Bundles {
+    css: Vec<u8>,
+    css_gz: Option<Vec<u8>>,
+    js: Vec<u8>,
+    js_gz: Option<Vec<u8>>,
+    index_html: String,
+}
+
+static BUNDLES: LazyLock<Bundles> = LazyLock::new(|| {
+    let raw_html = String::from_utf8_lossy(UI[0].2);
+    let v = crate::update::version();
+    let mut css = Vec::new();
+    let mut js = Vec::new();
+    let mut out_lines = Vec::new();
+    let mut emitted_css = false;
+    let mut emitted_js = false;
+    for line in raw_html.lines() {
+        let trimmed = line.trim();
+        if let Some(href) = trimmed.strip_prefix("<link rel=\"stylesheet\" href=\"").and_then(|s| s.strip_suffix("\">")) {
+            if href.ends_with(".css") {
+                if let Some((_, _, body)) = UI.iter().find(|(n, _, _)| *n == href) {
+                    if !css.is_empty() {
+                        css.push(b'\n');
+                    }
+                    css.extend_from_slice(body);
+                    if !emitted_css {
+                        out_lines.push(format!("<link rel=\"stylesheet\" href=\"app.bundle.css?v={v}\">"));
+                        emitted_css = true;
+                    }
+                    continue;
+                }
+            }
+        }
+        if let Some(src) = trimmed.strip_prefix("<script src=\"").and_then(|s| s.strip_suffix("\"></script>")) {
+            if src.ends_with(".js") {
+                if let Some((_, _, body)) = UI.iter().find(|(n, _, _)| *n == src) {
+                    if !js.is_empty() {
+                        js.extend_from_slice(b"\n;\n");
+                    }
+                    js.extend_from_slice(body);
+                    if !emitted_js {
+                        out_lines.push(format!("<script src=\"app.bundle.js?v={v}\"></script>"));
+                        emitted_js = true;
+                    }
+                    continue;
+                }
+            }
+        }
+        out_lines.push(line.to_string());
+    }
+    let css_gz = gzip_bytes(&css);
+    let js_gz = gzip_bytes(&js);
+    Bundles { css, css_gz, js, js_gz, index_html: out_lines.join("\n") + "\n" }
+});
+
 pub async fn ui_index(headers: HeaderMap) -> Response {
     ui_file(headers, Path("index.html".into())).await
 }
 
 pub async fn ui_file(headers: HeaderMap, Path(file): Path<String>) -> Response {
+    if file == "app.bundle.js" {
+        if accepts_gzip(&headers) {
+            if let Some(gz) = &BUNDLES.js_gz {
+                return static_file("text/javascript; charset=utf-8", IMMUTABLE_CACHE, true, true, gz.clone());
+            }
+        }
+        return static_file("text/javascript; charset=utf-8", IMMUTABLE_CACHE, false, true, BUNDLES.js.clone());
+    }
+    if file == "app.bundle.css" {
+        if accepts_gzip(&headers) {
+            if let Some(gz) = &BUNDLES.css_gz {
+                return static_file("text/css; charset=utf-8", IMMUTABLE_CACHE, true, true, gz.clone());
+            }
+        }
+        return static_file("text/css; charset=utf-8", IMMUTABLE_CACHE, false, true, BUNDLES.css.clone());
+    }
     match UI.iter().find(|(n, _, _)| *n == file) {
-        Some(("index.html", media, body)) => {
-            let v = crate::update::version();
-            let html = String::from_utf8_lossy(body).replace(".css\"", &format!(".css?v={v}\"")).replace(".js\"", &format!(".js?v={v}\""));
+        Some(("index.html", media, _)) => {
             if accepts_gzip(&headers) {
-                if let Some(gz) = gzip_bytes(html.as_bytes()) {
+                if let Some(gz) = gzip_bytes(BUNDLES.index_html.as_bytes()) {
                     return static_file(media, NO_STORE_CACHE, true, true, gz);
                 }
             }
-            static_file(media, NO_STORE_CACHE, false, true, html)
+            static_file(media, NO_STORE_CACHE, false, true, BUNDLES.index_html.clone())
         }
         Some((name, media, body)) => {
             let cache = if *name == "manifest.webmanifest" { NO_STORE_CACHE } else { IMMUTABLE_CACHE };
@@ -233,6 +302,9 @@ mod tests {
         let idx = ui_file(HeaderMap::new(), Path("index.html".into())).await;
         assert_eq!(idx.headers().get("cache-control").unwrap(), NO_STORE_CACHE);
         assert!(idx.headers().get("content-encoding").is_none());
+        let idx_html = String::from_utf8(to_bytes(idx.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
+        assert!(idx_html.contains("app.bundle.css?v="), "index.html should reference bundled CSS");
+        assert!(idx_html.contains("app.bundle.js?v="), "index.html should reference bundled JS");
 
         let js_raw = ui_file(HeaderMap::new(), Path("app.js".into())).await;
         assert_eq!(js_raw.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
@@ -240,7 +312,7 @@ mod tests {
         assert!(js_raw.headers().get("content-encoding").is_none());
         let raw_bytes = to_bytes(js_raw.into_body(), usize::MAX).await.unwrap();
 
-        let js_gz = ui_file(gz_headers, Path("app.js".into())).await;
+        let js_gz = ui_file(gz_headers.clone(), Path("app.js".into())).await;
         assert_eq!(js_gz.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
         assert_eq!(js_gz.headers().get("content-encoding").unwrap(), "gzip");
         assert_eq!(js_gz.headers().get("vary").unwrap(), "accept-encoding");
@@ -250,6 +322,16 @@ mod tests {
         let mut roundtrip = Vec::new();
         dec.read_to_end(&mut roundtrip).unwrap();
         assert_eq!(roundtrip, raw_bytes.as_ref());
+
+        let bundle_js = ui_file(gz_headers.clone(), Path("app.bundle.js".into())).await;
+        assert_eq!(bundle_js.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
+        assert_eq!(bundle_js.headers().get("content-encoding").unwrap(), "gzip");
+        let bjs_bytes = to_bytes(bundle_js.into_body(), usize::MAX).await.unwrap();
+        assert!(bjs_bytes.len() > 50_000 && bjs_bytes.len() < BUNDLES.js.len());
+
+        let bundle_css = ui_file(gz_headers, Path("app.bundle.css".into())).await;
+        assert_eq!(bundle_css.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);
+        assert_eq!(bundle_css.headers().get("content-encoding").unwrap(), "gzip");
 
         let font = ui_font(Path("inter-latin-wght-normal.woff2".into())).await;
         assert_eq!(font.headers().get("cache-control").unwrap(), IMMUTABLE_CACHE);

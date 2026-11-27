@@ -69,6 +69,8 @@ pub struct Kernel {
     pub(crate) approved_edits: Mutex<HashMap<(String, String), serde_json::Value>>,
     /// How long each log append took since boot, in microseconds (V6).
     pub capture: Mutex<Capture>,
+    /// Compact invalidation frames pushed to `/v1/events` SSE subscribers.
+    pub(crate) invalidations: tokio::sync::broadcast::Sender<crate::api::events_sse::Invalidation>,
 }
 
 /// Capture overhead: the cost of writing each step to the log (V6).
@@ -186,6 +188,7 @@ impl Kernel {
             recall: crate::recall::Recall::new(&cfg.database.url),
             approved_edits: Mutex::new(HashMap::new()),
             capture: Mutex::new(Capture::default()),
+            invalidations: tokio::sync::broadcast::channel(crate::api::events_sse::INVALIDATION_CHANNEL_CAPACITY).0,
             cfg,
         });
         k.emit("kernel", Ev::KernelBoot { version: HARNESS_VERSION.into(), pid: std::process::id(), instructions: crate::run::instructions_version() }).await?;
@@ -253,13 +256,14 @@ impl Kernel {
     /// crash leaves some of them out. Each document version is numbered and
     /// a secret typed into chat masked under the write lock (`number`).
     pub async fn emit_all(&self, mut evs: Vec<(&str, Ev)>) -> Result<Vec<Event>> {
+        let mut owners_out: Vec<Option<String>> = Vec::new();
         let es = self
             .writer
             .write(|s| {
                 self.number(s, evs.iter_mut().map(|(_, e)| e));
                 // A run started in this batch is the person's of its TaskCreated.
                 let mut runs = HashMap::new();
-                let owners = evs
+                let owners: Vec<Option<String>> = evs
                     .iter()
                     .map(|(_, ev)| {
                         if let Ev::TaskCreated { run, person, .. } = ev {
@@ -268,10 +272,17 @@ impl Kernel {
                         s.content_owner(ev, &runs)
                     })
                     .collect();
+                owners_out = owners.clone();
                 crate::commit::Batch { evs: evs.into_iter().map(|(a, e)| (a.to_string(), e)).collect(), owners }
             })
             .await?;
         self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
+        for (ev, owner) in es.iter().zip(owners_out) {
+            let domains = crate::api::events_sse::invalidation_domains(&ev.ev);
+            if !domains.is_empty() {
+                let _ = self.invalidations.send(crate::api::events_sse::Invalidation { seq: ev.seq, person: owner, domains });
+            }
+        }
         // The knowledge index follows what this write changed.
         self.follow_index(&es).await;
         Ok(es)
