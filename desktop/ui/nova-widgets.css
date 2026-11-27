@@ -582,31 +582,108 @@ html[data-style="nova"] .conv-more-menu .conv-more-del {
   }
 }
 
-/* Apps & Skills reads as its mockup draws it: a centred 840px column, a quiet
-   22px title with no rule under it, and no close of its own, since the rail
-   is the way out. */
+/* Apps & Skills as its mockup draws it (owner, 2026-11-27: "Fonts, font size,
+   padding / space and layouts don't match mockup"): a centred 896px column,
+   its parts 32px apart; a 24px title in medium weight with the segmented
+   pill beside it, and no close of its own, since the rail is the way out.
+   Then the spotlight, search, the catalog, and last what is beyond the
+   mockup: programs, outside agents and asking Magnus. */
 html[data-style="nova"] .libpage:not(.cpage) {
-  max-width: 840px;
-  padding-top: 12px;
+  max-width: 896px;
+  padding-top: 8px;
+  gap: 32px;
 }
 
 html[data-style="nova"] .libpage > .lhead {
+  order: 0;
+  flex-wrap: wrap;
+  gap: 16px;
   padding-bottom: 0;
   border-bottom: 0;
 }
 
 html[data-style="nova"] .libpage > .lhead h1 {
-  margin: 0 0 4px;
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  margin: 0;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
 }
 
 html[data-style="nova"] .libpage > .lhead p {
-  font-size: 13px;
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 html[data-style="nova"] .libpage > .lhead > .lclose {
+  display: none;
+}
+
+html[data-style="nova"] .libpage .lseg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+}
+
+html[data-style="nova"] .libpage .lseg button {
+  height: auto;
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+html[data-style="nova"] .libpage .lseg button[aria-pressed="true"] {
+  background: var(--seg-on);
+  color: var(--fg);
+}
+
+html[data-style="nova"] .libpage > .nova-featured { order: 1; }
+html[data-style="nova"] .libpage > .lbar { order: 2; }
+html[data-style="nova"] .libpage > .lchips { display: none; }
+html[data-style="nova"] .libpage > #lib-sections { order: 3; padding-top: 0; gap: 32px; }
+html[data-style="nova"] .libpage > #lib-programs { order: 4; }
+html[data-style="nova"] .libpage > #lib-outside-agents { order: 5; }
+html[data-style="nova"] .libpage > p:has(> [data-ask-app]) { order: 6; margin: 0; font-size: 13px; }
+
+html[data-style="nova"] .libpage .lsearch {
+  flex-basis: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  border-color: var(--hair);
+}
+
+html[data-style="nova"] .libpage .lsearch input {
+  font-size: 14px;
+}
+
+/* A catalog section's head is the mockup's quiet label ("Everyday tools ›"). */
+html[data-style="nova"] .libpage .lsect {
+  gap: 12px;
+}
+
+html[data-style="nova"] .libpage .lsect-head h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--fg2);
+}
+
+html[data-style="nova"] .libpage .lsect-head h2::after {
+  content: " \203A";
+}
+
+html[data-style="nova"] .libpage .lsect-head :is(p, .lsect-n) {
   display: none;
 }
 

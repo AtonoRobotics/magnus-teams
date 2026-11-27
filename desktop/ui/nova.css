@@ -417,81 +417,157 @@ html[data-style="nova"] .appearance .seg button {
   border-color: transparent;
 }
 
+/* The spotlight: half art, half copy, 24px corners, as the mockup's. */
 .nova-featured {
   display: grid;
-  grid-template-columns: minmax(180px, 42%) minmax(0, 58%);
-  border-radius: var(--r-xl);
+  grid-template-columns: minmax(0, 50%) minmax(0, 50%);
+  border-radius: 24px;
   overflow: hidden;
   background: var(--surface);
-  margin: 14px 0 24px;
 }
 
 .nova-featured-art {
   display: grid;
-  grid-template-columns: repeat(2, 52px);
+  grid-template-columns: repeat(3, auto);
   place-content: center;
-  gap: 12px;
-  padding: 24px;
-  background: radial-gradient(circle at 38% 45%, rgba(37, 99, 235, 0.44), rgba(15, 23, 42, 0.94) 78%);
+  align-items: center;
+  gap: 16px;
+  padding: 28px;
+  background: radial-gradient(circle at 38% 45%, rgba(37, 99, 235, 0.45), rgba(15, 23, 42, 0.95) 76%);
 }
 
 .nova-app-tile {
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: rgba(15, 17, 23, 0.90);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: #14151a;
   color: #f8fafc;
   font-weight: 700;
   font-size: 18px;
+  overflow: hidden;
 }
 
-.nova-app-tile:first-child {
-  border-color: #3b82f6;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.42);
+.nova-app-tile .ctile-svg {
+  width: 28px;
+  height: 28px;
+}
+
+.nova-app-tile.letter {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 22px;
+}
+
+.nova-app-tile.lead {
+  width: 64px;
+  height: 64px;
+  background: #0f1117;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.45);
 }
 
 .nova-featured-copy {
-  padding: 22px 24px;
+  padding: 28px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
+  gap: 12px;
+}
+
+.nova-featured-kicker {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .nova-featured-copy h2 {
   margin: 0;
   font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+
+.nova-featured-copy p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.625;
+  color: var(--muted);
+}
+
+.nova-featured-acts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.nova-pbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  border: 1px solid var(--hair);
+  background: var(--seg-on);
+  color: var(--fg);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nova-pbtn.blue {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  font-weight: 600;
 }
 
 html[data-style="nova"] .lgrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 24px;
+  gap: 4px 24px;
 }
 
-/* A borderless catalog row (the mockup's .cat-row): tile, name and action on
-   one line, the summary and status indented under the name. */
-html[data-style="nova"] .lcard {
-  flex-direction: column;
-  gap: 4px;
+/* A catalog row is the mockup's .cat-row: the tile, then the name over a
+   one-line summary, then the round action, 14px apart. Its status is the
+   action (+, a check, sign in again); the name opens its page. */
+html[data-style="nova"] #lib-sections .lcard {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 0;
   padding: 12px 10px;
-  border-color: transparent;
+  border: 0;
   background: transparent;
   min-height: 0;
-  border-radius: var(--r-md);
+  border-radius: 14px;
 }
 
-html[data-style="nova"] .lcard .lc-head { gap: 14px; }
-html[data-style="nova"] .lcard .ctile { width: 40px; height: 40px; border-radius: var(--r-md); }
-html[data-style="nova"] .lcard .lc-main { padding-left: 54px; gap: 6px; }
-html[data-style="nova"] .lcard .lc-sum { -webkit-line-clamp: 1; }
-html[data-style="nova"] .lcard .lc-ab-row { display: none; }
-html[data-style="nova"] .lcard .lc-foot { padding: 0 0 0 54px; border-top: 0; }
+html[data-style="nova"] #lib-sections .lcard :is(.lc-head, .lc-title-wrap, .lc-main) { display: contents; }
+html[data-style="nova"] #lib-sections .lcard .ctile { grid-row: 1 / 3; width: 40px; height: 40px; border-radius: 12px; font-size: 14px; }
+html[data-style="nova"] #lib-sections .lcard .ctile.has-logo { padding: 8px; }
+html[data-style="nova"] #lib-sections .lcard .lc-name { grid-column: 2; grid-row: 1; align-self: end; }
+html[data-style="nova"] #lib-sections .lcard .lc-name h3 { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0; }
+html[data-style="nova"] #lib-sections .lcard .lc-sum { grid-column: 2; grid-row: 2; align-self: start; font-size: 12px; line-height: 16px; display: block; white-space: nowrap; text-overflow: ellipsis; }
+html[data-style="nova"] #lib-sections .lcard :is(.lc-by, .lc-ab-row, .lc-foot) { display: none; }
+html[data-style="nova"] #lib-sections .lcard .lc-act { grid-column: 3; grid-row: 1 / 3; width: 32px; height: 32px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--fg2); }
+html[data-style="nova"] #lib-sections .lcard .lc-act svg { width: 18px; height: 18px; }
+html[data-style="nova"] #lib-sections .lcard .lc-act.ok { color: var(--ok); }
+html[data-style="nova"] #lib-sections .lcard .lc-act.warn { color: var(--warn); }
+html[data-style="nova"] #lib-sections .lcard .lc-enable { grid-column: 3; grid-row: 1 / 3; }
 
-html[data-style="nova"] .lcard:hover {
+html[data-style="nova"] #lib-sections .lcard:hover {
   background: var(--surface);
+}
+
+html[data-style="nova"] #lib-sections .lcard .lc-act:hover {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
 html[data-style="nova"] .explore-grid {

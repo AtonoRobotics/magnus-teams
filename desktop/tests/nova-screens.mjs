@@ -85,6 +85,48 @@ try {
       check(`${mode}: ${name} has the controls in its bar`, () => assert.equal(f.controls, true, JSON.stringify(f)));
       check(`${mode}: ${name} has no lone close`, () => assert.equal(f.loneClose, false, JSON.stringify(f)));
     }
+    // Apps in the mockup's measures (owner, 2026-11-27: "Fonts, font size,
+    // padding / space and layouts don't match mockup").
+    await go("#/library");
+    const apps = await page.evaluate(() => {
+      const q = (/** @type {string} */ sel) => document.querySelector(sel);
+      const box = (/** @type {?Element} */ e) => e ? e.getBoundingClientRect() : null;
+      const css = (/** @type {?Element} */ e, /** @type {string} */ p) => e ? getComputedStyle(e).getPropertyValue(p) : "";
+      const h1 = q(".libpage > .lhead h1"), seg = q(".libpage > .lhead .lseg"), hero = q(".libpage > .nova-featured");
+      const art = q(".nova-featured-art"), copy = q(".nova-featured-copy"), search = q(".libpage .lsearch"), label = q("#lib-sections .lsect-head h2");
+      const rows = [...document.querySelectorAll("#lib-sections .lcard")].slice(0, 2), row = rows[0] || null;
+      const r0 = box(rows[0] || null), r1 = box(rows[1] || null);
+      return {
+        page: Math.round(box(q(".libpage"))?.width || 0),
+        h1: [css(h1, "font-size"), css(h1, "font-weight")],
+        segBesideTitle: !!seg && Math.abs((box(seg)?.top || 0) - (box(h1)?.top || 0)) < 40,
+        hero: !!hero && css(hero, "border-top-left-radius") === "24px" && Math.abs((box(art)?.width || 0) - (box(copy)?.width || 1)) < 4,
+        heroActs: [...(hero?.querySelectorAll(".nova-featured-acts > *") || [])].map(e => (e.textContent || "").trim()),
+        order: [box(hero)?.top || 0, box(search)?.top || 0, box(label)?.top || 0],
+        label: [css(label, "font-size"), css(label, "font-weight")],
+        row: row ? {
+          padding: css(row, "padding"), border: css(row, "border-top-width"), radius: css(row, "border-top-left-radius"),
+          tile: Math.round(box(row.querySelector(".ctile"))?.width || 0),
+          name: [css(row.querySelector(".lc-name h3"), "font-size"), css(row.querySelector(".lc-name h3"), "font-weight")],
+          sum: [css(row.querySelector(".lc-sum"), "font-size"), Math.round(box(row.querySelector(".lc-sum"))?.height || 0)],
+          act: Math.round(box(row.querySelector(".lc-act"))?.width || 0),
+          foot: !!box(row.querySelector(".lc-foot"))?.height,
+          height: Math.round(r0?.height || 0),
+        } : null,
+        twoColumns: !!r0 && !!r1 && Math.abs(r0.top - r1.top) < 2 && r1.left > r0.right,
+      };
+    });
+    if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-apps-measured.png`) });
+    check(`${mode}: Apps is the mockup's 896px column`, () => assert.ok(apps.page > 0 && apps.page <= 896, JSON.stringify(apps)));
+    check(`${mode}: Apps' title is 24px in medium weight, the segmented pill beside it`, () => assert.ok(apps.h1[0] === "24px" && apps.h1[1] === "500" && apps.segBesideTitle, JSON.stringify(apps)));
+    check(`${mode}: the spotlight is half art, half copy, with 24px corners, Add and Details`, () => assert.ok(apps.hero && apps.heroActs.length === 2 && apps.heroActs[1] === "Details", JSON.stringify(apps)));
+    check(`${mode}: the spotlight, then search, then the catalog`, () => assert.ok(apps.order[0] > 0 && apps.order[0] < apps.order[1] && apps.order[1] < apps.order[2], JSON.stringify(apps)));
+    check(`${mode}: a catalog head is a 14px label`, () => assert.deepEqual(apps.label, ["14px", "500"], JSON.stringify(apps)));
+    check(`${mode}: a catalog row is the mockup's: 12px by 10px, no border, a 40px tile, a 14px name over a 12px line, a 32px action`, () => assert.ok(apps.row
+      && apps.row.padding === "12px 10px" && apps.row.border === "0px" && apps.row.radius === "14px" && apps.row.tile === 40
+      && apps.row.name[0] === "14px" && apps.row.name[1] === "500" && apps.row.sum[0] === "12px" && apps.row.sum[1] <= 18
+      && apps.row.act === 32 && !apps.row.foot && apps.row.height <= 66, JSON.stringify(apps)));
+    check(`${mode}: the catalog is two columns`, () => assert.ok(apps.twoColumns, JSON.stringify(apps)));
     // The rail goes down item by item, clicked as a person clicks: rest on
     // one until its label shows, then click the next. On 2026-11-26 the label
     // lay over the next item in the installed app and took the click.

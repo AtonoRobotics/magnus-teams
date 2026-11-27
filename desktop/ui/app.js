@@ -2610,7 +2610,11 @@ function librarySections(all) {
 async function showLibrary(main, name) {
   Lib.main = main;
   if (name) return showConnectorPage(main, name);
-  const connectors = await Resources.read("Apps", "/v1/connectors", "connectors",true);
+  // Apps opens at once on the list the app already holds, and refreshes
+  // under it; it waited on the server before (owner, 2026-11-27: "Apps opens
+  // with a very long delay").
+  const held = Array.isArray(App.connectors) ? App.connectors : null;
+  const connectors = held || await Resources.read("Apps", "/v1/connectors", "connectors",true);
   // An app blocked for your groups is not in your Library; the owner still
   // manages it in Settings.
   Lib.all = (connectors || []).filter(c => c.for_you !== false);
@@ -2627,10 +2631,11 @@ async function showLibrary(main, name) {
   const update=async()=>{
     const connectors=await Resources.read("Apps","/v1/connectors","connectors",true);
     if(!connectors || !main.querySelector('#lib-sections'))return;
-    Lib.all=connectors.filter(c=>c.for_you!==false);
+    App.connectors=connectors;Lib.all=connectors.filter(c=>c.for_you!==false);
     paint($('#lib-sections',main),librarySections(Lib.all));
   };
   App.redraw=update;onLeave(()=>{if(App.redraw===update)App.redraw=null;});
+  if (held) update().catch(() => {});
   $("[data-ask-app]",main).onclick=()=>{const query=$("#libq",main).value.trim();App.appSearch=query ? `Find an app for: ${query}` : "Help me find an app for ";};
   let t;
   $("#libq", main).addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { Lib.q = e.target.value.trim(); $("#lib-sections", main).innerHTML = librarySections(Lib.all); }, 150); });

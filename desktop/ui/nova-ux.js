@@ -187,30 +187,62 @@ const NovaUx = (() => {
     host.append(card);
   }
 
+  // The app the spotlight shows: one of the catalog's own, not yet connected,
+  // the mockup's Notion first.
+  const FEATURED_FIRST = ["notion", "linear", "github", "slack", "google-calendar", "gmail"];
+  function featuredApp(all) {
+    const open = all.filter(c => c.state !== "connected" && c.ready !== false);
+    const by = name => open.find(c => c.name === name);
+    return FEATURED_FIRST.map(by).find(Boolean) || open[0] || all[0] || null;
+  }
+
+  function appTile(c, lead) {
+    const logo = typeof AppLogos !== "undefined" ? AppLogos.svg(c.name) : "";
+    // An app with no logo shows its initial, as the mockup's "N" for Notion.
+    const inner = logo || escapeHtml((c.title || "?").slice(0, 1));
+    return `<span class="nova-app-tile${lead ? " lead" : ""}${logo ? "" : " letter"}">${inner}</span>`;
+  }
+
+  function escapeHtml(v) {
+    return String(v ?? "").replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
+  }
+
   function syncLibraryFeatured() {
     if (!isNova()) {
       document.querySelectorAll(".nova-featured").forEach(el => el.remove());
       return;
     }
-    // The spotlight leads the catalog (spec §4.8): straight under the page's
-    // header, above search, programs and outside agents.
-    const head = document.querySelector(".libpage > .lhead");
-    if (!head || head.nextElementSibling?.classList.contains("nova-featured")) return;
+    const page = document.querySelector(".libpage:not(.cpage)");
+    const head = page?.querySelector(":scope > .lhead");
+    if (!head) return;
+    // The segmented pill sits on the title's row, as in the mockup.
+    const seg = page.querySelector(":scope > .lbar > .lseg");
+    if (seg) head.append(seg);
+    // The spotlight leads the catalog (spec §4.8), on an app of the catalog.
+    const all = typeof Lib !== "undefined" && Array.isArray(Lib.all) ? Lib.all : [];
+    const c = featuredApp(all);
+    const key = c ? `${c.name}:${c.state}` : "";
+    const was = page.querySelector(":scope > .nova-featured");
+    if (!c) { was?.remove(); return; }
+    if (was?.dataset.key === key) return;
+    const others = all.filter(o => o !== c).slice(0, 5);
+    const tiles = [...others.slice(0, 3).map(o => appTile(o, false)), appTile(c, true), ...others.slice(3).map(o => appTile(o, false))];
+    const name = escapeHtml(c.name), title = escapeHtml(c.title);
+    const add = c.state === "connected"
+      ? `<a class="nova-pbtn blue" href="#/library/${encodeURIComponent(c.name)}">Open</a>`
+      : `<button type="button" class="nova-pbtn blue" data-act="connect" data-app="${name}" aria-label="Add ${title}">+ Add</button>`;
     const hero = document.createElement("section");
     hero.className = "nova-featured";
-    hero.setAttribute("aria-label", "Featured integrations");
-    hero.innerHTML = `<div class="nova-featured-art" aria-hidden="true">
-      <span class="nova-app-tile">N</span>
-      <span class="nova-app-tile">L</span>
-      <span class="nova-app-tile">M</span>
-      <span class="nova-app-tile">C</span>
-    </div>
+    hero.dataset.key = key;
+    hero.setAttribute("aria-label", "Featured app");
+    hero.innerHTML = `<div class="nova-featured-art" aria-hidden="true">${tiles.join("")}</div>
     <div class="nova-featured-copy">
-      <span class="small muted">Featured</span>
-      <h2>Connect your daily tools</h2>
-      <p class="small muted">Add Notion, Linear, Mail, and Calendar so Magnus can research, draft, and automate with Cedar guardrails.</p>
+      <span class="nova-featured-kicker">Featured</span>
+      <h2>${title}</h2>
+      <p>${escapeHtml(c.summary || "")}</p>
+      <div class="nova-featured-acts">${add}<a class="nova-pbtn" href="#/library/${encodeURIComponent(c.name)}">Details</a></div>
     </div>`;
-    head.insertAdjacentElement("afterend", hero);
+    if (was) was.replaceWith(hero); else head.insertAdjacentElement("afterend", hero);
   }
 
   function sync() {
