@@ -249,13 +249,16 @@ impl Kernel {
         // Their open commitments, as they stood when it started (#236).
         let commitments = self.commitment_section(run).await?;
         let deleted = self.read(|s| format!("{}{}", s.computers.deletion_section(&run.person, run.created_at), s.local.files.deletion_section(&run.person, run.created_at)));
+        // What they told Magnus to remember, as it stood when it started.
+        let memory = self.memory_section(run).await?;
         let sections =
-            format!("{}{}{}{grants}{commitments}{deleted}", section(&notes, &recent), crate::reactions::section(&reactions, &open), crate::suggestions::section(&ledger));
+            format!("{}{memory}{}{}{grants}{commitments}{deleted}", section(&notes, &recent), crate::reactions::section(&reactions, &open), crate::suggestions::section(&ledger));
         Ok((sections, (!notes.is_empty()).then_some(version)))
     }
 
     /// Whether a model call of the run carried anything of its person's
-    /// (notes, recent messages, reactions, disagreements, commitments):
+    /// (notes, remembered facts, recent messages, reactions, disagreements,
+    /// commitments):
     /// what it writes for others to read may carry it, so it is the
     /// person's, as private content it read is (#258). Recorded with each
     /// call as it was sent, so a note removed since still counts (#301).
