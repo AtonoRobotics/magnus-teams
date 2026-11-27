@@ -21,9 +21,6 @@
  * @param {string} placeholder @param {string} bar what sits at the start of the bar (the model picker, or "Only my Magnus sees this")
  * @param {{ side?: boolean, label?: string, mentions?: boolean }} [o]
  */
-if (typeof UI !== "undefined" && !UI.mic) UI.mic = '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>';
-if (typeof UI !== "undefined" && !UI.stop) UI.stop = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>';
-
 function composer(placeholder, bar, o = {}) {
   const id = n => o.side ? "" : ` id="${n}"`;
   const label = o.side ? `<textarea rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(o.label || placeholder)}"></textarea>`
