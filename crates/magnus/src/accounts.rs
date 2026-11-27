@@ -199,12 +199,13 @@ pub struct ResetRequest {
 }
 
 /// How long the directory cache serves before a call refreshes it.
-const LOCAL_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+const LOCAL_TTL_SECS: std::time::Duration = std::time::Duration::from_secs(30);
+/// Maximum concurrent Postgres connections for account and session checks.
+const ACCOUNTS_POOL_SIZE: usize = 4;
 
 pub struct Accounts {
     cfg: SignIn,
-    url: String,
-    client: tokio::sync::Mutex<Option<Client>>,
+    pool: crate::pg_pool::PgPool,
     /// Failed attempts per counter. In memory, as before: a restart
     /// forgives guesses in flight.
     failures: Mutex<lockout::Lockout>,
@@ -271,8 +272,7 @@ impl Accounts {
         }
         Ok(Accounts {
             cfg,
-            url: db_url.into(),
-            client: tokio::sync::Mutex::new(Some(client)),
+            pool: crate::pg_pool::PgPool::with_initial(db_url, ACCOUNTS_POOL_SIZE, client),
             failures: Mutex::new(lockout),
             local: Mutex::new((Instant::now(), local)),
             policy: Mutex::new((Instant::now(), policy)),
@@ -280,18 +280,14 @@ impl Accounts {
         })
     }
 
-    async fn client(&self) -> Result<tokio::sync::MutexGuard<'_, Option<Client>>> {
-        let mut g = self.client.lock().await;
-        if g.as_ref().is_none_or(|c| c.is_closed()) {
-            *g = Some(crate::log::connect(&self.url).await?);
-        }
-        Ok(g)
+    async fn client(&self) -> Result<crate::pg_pool::PooledClient> {
+        self.pool.get().await
     }
 
     /// The directory as it stands, refreshing the cache first when it is
-    /// older than `LOCAL_TTL`. Every async call starts here.
+    /// older than `LOCAL_TTL_SECS`. Every async call starts here.
     async fn fresh_local(&self, c: &Client) -> Result<()> {
-        if self.local.lock().unwrap_or_else(|e| e.into_inner()).0.elapsed() > LOCAL_TTL {
+        if self.local.lock().unwrap_or_else(|e| e.into_inner()).0.elapsed() > LOCAL_TTL_SECS {
             self.refresh_local(c).await?;
         }
         Ok(())
@@ -330,7 +326,7 @@ impl Accounts {
     /// for per-request session checks, which must not read the store
     /// twice on every request.
     async fn ttl_policy(&self, c: &Client) -> Policy {
-        if self.policy.lock().unwrap_or_else(|e| e.into_inner()).0.elapsed() > LOCAL_TTL {
+        if self.policy.lock().unwrap_or_else(|e| e.into_inner()).0.elapsed() > LOCAL_TTL_SECS {
             return self.fresh_policy(c).await;
         }
         self.policy.lock().unwrap_or_else(|e| e.into_inner()).1

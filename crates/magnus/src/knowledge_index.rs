@@ -18,7 +18,6 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_postgres::Client;
 
 /// How often marks the index could not take are tried again.
 pub const RETRY_EVERY: Duration = Duration::from_secs(30);
@@ -44,12 +43,14 @@ impl Marks {
     }
 }
 
-/// The index's own connection to Postgres, opened when first used and
+/// Maximum concurrent Postgres connections for knowledge index queries.
+const KNOWLEDGE_POOL_SIZE: usize = 4;
+
+/// The index's own connection pool to Postgres, opened when first used and
 /// again after it was lost, and what it is behind on.
 pub struct Index {
-    url: String,
     reader: String,
-    client: tokio::sync::Mutex<Option<Client>>,
+    pool: crate::pg_pool::PgPool,
     marks: Mutex<Marks>,
     /// One catch-up at a time: two would race an entry's row.
     catching_up: tokio::sync::Mutex<()>,
@@ -60,7 +61,7 @@ impl Index {
     pub fn new(url: &str) -> Index {
         let role = url::Url::parse(url).map(|u| u.username().to_string()).unwrap_or_default();
         let marks = Mutex::new(Marks { everything: true, ..Default::default() });
-        Index { url: url.into(), reader: format!("{role}_reader"), client: tokio::sync::Mutex::new(None), marks, catching_up: tokio::sync::Mutex::new(()) }
+        Index { reader: format!("{role}_reader"), pool: crate::pg_pool::PgPool::new(url, KNOWLEDGE_POOL_SIZE), marks, catching_up: tokio::sync::Mutex::new(()) }
     }
 
     fn marks(&self) -> std::sync::MutexGuard<'_, Marks> {
@@ -98,21 +99,12 @@ impl Index {
         !self.marks().is_empty()
     }
 
-    async fn client(&self) -> Result<tokio::sync::MutexGuard<'_, Option<Client>>> {
-        let mut g = self.client.lock().await;
-        if g.as_ref().is_none_or(|c| c.is_closed()) {
-            *g = Some(crate::log::connect(&self.url).await?);
-        }
-        Ok(g)
-    }
-
     /// What an entry says (its title, text, source, evidence and value),
     /// read from the content store; None once it was deleted. The kernel
     /// reads it to index it, whoever it belongs to; people read it from the
     /// index, as its readers.
     pub(crate) async fn content(&self, e: &KnowledgeEntry) -> Result<Option<Value>> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
+        let c = self.pool.get().await?;
         let row = c.query_opt("SELECT body FROM public.content WHERE seq = $1", &[&e.seq]).await.context("read the entry's content")?;
         Ok(row.map(|r| r.get::<_, Value>(0)))
     }
@@ -120,8 +112,7 @@ impl Index {
     /// Index an entry as it now stands, with what it says. `embedding` is
     /// its model and vector.
     async fn put(&self, e: &KnowledgeEntry, says: &Value, embedding: Option<(String, String)>) -> Result<()> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
+        let c = self.pool.get().await?;
         let (model, vector) = embedding.unzip();
         c.execute(
             "INSERT INTO public.knowledge (id, readers, integrity, entry, version, model, embedding, words)
@@ -138,16 +129,14 @@ impl Index {
 
     /// Take an entry out of the index: trashed or removed, no one finds it.
     async fn drop_entry(&self, id: &str) -> Result<()> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
+        let c = self.pool.get().await?;
         c.execute("DELETE FROM public.knowledge WHERE id = $1", &[&id]).await.context("take the entry out of the index")?;
         Ok(())
     }
 
     /// What each indexed entry's version and embedding model are.
     async fn versions(&self) -> Result<std::collections::HashMap<String, (i64, Option<String>)>> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
+        let c = self.pool.get().await?;
         let rows = c.query("SELECT id, version, model FROM public.knowledge", &[]).await?;
         Ok(rows.iter().map(|r| (r.get::<_, String>(0), (r.get::<_, i64>(1), r.get::<_, Option<String>>(2)))).collect())
     }
@@ -156,8 +145,7 @@ impl Index {
     /// meaning with an embedding, and by words those not yet embedded; by
     /// words without), or the latest with no query. Postgres filters them as the reader role.
     pub(crate) async fn search(&self, principals: &[String], query: &str, embedding: Option<(String, String)>) -> Result<Vec<Value>> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
+        let mut c = self.pool.get().await?;
         let tx = c.transaction().await?;
         tx.batch_execute(&format!("SET LOCAL ROLE {}", self.reader)).await?;
         tx.execute("SELECT set_config('magnus.principals', $1, true)", &[&serde_json::to_string(principals)?]).await?;

@@ -115,6 +115,7 @@ pub mod payments;
 pub mod people;
 pub mod person_admin;
 pub mod person_stores;
+pub(crate) mod pg_pool;
 pub mod policy;
 pub mod proactive;
 pub mod public_url;

@@ -71,6 +71,8 @@ pub struct Kernel {
     pub capture: Mutex<Capture>,
     /// Compact invalidation frames pushed to `/v1/events` SSE subscribers.
     pub(crate) invalidations: tokio::sync::broadcast::Sender<crate::api::events_sse::Invalidation>,
+    /// Per-person latest committed sequence number (`(global_seq, person_id -> seq)`) for `ETag` watermarks.
+    person_seq: Mutex<(i64, HashMap<String, i64>)>,
 }
 
 /// Capture overhead: the cost of writing each step to the log (V6).
@@ -158,6 +160,7 @@ impl Kernel {
         let oidc = crate::admin_app::identity_provider::Slot::at_boot(&cfg, &state, vault.clone())?;
         let adapters = Adapters::new(&cfg.appliance.state_dir, vault.clone(), &cfg.adapters, cfg.host.clone());
         let writer = crate::commit::Writer::new(log, state, cfg!(debug_assertions).then(|| cfg.appliance.state_dir.clone()));
+        let initial_seq = writer.last_seq.load(std::sync::atomic::Ordering::Acquire);
         let live_text = Arc::new(Live { tx: tokio::sync::broadcast::channel(1024).0, so_far: Mutex::new(HashMap::new()) });
         let k = Arc::new(Kernel {
             web: Web::new(&cfg.web)?,
@@ -189,6 +192,7 @@ impl Kernel {
             approved_edits: Mutex::new(HashMap::new()),
             capture: Mutex::new(Capture::default()),
             invalidations: tokio::sync::broadcast::channel(crate::api::events_sse::INVALIDATION_CHANNEL_CAPACITY).0,
+            person_seq: Mutex::new((initial_seq, HashMap::new())),
             cfg,
         });
         k.emit("kernel", Ev::KernelBoot { version: HARNESS_VERSION.into(), pid: std::process::id(), instructions: crate::run::instructions_version() }).await?;
@@ -282,10 +286,20 @@ impl Kernel {
             })
             .await?;
         self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
-        for (ev, owner) in es.iter().zip(owners_out) {
-            let domains = crate::api::events_sse::invalidation_domains(&ev.ev);
-            if !domains.is_empty() {
-                let _ = self.invalidations.send(crate::api::events_sse::Invalidation { seq: ev.seq, person: owner, domains });
+        {
+            let mut pseq = self.person_seq.lock().unwrap_or_else(|e| e.into_inner());
+            for (ev, owner) in es.iter().zip(owners_out) {
+                match owner.as_ref() {
+                    Some(pid) => {
+                        let e = pseq.1.entry(pid.clone()).or_insert(0);
+                        *e = (*e).max(ev.seq);
+                    }
+                    None => pseq.0 = pseq.0.max(ev.seq),
+                }
+                let domains = crate::api::events_sse::invalidation_domains(&ev.ev);
+                if !domains.is_empty() {
+                    let _ = self.invalidations.send(crate::api::events_sse::Invalidation { seq: ev.seq, person: owner, domains });
+                }
             }
         }
         // The knowledge index follows what this write changed.
@@ -332,7 +346,16 @@ impl Kernel {
     }
 
     pub fn read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
-        f(&self.writer.state.lock().unwrap_or_else(|e| e.into_inner()))
+        f(&self.writer.state.read().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    pub(crate) fn last_seq(&self) -> i64 {
+        self.writer.last_seq.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    pub(crate) fn seq_for_person(&self, person_id: &str) -> i64 {
+        let pseq = self.person_seq.lock().unwrap_or_else(|e| e.into_inner());
+        pseq.1.get(person_id).copied().unwrap_or(0).max(pseq.0)
     }
 
     pub fn identity(&self) -> Option<Arc<dyn crate::identity::Identity>> {

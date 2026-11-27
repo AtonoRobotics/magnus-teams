@@ -6,21 +6,23 @@
 //! returns only that person's rows: a read asked for the wrong person
 //! returns nothing, not someone else's content.
 
+use crate::pg_pool::PgPool;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
-use tokio_postgres::Client;
+
+/// Maximum concurrent Postgres connections held by the per-person content recall pool.
+const RECALL_POOL_SIZE: usize = 8;
 
 pub struct Recall {
-    url: String,
     reader: String,
-    client: tokio::sync::Mutex<Option<Client>>,
+    pool: PgPool,
 }
 
 impl Recall {
     pub fn new(url: &str) -> Recall {
         let role = url::Url::parse(url).map(|u| u.username().to_string()).unwrap_or_default();
-        Recall { url: url.into(), reader: format!("{role}_person"), client: tokio::sync::Mutex::new(None) }
+        Recall { reader: format!("{role}_person"), pool: PgPool::new(url, RECALL_POOL_SIZE) }
     }
 
     /// The content of these events that belongs to `person`, by event seq.
@@ -79,11 +81,7 @@ impl Recall {
     /// One statement in a transaction as `person`, so the content walls
     /// return only their rows.
     async fn walled(&self, person: &str, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
-        let mut g = self.client.lock().await;
-        if g.as_ref().is_none_or(|c| c.is_closed()) {
-            *g = Some(crate::log::connect(&self.url).await?);
-        }
-        let c = g.as_mut().context("recall connection")?;
+        let mut c = self.pool.get().await?;
         let tx = c.transaction().await?;
         tx.batch_execute(&format!("SET LOCAL ROLE {}", self.reader)).await.context("recall as the person (has `magnus migrate` run since this release was installed?)")?;
         tx.execute("SELECT set_config('magnus.person', $1, true)", &[&person]).await?;

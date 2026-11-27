@@ -15,13 +15,15 @@ use crate::log::{Event, Log};
 use crate::state::State;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
 
 /// The log, the state it folds into, and the lock that keeps appends in
 /// the order they are applied.
 pub struct Writer {
     pub log: Arc<Log>,
-    pub state: Arc<Mutex<State>>,
+    pub state: Arc<RwLock<State>>,
+    pub last_seq: Arc<AtomicI64>,
     lock: Arc<tokio::sync::Mutex<()>>,
     /// Debug builds only: the state directory, for `crash-after`.
     crash_dir: Option<PathBuf>,
@@ -36,7 +38,8 @@ pub struct Batch {
 
 impl Writer {
     pub fn new(log: Log, state: State, crash_dir: Option<PathBuf>) -> Writer {
-        Writer { log: Arc::new(log), state: Arc::new(Mutex::new(state)), lock: Arc::new(tokio::sync::Mutex::new(())), crash_dir }
+        let last_seq = Arc::new(AtomicI64::new(state.last_seq));
+        Writer { log: Arc::new(log), state: Arc::new(RwLock::new(state)), last_seq, lock: Arc::new(tokio::sync::Mutex::new(())), crash_dir }
     }
 
     /// Append and apply what `ready` makes, under the write lock. `ready`
@@ -45,22 +48,21 @@ impl Writer {
     /// call is dropped.
     pub async fn write(&self, ready: impl FnOnce(&State) -> Batch) -> Result<Vec<Event>> {
         let guard = self.lock.clone().lock_owned().await;
-        let batch = ready(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
-        let (log, state, crash_dir) = (self.log.clone(), self.state.clone(), self.crash_dir.clone());
+        let batch = ready(&self.state.read().unwrap_or_else(PoisonError::into_inner));
+        let (log, state, last_seq, crash_dir) = (self.log.clone(), self.state.clone(), self.last_seq.clone(), self.crash_dir.clone());
         let whole = tokio::spawn(async move {
             let es = match batch.evs.as_slice() {
                 [(actor, ev)] => vec![log.append(actor, ev, batch.owners.first().cloned().flatten().as_deref()).await?],
-                evs => {
-                    let evs: Vec<(&str, Ev)> = evs.iter().map(|(a, e)| (a.as_str(), e.clone())).collect();
-                    log.append_all(&evs, &batch.owners).await?
-                }
+                evs => log.append_all(evs, &batch.owners).await?,
             };
             crash_after(crash_dir, &es);
-            let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut s = state.write().unwrap_or_else(PoisonError::into_inner);
             for e in &es {
                 s.apply(e);
             }
+            let seq = s.last_seq;
             drop(s);
+            last_seq.store(seq, Ordering::Release);
             drop(guard);
             Ok(es)
         });
@@ -150,13 +152,13 @@ mod tests {
         let mut in_log = 0i64;
         for _ in 0..200 {
             in_log = in_db().await;
-            if in_log == 1 && w.state.lock().unwrap().last_seq == 1 {
+            if in_log == 1 && w.state.read().unwrap().last_seq == 1 {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         assert_eq!(in_log, 1, "the dropped write never reached the log");
-        assert_eq!(w.state.lock().unwrap().last_seq, 1, "the log holds an event the state never applied: the next write restarts the server");
+        assert_eq!(w.state.read().unwrap().last_seq, 1, "the log holds an event the state never applied: the next write restarts the server");
         let next = w.write(|_| boot()).await.unwrap();
         assert_eq!(next[0].seq, 2);
         drop(c);

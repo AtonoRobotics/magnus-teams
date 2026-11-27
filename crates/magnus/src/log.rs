@@ -244,7 +244,7 @@ impl Log {
 
     /// Several events, each with its actor (and the person its content
     /// belongs to), in one statement: all are in the log or none is.
-    pub async fn append_all(&self, evs: &[(&str, Ev)], owners: &[Option<String>]) -> Result<Vec<Event>> {
+    pub async fn append_all(&self, evs: &[(String, Ev)], owners: &[Option<String>]) -> Result<Vec<Event>> {
         let actors: Vec<String> = evs.iter().map(|(a, _)| a.to_string()).collect();
         let evs: Vec<&Ev> = evs.iter().map(|(_, e)| e).collect();
         let (bodies, contents): (Vec<Value>, Vec<Option<Content>>) = evs.iter().map(|e| self.split(e)).collect::<Result<Vec<_>>>()?.into_iter().unzip();

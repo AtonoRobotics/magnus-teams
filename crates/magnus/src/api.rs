@@ -643,9 +643,9 @@ async fn speak(State(k): K, _: Caller, Body(b): Body<req::Speak>) -> ApiResult {
     })
 }
 
-/// Weak ETag derived from the kernel's monotonic log sequence number, scoped to the signed-in person.
+/// Weak ETag derived from the person's latest committed sequence number (unaffected by other users' events).
 pub(crate) fn seq_etag(k: &Kernel, person_id: &str) -> String {
-    format!("W/\"seq-{}-{person_id}\"", k.read(|s| s.last_seq))
+    format!("W/\"seq-{}-{person_id}\"", k.seq_for_person(person_id))
 }
 
 /// If the caller's `If-None-Match` already matches `etag`, return `304 Not Modified`.

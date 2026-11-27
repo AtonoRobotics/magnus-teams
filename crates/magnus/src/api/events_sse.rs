@@ -70,7 +70,7 @@ pub(crate) fn visible_to(inv: &Invalidation, person_id: &str) -> bool {
 /// `GET /v1/events`: per-person SSE invalidation stream.
 pub(super) async fn events_stream(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
     let mut rx = k.invalidations.subscribe();
-    let initial_seq = k.read(|s| s.last_seq);
+    let initial_seq = k.last_seq();
     let stream = async_stream(move |tx| async move {
         if tx.send(format!("data: {}\n\n", json!({ "seq": initial_seq, "domains": [] }))).await.is_err() {
             return;
@@ -96,7 +96,7 @@ pub(super) async fn events_stream(State(k): K, Caller(p): Caller, h: HeaderMap) 
                     }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        let seq = k.read(|s| s.last_seq);
+                        let seq = k.last_seq();
                         let line = format!("data: {}\n\n", json!({ "seq": seq, "domains": ALL_DOMAINS }));
                         if tx.send(line).await.is_err() {
                             return;
