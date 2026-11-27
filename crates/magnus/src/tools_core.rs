@@ -209,12 +209,14 @@ impl Kernel {
                 if memories_written(&run) >= crate::memory_index::MAX_MEMORY_WRITES_PER_RUN {
                     return Ok((format!("memory write limit ({}) reached for this run; skip further writes.", crate::memory_index::MAX_MEMORY_WRITES_PER_RUN), true, None));
                 }
-                let fact = s("fact");
-                if fact.split_whitespace().count() >= 4 {
-                    if let Ok(existing) = self.remembered(&run.person, |_| true).await {
-                        if let Some(dup) = existing.iter().find(|m| crate::memory_index::is_near_duplicate(&fact, &m.fact, None, None)) {
-                            return Ok((format!("already remembered ({})", dup.entry.id), false, None));
-                        }
+                let fact = s("fact").trim().to_string();
+                let person_spoke = self.run_words(&run).await?.said(&[crate::run_words::Source::Person]).iter().any(|t| !t.trim().is_empty());
+                if let Some(refusal) = crate::memory_index::fact_refusal(&fact, person_spoke) {
+                    return Ok((refusal, true, None));
+                }
+                if let Ok(existing) = self.remembered(&run.person, |_| true).await {
+                    if let Some(dup) = existing.iter().find(|m| crate::memory_index::same_fact(&fact, &m.fact)) {
+                        return Ok((format!("already remembered ({})", dup.entry.id), false, None));
                     }
                 }
                 let label = Label { untrusted: run.untrusted, private: run.private };

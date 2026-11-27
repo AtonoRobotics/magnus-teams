@@ -60,3 +60,32 @@ async fn forgetting_a_memory_makes_no_room_under_the_runs_cap() {
     assert_eq!(kept, MAX_MEMORY_WRITES_PER_RUN - 1);
     s.done().await;
 }
+
+/// A review is Magnus's dialog with itself: the person said nothing in it,
+/// so it writes no memory and has no memory pass (on production a review
+/// woken by new mail filed "The person's latest review found a Wingstop
+/// promotion..." dozens of times a day). The person's own run still does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_neither_writes_memory_nor_gets_a_memory_pass() {
+    let s = server_with("", |_| Router::new()).await;
+    let (_, review) = s.k.create_run("review", "mo", "Look over mo's state and say what needs attention.".into(), vec![], NewRun::default()).await.unwrap();
+    for _ in 0..POLLS {
+        if s.k.read(|st| st.runs[&review].status != Status::Running) {
+            break;
+        }
+        tokio::time::sleep(POLL_EVERY).await;
+    }
+    s.k.emit("review", Ev::Resumed { run: review.clone() }).await.unwrap();
+    let (text, is_error) = act(&s, &review, 0, "memory_write", json!({ "fact": "The person's latest review found a promotion." })).await;
+    assert!(is_error && text.contains("said nothing"), "a review wrote memory: {text}");
+    let run = s.k.read(|st| st.runs[&review].clone());
+    assert!(s.k.exchange(&run).await.unwrap().is_none(), "a review would get a memory pass");
+
+    let mine = idle_run(&s).await;
+    let (text, is_error) = act(&s, &mine, 0, "memory_write", json!({ "fact": "The person takes notes by hand." })).await;
+    assert!(!is_error, "the person's own run could not write memory: {text}");
+    let (text, _) = act(&s, &mine, 1, "memory_write", json!({ "fact": "the person takes notes by hand" })).await;
+    assert!(text.starts_with("already remembered"), "the same fact was filed twice: {text}");
+    let run = s.k.read(|st| st.runs[&mine].clone());
+    assert!(s.k.exchange(&run).await.unwrap().is_some(), "the person's own exchange gets no memory pass");
+}
