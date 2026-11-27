@@ -185,6 +185,8 @@ impl Kernel {
                     self.result(rid, call_id, "observe needs what, why and evidence. A retry with the same values will not help.", true).await?;
                 } else if let Some(denied) = self.loop_deny(run, "suggest", None) {
                     self.result(rid, call_id, format!("{denied}. A retry will not help."), true).await?;
+                } else if let Some(told) = self.already_told(&run.person, what, why, evidence) {
+                    self.result(rid, call_id, told, false).await?;
                 } else {
                     let at = self.notify_due(&run.person);
                     let item =

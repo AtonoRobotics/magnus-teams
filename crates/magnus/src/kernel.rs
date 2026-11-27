@@ -58,6 +58,8 @@ pub struct Kernel {
     pub(crate) live_tools: tokio::sync::Mutex<HashMap<String, (Instant, Vec<AppTool>)>>,
     /// Each connection whose app refused Magnus when last asked for its tools, with its answer: said in the person's app index.
     pub(crate) refused_apps: Mutex<HashMap<String, String>>,
+    /// Each person's state as their last review started (`review_news`).
+    pub(crate) reviewed_state: Mutex<HashMap<String, u64>>,
     /// The next free quarantine handle number of each quarantined tree, by its top run (`quarantine_runtime::reserve_handles`).
     pub(crate) handle_reservations: Mutex<HashMap<String, usize>>,
     pub live_text: Arc<Live>,
@@ -126,6 +128,7 @@ impl Kernel {
             leases: Mutex::new(HashMap::new()),
             live_tools: tokio::sync::Mutex::new(HashMap::new()),
             refused_apps: Mutex::new(HashMap::new()),
+            reviewed_state: Mutex::new(HashMap::new()),
             handle_reservations: Mutex::new(HashMap::new()),
             live_text,
             spend_holds: Default::default(),

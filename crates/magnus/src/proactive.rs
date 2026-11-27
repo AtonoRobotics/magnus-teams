@@ -94,7 +94,10 @@ impl crate::kernel::Kernel {
             });
             if let Some((reason, ended)) = event {
                 self.start_review(&person, reason, ended).await;
-            } else if in_window(m, st.working) && last.is_none_or(|t| now.signed_duration_since(t).num_minutes() >= st.every_minutes as i64) {
+            } else if in_window(m, st.working) && last.is_none_or(|t| now.signed_duration_since(t).num_minutes() >= st.every_minutes as i64) && !self.state_unchanged(&person, now)
+            {
+                // Over the same state as the last review, a cadence review
+                // has nothing to read that one did not (`review_news`).
                 self.start_review(&person, "cadence".into(), None).await;
             } else if !in_window(m, st.working) && overnight.as_deref() != Some(today.as_str()) {
                 self.start_review(&person, "overnight".into(), None).await;
@@ -311,6 +314,7 @@ impl crate::kernel::Kernel {
             tracing::debug!("no review for {person} ({reason}): {why}");
             return false;
         }
+        self.note_reviewed_state(person, Utc::now());
         let context = self.review_context(person, ended.as_ref()).await;
         let text = format!("Review the person's state ({reason}).\n\n{context}");
         let budget = crate::task_budget::for_wake(&self.cfg.budget);
@@ -406,6 +410,7 @@ impl crate::kernel::Kernel {
                 format!("{id}{detail} (by {}){}", by.as_deref().unwrap_or("no date"), if overdue { ", OVERDUE" } else { "" })
             })
             .collect();
+        let told = self.read(|s| crate::review_news::told_lines(s, person, Utc::now()));
         let mut open = vec![];
         if let Ok(words) = self.words(tasks).await {
             open = self.read(|s| {
@@ -427,12 +432,13 @@ impl crate::kernel::Kernel {
         // and the review cannot judge the failure without it (#383).
         let woke = ended.map(|e| format!("The task that woke this review:\n- {}: {}\n\n", e.task, e.outcome.chars().take(500).collect::<String>())).unwrap_or_default();
         format!(
-            "{woke}{}{}{}{}{}",
+            "{woke}{}{}{}{}{}{}",
             section("Unfinished work", open),
             section("Schedules", schedules),
             section("Approvals waiting", approvals),
             section("Open disagreements", disagreements),
-            section("Open commitments", commitments)
+            section("Open commitments", commitments),
+            section("Already told them (do not tell again what these say)", told)
         )
         .chars()
         .take(6000)
@@ -462,6 +468,9 @@ impl crate::kernel::Kernel {
         let prefs = self.read(|s| s.identity.preferences_of(&run.person).cloned().unwrap_or(serde_json::Value::Null));
         let st = settings(&self.cfg.proactive, &prefs);
         let now = Utc::now();
+        if let Some(told) = self.already_told(&run.person, what, why, "") {
+            return Ok((told, false));
+        }
         if let Some(denied) = self.loop_deny(run, "interrupt", None) {
             // Denied like a spent budget: the news waits as an
             // observation when suggestions are allowed, else nothing is

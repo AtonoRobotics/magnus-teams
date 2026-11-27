@@ -131,6 +131,7 @@ pub mod reap;
 pub mod recall;
 pub mod registrations;
 pub mod relationship;
+pub mod review_news;
 pub mod rule_effects;
 pub mod rules;
 pub mod run;
