@@ -23,10 +23,14 @@ function personalComposer() {
     send: async ({ text, files, form, record }) => {
       const autonomy = typeof chosenAutonomy === "function" ? chosenAutonomy(form) : "standard";
       let finalText = text;
+      /** @type {?string[]} */
+      let approvedSteps = null;
       if (autonomy === "plan_first" && text && typeof PlanSurface !== "undefined" && typeof PlanSurface.open === "function") {
         const approved = await PlanSurface.open(text);
         if (!approved) return;
         finalText = approved;
+        const planPart = approved.split("Follow this approved plan in order:\n")[1] || "";
+        approvedSteps = planPart ? PlanSurface.parseSteps(planPart) : null;
       } else if (autonomy === "cautious" && text) {
         finalText = `[Session leash: Ask for my explicit approval before any write or modification.]\n\n${text}`;
       } else if (autonomy === "draft_only" && text) {
@@ -38,6 +42,9 @@ function personalComposer() {
       const response = await Server.chat.send(body);
       const startedId = response?.task_id || response?.task || null;
       if (startedId) {
+        if (approvedSteps && typeof PlanSurface !== "undefined" && typeof PlanSurface.trackTask === "function") {
+          PlanSurface.trackTask(startedId, approvedSteps);
+        }
         record.runningIds = [...new Set([...(record.runningIds || []), startedId])];
         if (record.cancelRequested) {
           record.cancelRequested = false;

@@ -221,6 +221,12 @@ const webBridge = {
   },
   // Connecting this computer needs the desktop app.
   async localState() { return null; },
+  async pickFolder() {
+    if (typeof window !== "undefined" && typeof window.showDirectoryPicker === "function") {
+      try { const dir = await window.showDirectoryPicker(); return dir?.name || null; } catch { return null; }
+    }
+    return null;
+  },
   // A program on this computer is used through the desktop app.
   async desktopDevice() { return null; },
   async desktopRefresh() {},

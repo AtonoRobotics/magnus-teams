@@ -136,5 +136,50 @@ const PlanSurface = (() => {
     });
   }
 
-  return { parseSteps, isGated, formatApprovedPlan, open };
+  /** @type {Map<string, string[]>} */
+  const livePlans = new Map();
+
+  /** Register approved plan steps for a started task so its live card tracks progress.
+   * @param {string} taskId @param {string[]} steps */
+  function trackTask(taskId, steps) {
+    if (!taskId || !Array.isArray(steps) || !steps.length) return;
+    livePlans.set(taskId, steps.map(s => String(s || "").trim()).filter(Boolean));
+    syncLiveCards();
+  }
+
+  /** Render an inline live Plan Card whose steps tick off from UIStore task state.
+   * @param {string} taskId */
+  function renderLiveCard(taskId) {
+    const steps = livePlans.get(taskId);
+    if (!steps || !steps.length) return "";
+    const task = typeof UIStore !== "undefined" ? UIStore.getTask(taskId) : null;
+    const units = Array.isArray(task?.plan?.units) ? task.plan.units : [];
+    const ended = task && ["completed", "failed", "cancelled"].includes(task.status);
+    const items = steps.map((st, i) => {
+      const u = units[i];
+      const state = ended && task.status === "completed" ? "done"
+        : u?.status === "done" ? "done"
+        : u?.status === "active" ? "active"
+        : i === 0 && task && !ended ? "active" : "todo";
+      const mark = state === "done" ? "✓" : state === "active" ? "…" : "○";
+      return `<li data-plan-unit-state="${state}"><span class="mono" aria-hidden="true">${mark}</span> ${escHtml(st)}</li>`;
+    }).join("");
+    return `<div class="card flat" data-live-plan="${escHtml(taskId)}" style="margin:6px 0"><div class="spread"><strong class="small">Approved plan</strong><span class="small muted">${ended ? escHtml(task.status) : "In progress"}</span></div><ol class="stack small" style="margin:6px 0 0 18px;gap:4px">${items}</ol></div>`;
+  }
+
+  function syncLiveCards() {
+    if (typeof document === "undefined") return;
+    for (const [taskId] of livePlans) {
+      const host = document.querySelector(`[data-live-plan="${CSS.escape(taskId)}"]`);
+      if (host && host.parentElement) {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = renderLiveCard(taskId);
+        if (tmp.firstElementChild) host.replaceWith(tmp.firstElementChild);
+      }
+    }
+  }
+
+  if (typeof UIStore !== "undefined") UIStore.subscribe("tasksById", syncLiveCards);
+
+  return { parseSteps, isGated, formatApprovedPlan, open, trackTask, renderLiveCard, livePlans };
 })();

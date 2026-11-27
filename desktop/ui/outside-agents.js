@@ -27,7 +27,7 @@ function outsideAgentRow(a, me) {
   return `<article class="lcard" data-outside-agent="${id}"><div class="lc-head"><div class="lc-title-wrap"><h3>${esc(a.name)}</h3>
     <p class="lc-note">${esc(a.endpoint)} · signs in with ${esc(OUTSIDE_SCHEMES[a.scheme] || a.scheme)}</p></div></div><div class="lc-main">
     ${a.description ? `<p class="lc-sum">${esc(a.description)}</p>` : ""}<p class="small muted">${esc(outsideAdmitted(a.admitted, me))}</p>
-    <div class="row">${mine ? "" : `<button data-act="outside-admit" data-agent="${id}">Let it ask me</button>`}<button data-act="outside-disconnect" data-agent="${id}">Disconnect</button></div></div></article>`;
+    <div class="row">${mine ? `<span class="chip ok" data-outside-allowed>Can ask you</span>` : `<button data-act="outside-admit" data-agent="${id}">Let it ask me</button>`}<button data-act="outside-disconnect" data-agent="${id}">Disconnect</button></div></div></article>`;
 }
 
 /**

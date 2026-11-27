@@ -74,7 +74,7 @@ async function thisComputerSection() {
     <td><div class="row">${online && in_use ? `<button data-act="local-resume" data-id="${esc(c.id)}">Let Magnus go on now</button>` : ""}<button class="link" data-act="local-remove" data-id="${esc(c.id)}">Disconnect</button></div></td></tr>`).join("");
   const here = running?.running ? known.find(k => k.computer.name === running.name)?.computer : null;
   const modes = mode => Object.entries(LOCAL_ASKS).map(([v, l]) => `<option value="${v}"${v === mode ? " selected" : ""}>${l}</option>`).join("");
-  const quickFolders = `<div class="row small" style="gap:6px;margin-top:4px"><span class="muted">Quick add:</span>${["~/Projects", "~/Documents", "~/Desktop", "~/Downloads"].map(p => `<button type="button" class="small" data-act="local-add-folder" data-folder="${esc(p)}">+ ${esc(p)}</button>`).join("")}</div>`;
+  const quickFolders = `<div class="row small" style="gap:6px;margin-top:4px;flex-wrap:wrap"><span class="muted">Quick add:</span>${["~/Projects", "~/Documents", "~/Desktop", "~/Downloads"].map(p => `<button type="button" class="small" data-act="local-add-folder" data-folder="${esc(p)}">+ ${esc(p)}</button>`).join("")}<button type="button" class="small" data-act="local-browse-folder">Browse folder…</button></div>`;
   const connect = !running ? "" : running.running
     ? `<div class="card flat"><p>This computer is connected as <b>${esc(running.name)}</b>${running.paused ? ". Magnus is paused here." : "."}</p><div class="row"><button data-act="local-pause" data-to="${running.paused ? "" : "1"}">${running.paused ? "Let Magnus work" : "Pause Magnus here"}</button><button class="link" data-act="local-stop">Stop</button></div>
         ${here ? `<form class="local-connect"><label>When Magnus wants to work here<select id="lc-mode">${modes(here.mode)}</select></label>
@@ -147,6 +147,18 @@ async function thisComputerAction(b, main) {
         const cur = box.value.split("\n").map(f => f.trim()).filter(Boolean);
         if (!cur.includes(folder)) { cur.push(folder); box.value = cur.join("\n"); }
         box.focus();
+      }
+      return false;
+    }
+    case "local-browse-folder": {
+      const picked = typeof Magnus !== "undefined" && typeof Magnus.pickFolder === "function" ? await Magnus.pickFolder() : null;
+      const box = $("#lc-folders", main);
+      if (picked && box) {
+        const cur = box.value.split("\n").map(f => f.trim()).filter(Boolean);
+        if (!cur.includes(picked)) { cur.push(picked); box.value = cur.join("\n"); }
+        box.focus();
+      } else if (!picked) {
+        toast("Folder picker is available in the desktop app or Chromium browsers. Use Quick add or paste a path.");
       }
       return false;
     }

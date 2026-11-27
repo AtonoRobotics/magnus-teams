@@ -20,27 +20,45 @@ const TaskReplay = (() => {
     return best;
   }
 
-  /** Render one replay step's visual stage (screenshot + tool calls + decisions).
-   * @param {any} stepData @param {{ step: number, image_b64: string } | null} frame */
-  function renderStage(stepData, frame) {
+  /** Format up to 3 concise scalar fields from a tool call input object. @param {any} input */
+  function summarizeInput(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+    const pairs = Object.entries(input)
+      .filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object")
+      .slice(0, 3)
+      .map(([k, v]) => `${k.replace(/_/g, " ")}: ${String(v).slice(0, 72)}`);
+    return pairs.join(" · ");
+  }
+
+  /** Render one replay step's visual stage (screenshot + tool calls + inputs + decisions + verifications).
+   * @param {any} stepData @param {{ step: number, image_b64: string } | null} frame @param {any[]} [verifications] */
+  function renderStage(stepData, frame, verifications = []) {
     const imgHtml = frame
       ? `<div class="stack" style="margin-top:8px"><img src="data:image/png;base64,${escHtml(frame.image_b64)}" alt="Screen at step ${escHtml(frame.step)}" style="width:100%;max-height:240px;object-fit:contain;border-radius:var(--r-sm);border:1px solid var(--line)"></div>`
       : "";
     const calls = Array.isArray(stepData?.calls) ? stepData.calls : [];
+    const passedCount = Array.isArray(verifications) ? verifications.filter(v => v && v.passed).length : 0;
+    const metaHtml = (calls.length || passedCount)
+      ? `<div class="row small muted" data-replay-meta style="margin-top:6px;gap:8px;flex-wrap:wrap"><span>${calls.length} tool call${calls.length === 1 ? "" : "s"}</span>${passedCount ? `<span class="chip ok" data-replay-verified>✓ ${passedCount} verified</span>` : ""}</div>`
+      : "";
     const callsHtml = calls.length
-      ? `<div class="stack" style="margin-top:8px;gap:6px">${calls.map(c => {
+      ? `<div class="stack" style="margin-top:6px;gap:6px">${calls.map(c => {
           const nice = String(c.tool || "tool").replace(/^[^_]+__/, "").replace(/_/g, " ");
           const dec = (c.decisions || []).map(d => `<span class="chip ${d.outcome === "allow" ? "ok" : d.outcome === "block" ? "bad" : "warn"}">${escHtml(d.outcome)}</span>`).join(" ");
           const err = c.is_error ? `<span class="chip bad">Error</span>` : "";
+          const inSummary = summarizeInput(c.input);
+          const inPreview = inSummary ? `<div class="small muted" data-replay-input style="margin-top:4px">${escHtml(inSummary)}</div>` : "";
+          const hasInputObj = c.input && typeof c.input === "object" && Object.keys(c.input).length > 0;
+          const inDetails = hasInputObj ? `<details class="small" style="margin-top:4px"><summary class="muted">Input details</summary><pre class="small muted" style="max-height:90px;overflow:auto">${escHtml(JSON.stringify(c.input, null, 2).slice(0, 600))}</pre></details>` : "";
           const out = c.result ? `<pre class="small muted" style="max-height:90px;overflow:auto;margin-top:4px">${escHtml(String(c.result).slice(0, 400))}</pre>` : "";
-          return `<div class="card flat"><div class="spread"><strong class="small">${escHtml(nice)}</strong><span class="row" style="gap:4px">${dec}${err}</span></div>${out}</div>`;
+          return `<div class="card flat"><div class="spread"><strong class="small">${escHtml(nice)}</strong><span class="row" style="gap:4px">${dec}${err}</span></div>${inPreview}${inDetails}${out}</div>`;
         }).join("")}</div>`
       : "";
     const textHtml = stepData?.text
       ? `<p class="small muted" style="margin:6px 0 0">${escHtml(String(stepData.text).slice(0, 280))}</p>`
       : "";
-    if (!imgHtml && !callsHtml && !textHtml) return "";
-    return `${imgHtml}${textHtml}${callsHtml}`;
+    if (!imgHtml && !metaHtml && !callsHtml && !textHtml) return "";
+    return `${imgHtml}${metaHtml}${textHtml}${callsHtml}`;
   }
 
   /** Detect the currently open task ID from Panel or location.hash. */
@@ -94,7 +112,7 @@ const TaskReplay = (() => {
       if (stage && timeline) {
         const st = timeline.steps?.[idx - 1] || null;
         const stepNum = st?.step ?? idx;
-        stage.innerHTML = renderStage(st, frameForStep(timeline.frames, stepNum));
+        stage.innerHTML = renderStage(st, frameForStep(timeline.frames, stepNum), timeline.verifications);
       }
     };
 
@@ -118,11 +136,15 @@ const TaskReplay = (() => {
     if (taskId && typeof Server !== "undefined" && Server.tasks?.timeline) {
       Server.tasks.timeline(taskId).then(data => {
         if (!bar.isConnected || !data) return;
-        timeline = { steps: Array.isArray(data.steps) ? data.steps : [], frames: Array.isArray(data.frames) ? data.frames : [] };
+        timeline = {
+          steps: Array.isArray(data.steps) ? data.steps : [],
+          frames: Array.isArray(data.frames) ? data.frames : [],
+          verifications: Array.isArray(data.verifications) ? data.verifications : [],
+        };
         apply(idx);
       }).catch(() => {});
     }
   }
 
-  return { mount, frameForStep, renderStage, activeTaskId };
+  return { mount, frameForStep, summarizeInput, renderStage, activeTaskId };
 })();
