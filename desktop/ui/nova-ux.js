@@ -180,12 +180,16 @@ const NovaUx = (() => {
     if (!parent || parent.querySelector(".nova-replay")) return;
     const bar = document.createElement("div");
     bar.className = "nova-replay";
+    parent.insertBefore(bar, first);
+    if (typeof TaskReplay !== "undefined" && typeof TaskReplay.mount === "function") {
+      TaskReplay.mount(bar, steps);
+      return;
+    }
     bar.innerHTML = `<div class="nova-replay-head">
       <strong class="small">Task Replay</strong>
       <span class="mono small muted" data-nova-replay-lbl>Step ${steps.length} / ${steps.length}</span>
     </div>
     <input type="range" class="nova-replay-range" min="1" max="${steps.length}" value="${steps.length}" aria-label="Scrub task steps">`;
-    parent.insertBefore(bar, first);
     const range = /** @type {HTMLInputElement} */ (bar.querySelector(".nova-replay-range"));
     const lbl = bar.querySelector("[data-nova-replay-lbl]");
     range.addEventListener("input", () => {

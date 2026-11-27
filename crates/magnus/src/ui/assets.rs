@@ -97,6 +97,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("nova-widgets.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/nova-widgets.css")),
     ("aurora.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora.js")),
     ("nova-avatars.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/nova-avatars.js")),
+    ("task-replay.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/task-replay.js")),
     ("nova-ux.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/nova-ux.js")),
     ("nova-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/nova-frame.js")),
     ("release-notes.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/release-notes.js")),

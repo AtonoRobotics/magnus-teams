@@ -369,7 +369,13 @@ pub(crate) fn timeline_of(run: &Run, redact_private: bool) -> Value {
         steps.push(json!({ "step": reply.step, "text": said, "calls": calls }));
     }
     let notices: Vec<Value> = run.notices.iter().map(|(step, seq, text)| json!({ "step": step, "seq": seq, "text": text })).collect();
-    json!({ "steps": steps, "notices": notices, "verifications": run.verified.iter().map(|(c, v)| json!({ "criterion": c, "passed": v.0, "evidence": v.1, "by": v.2 })).collect::<Vec<_>>() })
+    let frames: Vec<Value> = if redact_private { vec![] } else { run.frames.iter().map(|(step, image_b64)| json!({ "step": step, "image_b64": image_b64 })).collect() };
+    json!({
+        "steps": steps,
+        "frames": frames,
+        "notices": notices,
+        "verifications": run.verified.iter().map(|(c, v)| json!({ "criterion": c, "passed": v.0, "evidence": v.1, "by": v.2 })).collect::<Vec<_>>()
+    })
 }
 
 pub(super) async fn resume(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
