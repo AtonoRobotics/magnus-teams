@@ -4,6 +4,7 @@
 #   - release.yml starts when the "fast" workflow completes on main, not on
 #     the push, and builds only when that run passed;
 #   - release.yml checks out the commit the fast run checked;
+#   - fast.yml runs queue per branch, never cancelling the run in progress;
 #   - fast.yml and a manual release run the same script, ci/fast.sh;
 #   - ci/fast.sh runs every desktop/tests/*-check.mjs and every ci/*-check.sh.
 # It reads the files only; nothing is built or run.
@@ -32,6 +33,12 @@ case $build_if in *"github.event.workflow_run.event == 'push'"*) ;; *) bad "rele
 checkouts=$(grep -c 'uses: actions/checkout@' "$release")
 refs=$(grep -cF 'ref: ${{ github.event.workflow_run.head_sha || github.sha }}' "$release")
 [ "$checkouts" -gt 0 ] && [ "$checkouts" -eq "$refs" ] || bad "release.yml has $checkouts checkouts and $refs of the fast run's commit"
+
+# Fast runs queue per branch: a newer push never cancels the run in progress
+# (decisions/2026-11-27-fast-runs-queue.md).
+fast_conc=$(awk '/^concurrency:/ { c = 1; next } c && /^[^ #]/ { exit } c' "$fast")
+case $fast_conc in *'group: fast-${{ github.ref }}'*) ;; *) bad "fast.yml's runs do not share one queue per branch" ;; esac
+case $fast_conc in *"cancel-in-progress: false"*) ;; *) bad "fast.yml lets a newer push cancel the run in progress" ;; esac
 
 # One list of checks.
 grep -qx 'name: fast' "$fast" || bad "fast.yml is not named 'fast', which release.yml waits for"

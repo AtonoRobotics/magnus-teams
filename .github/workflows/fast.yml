@@ -14,13 +14,20 @@
 # release.yml starts on this workflow's completion, not on the push
 # (decisions/2026-11-20-release-waits-for-fast.md). The workflow's name,
 # "fast", is what release.yml waits for; renaming it stops releases.
+#
+# Runs on one branch queue: a run in progress always finishes, and a push
+# waits for it. GitHub keeps one waiting run per group, the newest push, which
+# contains every commit before it. Cancelling the run in progress let pushes
+# three minutes apart keep main from ever being checked or released
+# (decisions/2026-11-27-fast-runs-queue.md). One run at a time also keeps
+# releases in commit order.
 name: fast
 on:
   push:
   workflow_dispatch:
 concurrency:
   group: fast-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 permissions:
   contents: read
 env:
