@@ -1,0 +1,1620 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Magnus — Greenfield Nova App Mockup</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    [data-theme="dark"] {
+      --canvas: #0b0c0e;
+      --sidebar: #131417;
+      --card: #17181c;
+      --card-2: #1d1f25;
+      --composer: #1a1b1f;
+      --pill: #23252c;
+      --ink: #f2f4f9;
+      --ink-2: #c1c7d6;
+      --muted: #848d9f;
+      --hair: rgba(255, 255, 255, 0.075);
+      --hair-strong: rgba(255, 255, 255, 0.14);
+      --blue: #2563eb;
+      --blue-soft: rgba(37, 99, 235, 0.18);
+      --blue-ink: #93c5fd;
+      --ok: #34d399;
+      --ok-soft: rgba(52, 211, 153, 0.14);
+      --warn: #fbbf24;
+      --warn-soft: rgba(251, 191, 36, 0.15);
+      --bad: #fb7185;
+      --bad-soft: rgba(251, 113, 133, 0.15);
+      --halo-core: rgba(30, 58, 138, 0.44);
+      --halo-mid: rgba(23, 37, 84, 0.24);
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.56);
+    }
+
+    [data-theme="light"] {
+      --canvas: #ffffff;
+      --sidebar: #f4f6fa;
+      --card: #f5f7fb;
+      --card-2: #ebf0f8;
+      --composer: #f3f5fa;
+      --pill: #e7ecf5;
+      --ink: #111827;
+      --ink-2: #374151;
+      --muted: #64748b;
+      --hair: rgba(15, 23, 42, 0.08);
+      --hair-strong: rgba(15, 23, 42, 0.15);
+      --blue: #2563eb;
+      --blue-soft: rgba(37, 99, 235, 0.11);
+      --blue-ink: #1d4ed8;
+      --ok: #059669;
+      --ok-soft: rgba(5, 150, 105, 0.11);
+      --warn: #d97706;
+      --warn-soft: rgba(217, 119, 6, 0.12);
+      --bad: #e11d48;
+      --bad-soft: rgba(225, 29, 72, 0.11);
+      --halo-core: rgba(99, 132, 255, 0.16);
+      --halo-mid: rgba(147, 197, 253, 0.10);
+      --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: "tnum" 1, "cv11" 1;
+      overflow: hidden;
+    }
+
+    .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+    /* Dissolving Midnight Cobalt Halo (Home Intro only) */
+    #midnight-halo {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: radial-gradient(56% 52% at 54% 46%, var(--halo-core) 0%, var(--halo-mid) 44%, transparent 76%);
+      transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+      opacity: 1;
+    }
+    body.halo-off #midnight-halo { opacity: 0; }
+
+    /* Subtle floating depth orbs */
+    #orb-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      pointer-events: none;
+      transition: opacity 0.45s ease;
+    }
+    body.orbs-off #orb-canvas { opacity: 0; }
+
+    /* Desktop App Frame */
+    .shell {
+      position: relative;
+      z-index: 10;
+      height: 100vh;
+      display: grid;
+      grid-template-columns: var(--rail-w, 60px) minmax(0, 1fr);
+      transition: grid-template-columns 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .shell.sidebar-open { --rail-w: 256px; }
+
+    /* Whisper-Quiet Left Rail / Expanded Sidebar */
+    .rail {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 9px;
+      background: transparent;
+      border-right: 1px solid transparent;
+      transition: background 0.22s ease, border-color 0.22s ease;
+      overflow: hidden;
+      user-select: none;
+    }
+    .shell.sidebar-open .rail {
+      background: var(--sidebar);
+      border-right-color: var(--hair);
+      padding: 12px 12px;
+    }
+
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 0;
+      background: transparent;
+      color: var(--ink-2);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.14s ease, color 0.14s ease;
+      text-align: left;
+      position: relative;
+    }
+    .nav-btn:hover { background: var(--card-2); color: var(--ink); }
+    .nav-btn.active { background: var(--pill); color: var(--ink); }
+    .shell:not(.sidebar-open) .nav-lbl,
+    .shell:not(.sidebar-open) .exp-only { display: none; }
+    .shell:not(.sidebar-open) .nav-btn { justify-content: center; padding: 0; width: 40px; height: 40px; border-radius: 999px; margin: 0 auto; }
+
+    .tree-row .more-dot { opacity: 0; transition: opacity 0.14s ease; }
+    .tree-row:hover .more-dot { opacity: 1; }
+
+    /* Surfaces & Cards */
+    .matte { background: var(--card); border-radius: 18px; }
+    .matte-hover { transition: background 0.15s ease, transform 0.2s ease; }
+    .matte-hover:hover { background: var(--card-2); }
+
+    .composer {
+      background: var(--composer);
+      border: 1px solid var(--hair);
+      border-radius: 24px;
+      padding: 14px 16px 12px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+      transition: border-color 0.2s ease;
+    }
+    .composer:focus-within { border-color: var(--hair-strong); }
+
+    .seg {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 3px;
+      border-radius: 999px;
+      background: var(--card);
+      border: 1px solid var(--hair);
+    }
+    .seg button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .seg button:hover { color: var(--ink); }
+    .seg button.active { background: var(--pill); color: var(--ink); }
+
+    .pbtn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 500;
+      border: 1px solid var(--hair);
+      background: var(--pill);
+      color: var(--ink);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .pbtn:hover { background: var(--card-2); border-color: var(--hair-strong); }
+    .pbtn-blue { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+    .pbtn-blue:hover { filter: brightness(1.09); background: var(--blue); }
+    .pbtn-bad { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+
+    /* Prismatic halo */
+    .prism-halo { position: relative; z-index: 1; }
+    .prism-halo::before {
+      content: "";
+      position: absolute;
+      inset: -12px;
+      z-index: -1;
+      border-radius: 28px;
+      background: conic-gradient(from 140deg at 50% 50%, #3b82f6, #a855f7, #f43f5e, #f59e0b, #10b981, #3b82f6);
+      filter: blur(26px);
+      opacity: 0.32;
+      animation: spinHue 14s linear infinite;
+    }
+    @keyframes spinHue { 0% { filter: blur(26px) hue-rotate(0deg); } 100% { filter: blur(26px) hue-rotate(360deg); } }
+
+    /* Editorial cards */
+    .ed-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 24px;
+      cursor: pointer;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+    }
+    .ed-card:hover { transform: translateY(-4px) scale(1.012); box-shadow: 0 18px 38px rgba(0, 0, 0, 0.36); }
+    .ed-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(0, 0, 0, 0.74) 100%); }
+
+    /* Borderless 2-col catalog row */
+    .cat-row { display: flex; align-items: center; gap: 14px; padding: 12px 10px; border-radius: 14px; transition: background 0.14s ease; }
+    .cat-row:hover { background: var(--card); }
+
+    /* Intro dissolve */
+    .intro-wrap { transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.48s cubic-bezier(0.16, 1, 0.3, 1); }
+    .intro-wrap.dissolving { opacity: 0; transform: translateY(-20px) scale(0.98); pointer-events: none; }
+
+    /* Active beam */
+    @keyframes beam { 0% { transform: translateX(-100%); } 100% { transform: translateX(240%); } }
+    .beam-top { position: relative; overflow: hidden; }
+    .beam-top::before {
+      content: ""; position: absolute; top: 0; left: 0; width: 42%; height: 2px;
+      background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, transparent);
+      animation: beam 2.2s linear infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .pulse { animation: pulse 2s ease-in-out infinite; }
+
+    /* Toggle switch */
+    .sw { width: 44px; height: 24px; border-radius: 999px; background: var(--pill); position: relative; cursor: pointer; border: 0; transition: background 0.2s ease; flex: none; }
+    .sw.on { background: var(--blue); }
+    .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+    .sw.on::after { transform: translateX(20px); }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--hair-strong); border-radius: 999px; }
+
+    /* Toast & Modal */
+    #toast {
+      position: fixed; bottom: 20px; right: 20px; z-index: 60;
+      padding: 10px 16px; border-radius: 999px; background: var(--card);
+      border: 1px solid var(--hair-strong); box-shadow: var(--shadow);
+      display: flex; align-items: center; gap: 10px; font-size: 13px;
+      transform: translateY(16px); opacity: 0; pointer-events: none;
+      transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    #toast.show { transform: translateY(0); opacity: 1; pointer-events: auto; }
+
+    #cmd-modal {
+      position: fixed; inset: 0; z-index: 50; display: none;
+      align-items: flex-start; justify-content: center; padding-top: 12vh;
+      background: rgba(0, 0, 0, 0.56); backdrop-filter: blur(6px);
+    }
+    #cmd-modal.open { display: flex; }
+
+    @media (max-width: 900px) {
+      .resp-2col { grid-template-columns: 1fr !important; }
+      .hide-sm { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="midnight-halo"></div>
+  <canvas id="orb-canvas"></canvas>
+
+  <div class="shell" id="shell">
+    <!-- =================================================================== -->
+    <!-- 3-ZONE WHISPER-QUIET NAVIGATION RAIL / EXPANDED SIDEBAR             -->
+    <!-- =================================================================== -->
+    <aside class="rail">
+      <div class="flex flex-col gap-1 min-h-0">
+        <!-- Brand + Live Companion + Sidebar Toggle -->
+        <div class="flex items-center justify-between px-1 mb-2">
+          <button class="flex items-center gap-2.5 border-0 bg-transparent p-0 cursor-pointer" onclick="toggleSidebar()" title="Expand / Collapse sidebar (⌘B)">
+            <div class="av-mount" data-size="32"></div>
+            <div class="nav-lbl text-left leading-tight">
+              <div class="font-semibold text-[15px] tracking-tight" style="color:var(--ink)">Magnus</div>
+              <div class="text-[11px]" id="rail-st" style="color:var(--muted)">Ready</div>
+            </div>
+          </button>
+          <div class="exp-only flex items-center gap-1">
+            <button class="p-1.5 rounded-lg border-0 bg-transparent cursor-pointer" style="color:var(--muted)" onclick="openCmd()" title="Command Palette (⌘K)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </button>
+            <button class="p-1.5 rounded-lg border-0 bg-transparent cursor-pointer" style="color:var(--muted)" onclick="toggleSidebar()" title="Collapse sidebar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Zone 1: Core Destinations -->
+        <button class="nav-btn active" data-go="home" title="New chat">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span class="nav-lbl">New chat</span>
+        </button>
+
+        <button class="nav-btn" data-go="stage" title="Active Stage & Approvals">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+          <span class="nav-lbl flex-1">Stage &amp; Approvals</span>
+          <span id="nav-badge" class="mono text-[10px] font-bold px-1.5 py-0.5 rounded-full" style="background:var(--warn);color:#0b0c0e">3</span>
+        </button>
+
+        <button class="nav-btn" data-go="projects" title="Projects Hub">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span class="nav-lbl">Projects</span>
+        </button>
+
+        <button class="nav-btn" data-go="briefing" title="Morning Briefing & Quiet Routines">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="nav-lbl">Briefing &amp; Routines</span>
+        </button>
+
+        <button class="nav-btn" data-go="explore" title="Explore & Artifacts Gallery">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span class="nav-lbl">Explore &amp; Artifacts</span>
+        </button>
+
+        <button class="nav-btn" data-go="apps" title="Apps & Skills">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+          <span class="nav-lbl">Apps &amp; Skills</span>
+        </button>
+
+        <!-- Zone 2: Expanded Contextual Tree (hover-only ⋮ menus, zero inline trash) -->
+        <div class="exp-only mt-3 pt-3 border-t overflow-y-auto space-y-4" style="border-color:var(--hair)">
+          <div>
+            <div class="flex items-center justify-between px-2.5 mb-1">
+              <span class="text-[11px] font-medium" style="color:var(--muted)">Projects</span>
+              <button class="border-0 bg-transparent p-0.5 cursor-pointer" style="color:var(--muted)" onclick="go('projects'); showToast('Type a name to create a quiet project')">+</button>
+            </div>
+            <div class="tree-row nav-btn !py-1.5" onclick="go('projects')">
+              <span class="w-2 h-2 rounded-full shrink-0" style="background:#818cf8"></span>
+              <span class="truncate flex-1">Q4 Launch</span>
+              <span class="text-[11px]" style="color:var(--muted)">Shared</span>
+              <span class="more-dot px-1" style="color:var(--muted)" onclick="event.stopPropagation(); showToast('Project menu: Rename · Share · Delete')">⋮</span>
+            </div>
+            <div class="tree-row nav-btn !py-1.5" onclick="go('projects')">
+              <span class="w-2 h-2 rounded-full shrink-0" style="background:#34d399"></span>
+              <span class="truncate flex-1">Board Prep</span>
+              <span class="more-dot px-1" style="color:var(--muted)" onclick="event.stopPropagation(); showToast('Project menu: Rename · Share · Delete')">⋮</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="px-2.5 mb-1 text-[11px] font-medium" style="color:var(--muted)">Recent</div>
+            <div class="tree-row nav-btn !py-1.5" onclick="go('stage')">
+              <span class="w-1.5 h-1.5 rounded-full pulse shrink-0" style="background:var(--warn)"></span>
+              <span class="truncate flex-1">Board update &amp; emails</span>
+              <span class="mono text-[11px]" style="color:var(--muted)">11m</span>
+              <span class="more-dot px-1" style="color:var(--muted)" onclick="event.stopPropagation(); showToast('Chat menu: Move · Share · Delete')">⋮</span>
+            </div>
+            <div class="tree-row nav-btn !py-1.5" onclick="go('stage')">
+              <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:var(--ok)"></span>
+              <span class="truncate flex-1">Stripe Q3 variance</span>
+              <span class="mono text-[11px]" style="color:var(--muted)">2h</span>
+              <span class="more-dot px-1" style="color:var(--muted)" onclick="event.stopPropagation(); showToast('Chat menu: Move · Share · Delete')">⋮</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone 3: Compact Utility Footer -->
+      <div class="flex flex-col gap-1 pt-2">
+        <button class="nav-btn" onclick="openCmd()" title="Command Palette (⌘K)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <span class="nav-lbl flex-1">Quick Jump</span>
+          <span class="exp-only mono text-[11px]" style="color:var(--muted)">⌘K</span>
+        </button>
+        <button class="nav-btn" data-go="settings" title="Personal Intelligence, Companion & Cedar Rules">
+          <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0" style="background:#ec4899;color:#fff">S</span>
+          <div class="nav-lbl text-left flex-1 leading-tight">
+            <div class="text-[13px] font-medium" style="color:var(--ink)">samuel</div>
+            <div class="text-[11px]" style="color:var(--muted)">Companion · Settings</div>
+          </div>
+        </button>
+      </div>
+    </aside>
+
+    <!-- =================================================================== -->
+    <!-- MAIN VIEWPORT                                                       -->
+    <!-- =================================================================== -->
+    <main class="min-w-0 min-h-0 flex flex-col overflow-hidden relative">
+      <!-- Subtle Floating Top-Right Mockup Controls (Theme, Companion, Orbs) -->
+      <div class="flex items-center justify-between px-5 py-2.5 border-b shrink-0" style="border-color:var(--hair)">
+        <div class="flex items-center gap-2 text-xs" style="color:var(--muted)">
+          <span class="font-semibold" style="color:var(--ink)" id="crumb-title">New conversation</span>
+          <span class="hide-sm">·</span>
+          <span class="hide-sm mono text-[11px]">Spend today: $1.42 / $25.00</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="seg hide-sm" id="char-seg" title="Switch live companion">
+            <button data-char="pip" class="active">Pip</button>
+            <button data-char="mochi">Mochi</button>
+            <button data-char="orb">Orb</button>
+            <button data-char="prism">Prism</button>
+          </div>
+          <button id="btn-orbs" class="pbtn !py-1 !px-2.5 !text-xs">Orbs: On</button>
+          <button id="btn-theme" class="pbtn !py-1 !px-2.5 !text-xs">Light</button>
+        </div>
+      </div>
+
+      <!-- =============================================================== -->
+      <!-- 1. HOME / DISSOLVING MOTION-GRAPHIC INTRO                       -->
+      <!-- =============================================================== -->
+      <section id="v-home" class="flex-1 overflow-y-auto px-6 py-8 md:px-12 flex flex-col items-center justify-center">
+        <div id="home-intro" class="intro-wrap w-full max-w-4xl mx-auto flex flex-col items-center">
+          <!-- Living Companion + State Demo Pills -->
+          <div class="mb-3 flex flex-col items-center">
+            <div class="av-mount cursor-pointer" data-size="84" title="Move cursor — Magnus watches and reacts"></div>
+            <div class="seg mt-2.5 flex-wrap justify-center" id="state-seg">
+              <button data-st="ready" class="active">Ready</button>
+              <button data-st="listening">Listening</button>
+              <button data-st="thinking">Thinking</button>
+              <button data-st="working">Working</button>
+              <button data-st="waiting">Waiting</button>
+              <button data-st="done">Done</button>
+            </div>
+          </div>
+
+          <h1 class="text-2xl md:text-[34px] font-medium tracking-tight text-center mb-6">Where should we start?</h1>
+
+          <!-- Gemini × Antigravity Pill Composer -->
+          <form id="home-form" class="w-full max-w-2xl mb-3">
+            <div class="composer flex flex-col gap-3">
+              <input id="home-in" type="text" placeholder="Ask Magnus — @ to mention, / for actions" class="w-full bg-transparent border-0 outline-none text-[15px] px-1" style="color:var(--ink)" autocomplete="off" />
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <button type="button" class="w-8 h-8 rounded-full border-0 bg-transparent text-lg cursor-pointer hover:bg-white/5" style="color:var(--ink-2)" onclick="showToast('Attach files or re-attach delivered artifacts')">+</button>
+                  <button type="button" class="pbtn !py-1 !px-3 !text-xs" onclick="go('stage'); setStageTab('vm')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                    <span>Live VM</span>
+                  </button>
+                </div>
+                <div class="flex items-center gap-2.5">
+                  <span class="text-xs font-medium cursor-pointer" style="color:var(--ink-2)" onclick="showToast('Model: Claude 4.5 · Reasoning: High')">Claude 4.5 ⌄</span>
+                  <button type="submit" class="w-8 h-8 rounded-full border-0 flex items-center justify-center cursor-pointer" style="background:var(--ink);color:var(--canvas)" title="Send & dissolve intro">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+
+          <!-- Chat | Task Switcher -->
+          <div class="seg mb-9">
+            <button class="active" onclick="segClick(this)">Chat</button>
+            <button onclick="segClick(this)">Autonomous Task</button>
+          </div>
+
+          <!-- 2-Column Editorial Intro (Antigravity prompts + AI Studio Prismatic Showcase) -->
+          <div class="resp-2col grid w-full gap-8 items-center" style="grid-template-columns: minmax(0, 44%) minmax(0, 56%);">
+            <div class="space-y-2.5">
+              <div class="text-xs font-medium uppercase tracking-wider px-2" style="color:var(--muted)">Autonomous launchpads</div>
+              <button class="w-full flex items-center gap-3 py-2 px-3 rounded-xl border-0 bg-transparent text-left cursor-pointer hover:bg-white/5" onclick="launchStage('Prepare the Q4 board update deck from Stripe and Linear, then stage investor follow-up emails.')">
+                <span>📊</span><span class="text-[13.5px]" style="color:var(--ink-2)">Prepare Q4 board deck &amp; investor follow-ups</span>
+              </button>
+              <button class="w-full flex items-center gap-3 py-2 px-3 rounded-xl border-0 bg-transparent text-left cursor-pointer hover:bg-white/5" onclick="launchStage('Triage my unread email and Slack mentions, stage replies for approval, and brief me.')">
+                <span>✨</span><span class="text-[13.5px]" style="color:var(--ink-2)">Triage my inbox &amp; prepare morning brief</span>
+              </button>
+              <button class="w-full flex items-center gap-3 py-2 px-3 rounded-xl border-0 bg-transparent text-left cursor-pointer hover:bg-white/5" onclick="launchStage('Run 3 parallel sub-agents to benchmark competitor pricing and build a live comparison view.')">
+                <span>🧭</span><span class="text-[13.5px]" style="color:var(--ink-2)">Run parallel competitor pricing research</span>
+              </button>
+            </div>
+
+            <div class="prism-halo">
+              <div class="grid grid-cols-2 gap-3">
+                <div class="col-span-2 rounded-2xl p-4 cursor-pointer" style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#0f172a;min-height:108px" onclick="launchStage('Build an interactive Q4 revenue and retention dashboard from Stripe receipts.')">
+                  <div class="flex justify-between items-start gap-3">
+                    <div>
+                      <div class="text-[15px] font-semibold leading-snug mb-1.5">Interactive views built to remix &amp; share.</div>
+                      <span class="inline-block text-[11px] font-medium px-2.5 py-0.5 rounded-full" style="background:rgba(15,23,42,0.82);color:#fff">Live Revenue Dashboard</span>
+                    </div>
+                    <div class="grid grid-cols-4 gap-1 shrink-0 mt-1">
+                      <span class="w-3.5 h-3.5 rounded-sm bg-indigo-500"></span><span class="w-3.5 h-3.5 rounded-sm bg-sky-400"></span><span class="w-3.5 h-3.5 rounded-sm bg-rose-500"></span><span class="w-3.5 h-3.5 rounded-sm bg-amber-400"></span>
+                      <span class="w-3.5 h-3.5 rounded-sm bg-emerald-400"></span><span class="w-3.5 h-3.5 rounded-sm bg-purple-500"></span><span class="w-3.5 h-3.5 rounded-sm bg-indigo-400"></span><span class="w-3.5 h-3.5 rounded-sm bg-sky-500"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="rounded-2xl p-3.5 cursor-pointer" style="background:linear-gradient(135deg,#1e1b4b,#312e81);color:#fff" onclick="go('explore')">
+                  <div class="text-xs font-semibold mb-0.5">Editorial Playbooks</div>
+                  <div class="text-[11px] opacity-80">Visual gallery →</div>
+                </div>
+                <div class="rounded-2xl p-3.5 cursor-pointer" style="background:linear-gradient(135deg,#064e3b,#0f766e);color:#fff" onclick="go('apps')">
+                  <div class="text-xs font-semibold mb-0.5">Apps &amp; Skills</div>
+                  <div class="text-[11px] opacity-80">Notion, Linear, Stripe →</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- 2. SELF-COMPOSING STAGE: THREAD + APPROVALS + LIVE VM + REPLAY  -->
+      <!-- =============================================================== -->
+      <section id="v-stage" class="hidden flex-1 flex flex-col min-h-0 overflow-hidden">
+        <!-- De-cluttered Stage Header (max 3 quiet controls) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-2.5 border-b shrink-0" style="border-color:var(--hair)">
+          <div class="flex items-center gap-2 min-w-0">
+            <button class="text-xs border-0 bg-transparent p-0 cursor-pointer hover:underline" style="color:var(--muted)" onclick="go('projects')">Q4 Launch</button>
+            <span style="color:var(--muted)">/</span>
+            <span class="text-[14px] font-semibold truncate">Board update &amp; investor follow-ups</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="seg" id="stage-right-seg">
+              <button data-stab="approvals" class="active">Approvals (3)</button>
+              <button data-stab="vm">Live VM</button>
+              <button data-stab="replay">Task Replay</button>
+            </div>
+            <button class="pbtn !py-1 !px-2.5 !text-xs" onclick="go('home')">Replay Intro</button>
+            <button class="pbtn !p-1.5" onclick="showToast('Overflow: Move to project · Clean-room share · Export · Delete')">⋮</button>
+          </div>
+        </div>
+
+        <!-- 2-Column Autonomous Stage -->
+        <div class="resp-2col flex-1 min-h-0 grid overflow-hidden" style="grid-template-columns: minmax(0, 54%) minmax(340px, 46%);">
+          <!-- Left: Conversation Thread + Antigravity Step History + While-You-Wait Tips -->
+          <div class="overflow-y-auto px-6 py-5 space-y-5">
+            <div class="flex justify-end">
+              <div id="stage-prompt" class="px-4 py-2.5 rounded-2xl max-w-[85%] text-[14.5px]" style="background:var(--card)">
+                Prepare the Q4 board update deck from Stripe and Linear, then stage investor follow-up emails.
+              </div>
+            </div>
+
+            <div class="space-y-4 max-w-[66ch]">
+              <div class="flex items-center gap-2.5">
+                <div class="av-mount" data-size="26"></div>
+                <span class="text-xs font-semibold">Magnus</span>
+                <span class="mono text-[11px]" style="color:var(--muted)">Running · 4 verified receipts</span>
+                <button class="pbtn !py-0.5 !px-2.5 !text-[11px] ml-auto" onclick="showToast('Deterministic Undo: reverted last draft mutation')">Undo last step</button>
+              </div>
+
+              <!-- Antigravity-style vertical change history -->
+              <div class="pl-3.5 border-l-2 space-y-2 text-[13px]" style="border-color:var(--hair-strong)">
+                <div class="flex items-center gap-2" style="color:var(--ink-2)"><span style="color:var(--ok)">✓</span><span>Pulled Q3–Q4 ARR &amp; retention from <strong>Stripe</strong></span><span class="mono text-[11px] ml-auto" style="color:var(--muted)">1.4s</span></div>
+                <div class="flex items-center gap-2" style="color:var(--ink-2)"><span style="color:var(--ok)">✓</span><span>Synthesized 14 milestones from <strong>Linear</strong></span><span class="mono text-[11px] ml-auto" style="color:var(--muted)">2.1s</span></div>
+                <div class="flex items-center gap-2" style="color:var(--ink-2)"><span style="color:var(--ok)">✓</span><span>Built <strong>Q4_Board_Deck.pptx</strong> (12 slides, charts verified)</span><span class="mono text-[11px] ml-auto" style="color:var(--muted)">6.8s</span></div>
+                <div class="flex items-center gap-2 font-medium" style="color:var(--warn)"><span class="pulse">●</span><span>Paused at 2 Cedar policy gates</span></div>
+              </div>
+
+              <p class="text-[15px] leading-[1.64] m-0">
+                Your Q4 board deck is ready—ARR grew <strong class="mono">+28.4% QoQ</strong> with zero enterprise churn. Review the <strong>vendor invoice</strong> (you can edit fields inline) and the <strong>3 staged investor emails</strong> on the right.
+              </p>
+
+              <!-- Working-State Tip Carousel (image_13.png) -->
+              <div class="matte p-5 text-center space-y-2.5">
+                <div class="text-[11px] font-medium uppercase tracking-wider" style="color:var(--muted)">While Magnus works</div>
+                <div class="flex items-center justify-center gap-4">
+                  <button class="w-8 h-8 rounded-full border-0 cursor-pointer" style="background:var(--pill);color:var(--ink)" onclick="stepTip(-1)">←</button>
+                  <div class="w-12 h-12 rounded-2xl flex items-center justify-center" style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(168,85,247,0.2))">
+                    <svg width="26" height="26" viewBox="0 0 40 40" fill="none"><defs><linearGradient id="gt" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#38bdf8"/><stop offset="50%" stop-color="#34d399"/><stop offset="100%" stop-color="#fbbf24"/></linearGradient></defs><path d="M12 8 L32 20 L12 32 Z" stroke="url(#gt)" stroke-width="3" stroke-linejoin="round"/></svg>
+                  </div>
+                  <button class="w-8 h-8 rounded-full border-0 cursor-pointer" style="background:var(--pill);color:var(--ink)" onclick="stepTip(1)">→</button>
+                </div>
+                <div id="tip-t" class="text-[14px] font-semibold">Edit before approving</div>
+                <p id="tip-b" class="text-xs max-w-sm mx-auto m-0" style="color:var(--muted)">Adjust recipients, subjects, or amounts inline—Magnus executes your exact edit and logs a verified receipt.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Panel: Switchable between Tiered Approvals | Live VM | Task Replay -->
+          <div class="border-l overflow-y-auto p-5" style="border-color:var(--hair)">
+            <!-- SUB-TAB A: COMPLETELY REDESIGNED 3-TIER APPROVALS -->
+            <div id="stab-approvals" class="space-y-4">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--muted)">Approval Queue</span>
+                  <span id="q-count-pill" class="mono text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--warn-soft);color:var(--warn)">3 waiting</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-[11px] mono" style="color:var(--muted)">
+                  <span class="px-1.5 py-0.5 rounded" style="background:var(--pill)">A</span>allow
+                  <span class="px-1.5 py-0.5 rounded" style="background:var(--pill)">D</span>decline
+                </div>
+              </div>
+
+              <!-- TIER 1: FINANCIAL / IRREVERSIBLE — Apple-Pay / Stripe Receipt Card -->
+              <article class="rounded-2xl overflow-hidden transition-all" id="ap-fin" data-appr-card style="background:var(--card);border:1px solid rgba(251,113,133,0.28);box-shadow:0 12px 32px rgba(225,29,72,0.10)">
+                <!-- High-clarity Merchant + Amount Header -->
+                <div class="p-4 flex items-center justify-between gap-3" style="background:linear-gradient(135deg, rgba(225,29,72,0.16) 0%, rgba(251,113,133,0.04) 100%);border-bottom:1px dashed var(--hair-strong)">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0" style="background:#0f1117;color:#fff;border:1px solid rgba(255,255,255,0.14)">Fg</div>
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-[13.5px] font-semibold truncate">Figma, Inc.</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style="background:var(--ok-soft);color:var(--ok)">Verified</span>
+                      </div>
+                      <div class="text-xs truncate" style="color:var(--muted)">Q4 Enterprise seat true-up · 14 seats</div>
+                    </div>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <div class="mono text-xl font-bold tracking-tight" id="fin-amt-disp" style="color:var(--ink)">$420.00</div>
+                    <div class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--bad)">Irreversible</div>
+                  </div>
+                </div>
+
+                <!-- Receipt Metadata + Live Inline Diff Editor -->
+                <div class="p-4 space-y-3">
+                  <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div class="p-2.5 rounded-xl" style="background:var(--canvas)">
+                      <div class="text-[10px] uppercase tracking-wider mb-0.5" style="color:var(--muted)">Payment Method</div>
+                      <div class="mono font-medium">Corp Visa ···· 4821</div>
+                    </div>
+                    <div class="p-2.5 rounded-xl" style="background:var(--canvas)">
+                      <div class="text-[10px] uppercase tracking-wider mb-0.5" style="color:var(--muted)">Invoice Ref</div>
+                      <div class="mono font-medium">INV-2026-4418</div>
+                    </div>
+                  </div>
+
+                  <!-- Live Inline Edit Panel -->
+                  <div class="edit-drawer hidden p-3 rounded-xl space-y-2" style="background:var(--canvas);border:1px solid var(--blue)">
+                    <div class="flex items-center justify-between text-[11px] font-medium" style="color:var(--blue-ink)">
+                      <span>Editing before execution</span>
+                      <span class="mono">Diff logged</span>
+                    </div>
+                    <label class="block text-[11px]" style="color:var(--muted)">Memo
+                      <input type="text" value="Q4 Enterprise seat true-up (14 seats)" class="mt-1 w-full px-2.5 py-1.5 rounded-lg text-xs outline-none" style="background:var(--card);border:1px solid var(--hair-strong);color:var(--ink)" />
+                    </label>
+                    <label class="block text-[11px]" style="color:var(--muted)">Cap amount (USD)
+                      <input type="text" value="$420.00" oninput="document.getElementById('fin-amt-disp').textContent=this.value||'$420.00';document.getElementById('fin-btn-lbl').textContent='Confirm '+(this.value||'$420.00')" class="mt-1 w-full px-2.5 py-1.5 rounded-lg text-xs mono outline-none" style="background:var(--card);border:1px solid var(--hair-strong);color:var(--ink)" />
+                    </label>
+                  </div>
+
+                  <!-- Progressive-Disclosure Decline Drawer -->
+                  <div class="dec-drawer hidden space-y-2">
+                    <input type="text" placeholder="Tell Magnus why (e.g. 'Ask Finance to verify seat count first')…" class="w-full px-3 py-2 rounded-xl text-xs outline-none" style="background:var(--canvas);border:1px solid var(--bad);color:var(--ink)" />
+                    <div class="flex justify-end gap-2">
+                      <button class="pbtn !py-1 !px-3 !text-xs" onclick="togDec('ap-fin',false)">Cancel</button>
+                      <button class="pbtn pbtn-bad !py-1 !px-3 !text-xs" onclick="resAppr('ap-fin','Declined $420.00 Figma invoice','declined')">Send feedback</button>
+                    </div>
+                  </div>
+
+                  <!-- Tactile Action Bar -->
+                  <div class="act-row flex items-center justify-between gap-2 pt-1">
+                    <div class="flex items-center gap-1.5">
+                      <button class="pbtn !py-1.5 !px-3 !text-xs" onclick="togEdit('ap-fin')">Edit</button>
+                      <button class="pbtn !py-1.5 !px-3 !text-xs" onclick="togDec('ap-fin',true)">Decline</button>
+                    </div>
+                    <button class="pbtn pbtn-bad !py-2 !px-4 !text-xs shadow-lg" onclick="resAppr('ap-fin','Paid $420.00 to Figma, Inc. · Receipt #9012','approved')">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+                      <span id="fin-btn-lbl">Confirm $420.00</span>
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              <!-- TIER 2: MERGED SAME-KIND BATCH — Interactive Email Preview + Trust Graduation -->
+              <article class="rounded-2xl overflow-hidden transition-all" id="ap-batch" data-appr-card style="background:var(--card);border:1px solid var(--hair)">
+                <div class="px-4 py-3 flex items-center justify-between gap-2 border-b" style="border-color:var(--hair)">
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-7 h-7 rounded-lg flex items-center justify-center text-sm shrink-0" style="background:var(--warn-soft)">✉️</span>
+                    <div class="min-w-0">
+                      <div class="text-[13.5px] font-semibold truncate">3 Board Observer Emails</div>
+                      <div class="text-[11px]" style="color:var(--muted)">Merged same-kind batch · Gmail</div>
+                    </div>
+                  </div>
+                  <button class="pbtn !py-1 !px-2.5 !text-[11px]" onclick="document.getElementById('batch-preview').classList.toggle('hidden')">Preview draft</button>
+                </div>
+
+                <div class="p-4 space-y-3">
+                  <!-- Interactive Recipient Chips -->
+                  <div class="flex flex-wrap gap-1.5 text-xs">
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full cursor-pointer" style="background:var(--canvas);border:1px solid var(--hair)">
+                      <input type="checkbox" checked class="accent-blue-600" onchange="syncBatchCount()" /><span>maya@sequoia</span>
+                    </label>
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full cursor-pointer" style="background:var(--canvas);border:1px solid var(--hair)">
+                      <input type="checkbox" checked class="accent-blue-600" onchange="syncBatchCount()" /><span>david@benchmark</span>
+                    </label>
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full cursor-pointer" style="background:var(--canvas);border:1px solid var(--hair)">
+                      <input type="checkbox" checked class="accent-blue-600" onchange="syncBatchCount()" /><span>elena@index</span>
+                    </label>
+                  </div>
+
+                  <!-- Live Editable Draft Preview -->
+                  <div id="batch-preview" class="rounded-xl p-3 space-y-1.5 text-xs" style="background:var(--canvas);border:1px solid var(--hair)">
+                    <div class="flex items-center justify-between"><span class="font-semibold">Subject: Q4 Board Deck &amp; ARR Snapshot</span><span class="mono text-[10px]" style="color:var(--ok)">+ Q4_Board_Deck.pptx</span></div>
+                    <p contenteditable="true" class="m-0 leading-relaxed outline-none" style="color:var(--ink-2)">Hi team — ahead of next week's meeting, here is our Q4 deck. ARR reached $4.82M (+28.4% QoQ) with zero enterprise churn. Let me know if you'd like to dive into any slide early.</p>
+                    <div class="text-[10px]" style="color:var(--muted)">Click text above to edit inline before sending</div>
+                  </div>
+
+                  <!-- Inline Trust Graduation Suggestion Pill -->
+                  <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs" style="background:var(--blue-soft);color:var(--blue-ink)">
+                    <span>You’ve approved board updates 3× — auto-allow drafts to @board-group?</span>
+                    <button class="pbtn pbtn-blue !py-0.5 !px-2.5 !text-[11px]" onclick="showToast('Cedar Trust Graduation rule added for @board-group')">Graduate</button>
+                  </div>
+
+                  <div class="dec-drawer hidden space-y-2">
+                    <input type="text" placeholder="Tell Magnus how to revise these emails…" class="w-full px-3 py-2 rounded-xl text-xs outline-none" style="background:var(--canvas);border:1px solid var(--hair-strong);color:var(--ink)" />
+                    <div class="flex justify-end gap-2">
+                      <button class="pbtn !py-1 !px-3 !text-xs" onclick="togDec('ap-batch',false)">Cancel</button>
+                      <button class="pbtn !py-1 !px-3 !text-xs" onclick="resAppr('ap-batch','Requested revision on 3 board emails','declined')">Revise</button>
+                    </div>
+                  </div>
+
+                  <div class="act-row flex items-center justify-between gap-2">
+                    <button class="pbtn !py-1.5 !px-3 !text-xs" onclick="togDec('ap-batch',true)">Decline</button>
+                    <button id="batch-send-btn" class="pbtn pbtn-blue !py-1.5 !px-4 !text-xs" onclick="resAppr('ap-batch','Sent 3 board observer emails · Undo available','approved',true)">Send all 3</button>
+                  </div>
+                </div>
+              </article>
+
+              <!-- TIER 3: LOW-RISK REVERSIBLE — Ultra-Compact 1-Line Card -->
+              <article class="rounded-2xl px-4 py-3 flex items-center justify-between gap-3 transition-all" id="ap-rev" data-appr-card style="background:var(--card);border:1px solid var(--hair)">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="w-2 h-2 rounded-full shrink-0" style="background:var(--ok)"></span>
+                  <div class="min-w-0">
+                    <div class="text-[13px] font-medium truncate">Post Q4 milestone note in <span class="mono">#launch</span></div>
+                    <div class="text-[11px]" style="color:var(--muted)">Reversible write · Slack</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button class="pbtn !py-1 !px-2.5 !text-xs" onclick="resAppr('ap-rev','Skipped Slack post','declined')">Skip</button>
+                  <button class="pbtn pbtn-blue !py-1 !px-3 !text-xs" onclick="resAppr('ap-rev','Posted Q4 milestone note in #launch','approved',true)">Allow</button>
+                </div>
+              </article>
+
+              <!-- Live Resolved Audit Trail with 1-Click Deterministic Undo -->
+              <div id="resolved-trail" class="hidden pt-2 border-t space-y-2" style="border-color:var(--hair)">
+                <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--muted)">Decided just now</div>
+                <div id="resolved-list" class="space-y-1.5"></div>
+              </div>
+            </div>
+
+            <!-- SUB-TAB B: LIVE VM COMPUTER & TAKEOVER -->
+            <div id="stab-vm" class="hidden space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--muted)">Magnus Sandbox VM</span>
+                <button id="vm-takeover-btn" class="pbtn pbtn-blue !py-1 !px-3 !text-xs" onclick="toggleVmControl()">Take control</button>
+              </div>
+              <div class="matte overflow-hidden" style="border:1px solid var(--hair)">
+                <div class="px-3.5 py-2 flex items-center gap-2 border-b text-xs" style="border-color:var(--hair);background:var(--canvas)">
+                  <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                  <span class="mono text-[11px] ml-2 truncate" style="color:var(--muted)">https://dashboard.stripe.com/reports/arr-q4</span>
+                </div>
+                <div class="p-5 space-y-4" style="background:linear-gradient(160deg,#0f172a,#1e1b4b);color:#fff;min-height:240px">
+                  <div class="flex justify-between items-center">
+                    <span class="text-xs font-semibold text-sky-300">Stripe Live Verification</span>
+                    <span id="vm-status-pill" class="px-2 py-0.5 rounded-full text-[11px] bg-emerald-500/20 text-emerald-300">Magnus driving</span>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2.5">
+                    <div class="p-3 rounded-xl bg-white/10"><div class="text-[11px] text-white/60">Q4 ARR</div><div class="text-lg font-bold mono">$4.82M</div></div>
+                    <div class="p-3 rounded-xl bg-white/10"><div class="text-[11px] text-white/60">QoQ Growth</div><div class="text-lg font-bold mono text-emerald-300">+28.4%</div></div>
+                    <div class="p-3 rounded-xl bg-white/10"><div class="text-[11px] text-white/60">Net Churn</div><div class="text-lg font-bold mono">0.0%</div></div>
+                  </div>
+                  <div class="text-xs text-white/75">Vault-only credentials · Isolated Linux VM · Full audit log</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- SUB-TAB C: TASK REPLAY SCRUBBER (MANUS-INSPIRED + CEDAR RECEIPTS) -->
+            <div id="stab-replay" class="hidden space-y-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--muted)">Verified Task Replay</span>
+                <span class="mono text-xs" id="replay-step-lbl" style="color:var(--blue-ink)">Step 3 / 4</span>
+              </div>
+              <div class="matte p-4 space-y-3">
+                <input id="replay-range" type="range" min="1" max="4" value="3" class="w-full accent-blue-600 cursor-pointer" oninput="updateReplay(this.value)" />
+                <div class="flex justify-between mono text-[11px]" style="color:var(--muted)"><span>1. Stripe</span><span>2. Linear</span><span>3. Deck</span><span>4. Cedar Gate</span></div>
+                <div class="rounded-xl p-4 space-y-2" style="background:var(--canvas)">
+                  <div class="flex items-center justify-between">
+                    <strong id="replay-title" class="text-sm">Built Q4_Board_Deck.pptx</strong>
+                    <span class="px-2 py-0.5 rounded-full text-[11px]" style="background:var(--ok-soft);color:var(--ok)">Receipt #8841</span>
+                  </div>
+                  <p id="replay-desc" class="text-xs m-0" style="color:var(--muted)">Rendered 12 slides using verified Stripe ARR figures and Linear shipped milestones. Exported PPTX &amp; PDF artifacts.</p>
+                  <div id="replay-meta" class="mono text-[11px] pt-1" style="color:var(--ink-2)">duration: 6.8s · taint: clean · policy: allow_sandbox</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Bento Strip: Parallel Sub-Agents with Distinct Companions -->
+        <div class="border-t px-5 py-2.5 shrink-0 grid grid-cols-1 md:grid-cols-3 gap-2.5" style="border-color:var(--hair)">
+          <div class="matte beam-top px-3.5 py-2 flex items-center gap-2.5">
+            <div class="av-mount" data-size="24" data-fixed="working" data-hue="0"></div>
+            <div class="min-w-0 flex-1"><div class="text-xs font-semibold truncate">Pricing Research</div><div class="text-[11px] truncate" style="color:var(--muted)">Comparing 4 enterprise tiers…</div></div>
+            <span class="mono text-[11px]" style="color:var(--blue-ink)">64%</span>
+          </div>
+          <div class="matte beam-top px-3.5 py-2 flex items-center gap-2.5">
+            <div class="av-mount" data-size="24" data-fixed="thinking" data-hue="120"></div>
+            <div class="min-w-0 flex-1"><div class="text-xs font-semibold truncate">Slide Visuals</div><div class="text-[11px] truncate" style="color:var(--muted)">Polishing retention charts…</div></div>
+            <span class="mono text-[11px]" style="color:var(--blue-ink)">82%</span>
+          </div>
+          <div class="matte px-3.5 py-2 flex items-center gap-2.5">
+            <div class="av-mount" data-size="24" data-fixed="done" data-hue="230"></div>
+            <div class="min-w-0 flex-1"><div class="text-xs font-semibold truncate">Competitor Audit</div><div class="text-[11px] truncate" style="color:var(--ok)">Done · 6 sources verified</div></div>
+            <span class="mono text-[11px]" style="color:var(--ok)">✓</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- 3. PROJECT HUB 2.0 (COLOR BANNER + INLINE COMPOSER + WALL)      -->
+      <!-- =============================================================== -->
+      <section id="v-projects" class="hidden flex-1 overflow-y-auto">
+        <div class="px-6 py-7 md:px-12 border-b" style="border-color:var(--hair);background:linear-gradient(125deg, rgba(37,99,235,0.22) 0%, rgba(56,189,248,0.12) 55%, rgba(168,85,247,0.14) 100%)">
+          <div class="max-w-5xl mx-auto flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold" style="background:var(--card);color:var(--ink)">Shared Project · 4 people</span>
+                <span class="text-xs" style="color:var(--ink-2)">Clean-room sharing enabled</span>
+              </div>
+              <h1 class="text-2xl md:text-3xl font-semibold tracking-tight m-0">Q4 Launch</h1>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex -space-x-2 mr-1">
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold bg-blue-600 text-white border-2" style="border-color:var(--canvas)">S</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold bg-emerald-600 text-white border-2" style="border-color:var(--canvas)">M</span>
+                <span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold bg-amber-500 text-white border-2" style="border-color:var(--canvas)">J</span>
+              </div>
+              <button class="pbtn !text-xs" onclick="showToast('Clean-room collaborator invite opened')">Add people</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="max-w-5xl mx-auto px-6 py-6 md:px-12 space-y-6">
+          <form class="composer flex items-center gap-3 !py-2.5" onsubmit="event.preventDefault(); launchStage(this.querySelector('input').value || 'Summarize open Q4 Launch blockers from Linear.');">
+            <div class="av-mount" data-size="28"></div>
+            <input type="text" placeholder="Ask Magnus anything in Q4 Launch… (nothing runs until you send)" class="flex-1 bg-transparent border-0 outline-none text-[14.5px]" style="color:var(--ink)" />
+            <button type="submit" class="pbtn pbtn-blue !py-1.5 !px-4 !text-xs">Ask Magnus</button>
+          </form>
+
+          <div class="resp-2col grid gap-6" style="grid-template-columns: minmax(0, 62%) minmax(0, 38%);">
+            <div class="space-y-6">
+              <div>
+                <div class="text-xs font-semibold uppercase tracking-wider mb-2.5" style="color:var(--muted)">Conversations</div>
+                <div class="space-y-2">
+                  <div class="matte matte-hover p-3.5 flex items-center justify-between gap-3 cursor-pointer" onclick="go('stage')">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <span class="w-2 h-2 rounded-full pulse shrink-0" style="background:var(--warn)"></span>
+                      <div class="min-w-0"><div class="text-[13.5px] font-semibold truncate">Board update &amp; investor follow-ups</div><div class="text-xs truncate" style="color:var(--muted)">Waiting on 2 approvals · 12-slide deck ready</div></div>
+                    </div>
+                    <span class="mono text-[11px]" style="color:var(--muted)">11m</span>
+                  </div>
+                  <div class="matte matte-hover p-3.5 flex items-center justify-between gap-3 cursor-pointer" onclick="go('stage')">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <span class="w-2 h-2 rounded-full shrink-0" style="background:var(--ok)"></span>
+                      <div class="min-w-0"><div class="text-[13.5px] font-semibold truncate">Launch blog post &amp; changelog</div><div class="text-xs truncate" style="color:var(--muted)">Done · Saved to Artifacts</div></div>
+                    </div>
+                    <span class="mono text-[11px]" style="color:var(--muted)">3h</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs font-semibold uppercase tracking-wider mb-2.5" style="color:var(--muted)">Deliverables &amp; Live Artifacts</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="matte matte-hover p-3.5 cursor-pointer" onclick="showToast('Opened Q4_Board_Deck.pptx (PPTX / PDF export ready)')">
+                    <div class="h-24 rounded-xl mb-2.5 flex items-center justify-center" style="background:linear-gradient(135deg, rgba(37,99,235,0.25), rgba(56,189,248,0.18))"><span class="mono text-xs font-semibold px-2.5 py-1 rounded-lg" style="background:var(--canvas)">12 Slides · PPTX</span></div>
+                    <div class="text-[13.5px] font-semibold">Q4 Board Deck</div>
+                    <div class="text-xs" style="color:var(--muted)">Verified against Stripe receipts</div>
+                  </div>
+                  <div class="matte matte-hover p-3.5 cursor-pointer" onclick="showToast('Opened Live Launch Readiness Dashboard')">
+                    <div class="h-24 rounded-xl mb-2.5 flex items-center justify-center" style="background:linear-gradient(135deg, rgba(52,211,153,0.22), rgba(251,191,36,0.16))"><span class="mono text-xs font-semibold px-2.5 py-1 rounded-lg" style="background:var(--canvas);color:var(--ok)">Live Dashboard</span></div>
+                    <div class="text-[13.5px] font-semibold">Launch Readiness</div>
+                    <div class="text-xs" style="color:var(--muted)">Refreshes from Linear + GitHub</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              <div class="matte p-4 space-y-2">
+                <div class="flex justify-between text-xs"><span class="font-semibold uppercase tracking-wider" style="color:var(--muted)">Instructions</span><span style="color:var(--ok)">Active</span></div>
+                <p class="text-xs leading-relaxed m-0" style="color:var(--ink-2)">Cite Stripe or Linear receipts for every metric. Never send external emails without explicit approval.</p>
+              </div>
+              <div class="matte p-4 space-y-2">
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--muted)">Project Memory</div>
+                <div class="text-xs p-2.5 rounded-xl" style="background:var(--canvas);color:var(--ink-2)">Board meeting is Dec 4 at 10:00 AM PT</div>
+                <div class="text-xs p-2.5 rounded-xl" style="background:var(--canvas);color:var(--ink-2)">Target enterprise ACV: $24k/yr</div>
+              </div>
+              <div class="matte p-4 space-y-2">
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--muted)">Quiet Routines</div>
+                <div class="flex justify-between text-xs"><span>Weekday Stripe Pulse</span><span class="mono" style="color:var(--muted)">8:30 AM</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- 4. MORNING BRIEFING & QUIET ROUTINES                            -->
+      <!-- =============================================================== -->
+      <section id="v-briefing" class="hidden flex-1 overflow-y-auto px-6 py-8 md:px-12">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <span class="text-xs font-medium uppercase tracking-wider" style="color:var(--blue-ink)">Executive Morning Briefing</span>
+              <h1 class="text-2xl font-medium tracking-tight m-0 mt-1">All quiet overnight — 2 items need you</h1>
+            </div>
+            <button class="pbtn" onclick="showToast('Do Not Disturb snoozed for 2 hours')">Snooze DND</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            <div class="matte p-4 space-y-1"><div class="text-xs" style="color:var(--muted)">Pending Decisions</div><div class="text-2xl font-semibold mono" style="color:var(--warn)">2</div><div class="text-xs" style="color:var(--muted)">1 financial · 1 batch (3 emails)</div></div>
+            <div class="matte p-4 space-y-1"><div class="text-xs" style="color:var(--muted)">Quiet Routines Run</div><div class="text-2xl font-semibold mono" style="color:var(--ok)">4 / 4</div><div class="text-xs" style="color:var(--muted)">Zero anomalies detected</div></div>
+            <div class="matte p-4 space-y-1"><div class="text-xs" style="color:var(--muted)">Personal Spend Today</div><div class="text-2xl font-semibold mono">$1.42</div><div class="text-xs" style="color:var(--muted)">Budget cap: $25.00 / day</div></div>
+          </div>
+
+          <div class="space-y-2.5">
+            <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--muted)">Calendar-Grade Quiet Routines</div>
+            <div class="matte p-4 flex flex-wrap items-center justify-between gap-3">
+              <div><div class="text-[14px] font-semibold">Weekday Stripe ARR &amp; Anomaly Pulse</div><div class="text-xs" style="color:var(--muted)">Weekdays at 08:30 · Silent unless variance &gt; 5%</div></div>
+              <div class="flex items-center gap-2">
+                <button class="pbtn !py-1 !px-3 !text-xs" onclick="showToast('Dry run preview: 0 mutations, read-only Stripe query')">Dry run</button>
+                <button class="pbtn pbtn-blue !py-1 !px-3 !text-xs" onclick="showToast('Running Weekday Stripe Pulse now…')">Run now</button>
+              </div>
+            </div>
+            <div class="matte p-4 flex flex-wrap items-center justify-between gap-3">
+              <div><div class="text-[14px] font-semibold">Friday Linear Milestone Digest</div><div class="text-xs" style="color:var(--muted)">Weekly Fri at 16:00 · Delivers to Q4 Launch</div></div>
+              <div class="flex items-center gap-2">
+                <button class="pbtn !py-1 !px-3 !text-xs" onclick="showToast('Dry run preview: summarizes shipped Linear issues')">Dry run</button>
+                <button class="pbtn pbtn-blue !py-1 !px-3 !text-xs" onclick="showToast('Running Friday Linear Digest now…')">Run now</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- 5. EXPLORE & ARTIFACTS GALLERY (ROUNDED-24PX EDITORIAL CARDS)   -->
+      <!-- =============================================================== -->
+      <section id="v-explore" class="hidden flex-1 overflow-y-auto px-6 py-8 md:px-12">
+        <div class="max-w-5xl mx-auto space-y-6">
+          <div class="flex items-center justify-center flex-wrap gap-2">
+            <button class="pbtn pbtn-blue !py-1.5 !px-4 !text-xs">All</button>
+            <button class="pbtn !py-1.5 !px-4 !text-xs">Executive</button>
+            <button class="pbtn !py-1.5 !px-4 !text-xs">Finance</button>
+            <button class="pbtn !py-1.5 !px-4 !text-xs">Research</button>
+            <button class="pbtn !py-1.5 !px-4 !text-xs">Routines</button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="ed-card h-48" style="background:linear-gradient(135deg,#18181b,#27272a)" onclick="launchStage('Build a FY 2026 Finance Report & Ledger Explorer from Stripe and Sheets.')">
+              <div class="p-4 flex flex-col justify-between h-full relative z-10">
+                <div class="flex justify-between"><span class="mono text-[11px] text-white/70">FY 2026: 96 entries</span><span class="px-2 py-0.5 rounded text-[11px] font-bold bg-yellow-300 text-black mono">711,862</span></div>
+                <div class="grid grid-cols-12 gap-1"><span class="h-2 bg-yellow-300 col-span-3"></span><span class="h-2 bg-indigo-400 col-span-4"></span><span class="h-2 bg-pink-400 col-span-2"></span><span class="h-2 bg-emerald-400 col-span-3"></span></div>
+                <div class="text-white font-semibold text-[15px]">Finance Report &amp; Explorer</div>
+              </div>
+            </div>
+            <div class="ed-card h-48" style="background:linear-gradient(135deg,#92400e,#d97706 48%,#fbbf24)" onclick="launchStage('Create my warm daily morning brief covering calendar, urgent emails, and blockers.')">
+              <div class="ed-scrim"></div>
+              <div class="absolute bottom-4 left-4 right-4 z-10 text-white"><div class="font-semibold text-[15px]">Golden Hour Brief</div><div class="text-xs text-white/80">Daily email, calendar &amp; Slack digest</div></div>
+            </div>
+            <div class="ed-card h-48" style="background:linear-gradient(135deg,#1e1b4b,#6d28d9 55%,#ec4899)" onclick="launchStage('Launch 3 parallel research sub-agents to compile a cited market dossier.')">
+              <div class="ed-scrim"></div>
+              <div class="absolute bottom-4 left-4 right-4 z-10 text-white"><div class="font-semibold text-[15px]">Parallel Deep Dossier</div><div class="text-xs text-white/80">Multi-agent research with receipts</div></div>
+            </div>
+            <div class="ed-card h-48" style="background:linear-gradient(135deg,#082f49,#0369a1 55%,#2dd4bf)" onclick="launchStage('Diagram our system architecture and generate an interactive technical spec.')">
+              <div class="ed-scrim"></div>
+              <div class="absolute bottom-4 left-4 right-4 z-10 text-white"><div class="font-semibold text-[15px]">Architecture Blueprint</div><div class="text-xs text-white/80">Interactive diagrams &amp; decision logs</div></div>
+            </div>
+            <div class="ed-card h-48" style="background:linear-gradient(135deg,#f5f0e6,#e7dcc8)" onclick="launchStage('Turn my product notes into an illustrated executive narrative deck.')">
+              <div class="p-4 h-full flex flex-col justify-between text-stone-900">
+                <div class="h-24 rounded-xl border border-stone-300 flex items-center justify-center bg-white/60 font-serif italic text-lg text-stone-700">Executive Narrative</div>
+                <div><div class="font-semibold text-[15px]">Board Storybooks</div><div class="text-xs text-stone-600">Editorial slide decks &amp; PDFs</div></div>
+              </div>
+            </div>
+            <div class="ed-card h-48" style="background:linear-gradient(135deg,#3b82f6,#a855f7 50%,#ec4899)" onclick="launchStage('Analyze my uploaded CSV and produce a live filterable data app.')">
+              <div class="p-4 h-full flex flex-col justify-end"><div class="bg-white/95 text-slate-900 rounded-xl p-3 shadow-lg"><div class="font-semibold text-sm">Ask anything about your data</div><div class="text-[11px] text-slate-500">Drop a CSV → instant interactive explorer</div></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- 6. APPS & SKILLS (FEATURED SPOTLIGHT + BORDERLESS 2-COL)        -->
+      <!-- =============================================================== -->
+      <section id="v-apps" class="hidden flex-1 overflow-y-auto px-6 py-8 md:px-12">
+        <div class="max-w-4xl mx-auto space-y-8">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div><h1 class="text-2xl font-medium tracking-tight m-0">Customize Magnus</h1><p class="text-sm m-0 mt-1" style="color:var(--muted)">Add apps and skills so Magnus can work smarter with Cedar guardrails</p></div>
+            <div class="seg"><button class="active" onclick="segClick(this)">Discover</button><button onclick="segClick(this)">Connectors</button><button onclick="segClick(this)">Skills</button></div>
+          </div>
+
+          <div class="resp-2col grid rounded-3xl overflow-hidden" style="grid-template-columns: minmax(0, 50%) minmax(0, 50%);background:var(--card)">
+            <div class="p-7 flex items-center justify-center" style="background:radial-gradient(circle at 38% 45%, rgba(37,99,235,0.45), rgba(15,23,42,0.95) 76%)">
+              <div class="grid grid-cols-3 gap-4 items-center">
+                <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-xl bg-[#14151a]">🔥</div>
+                <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-xl bg-[#14151a]">⚡</div>
+                <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-xl bg-[#14151a]">📦</div>
+                <div class="w-16 h-16 rounded-2xl flex items-center justify-center font-serif font-bold text-2xl bg-[#0f1117] text-white" style="border:2px solid #3b82f6;box-shadow:0 0 24px rgba(59,130,246,0.45)">N</div>
+                <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-xl bg-[#14151a]">🌀</div>
+                <div class="w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-lg bg-indigo-600 text-white">S</div>
+              </div>
+            </div>
+            <div class="p-7 flex flex-col justify-center gap-3">
+              <span class="text-xs font-medium" style="color:var(--muted)">Featured</span>
+              <h2 class="text-xl font-semibold m-0">Notion</h2>
+              <p class="text-sm leading-relaxed m-0" style="color:var(--muted)">Connect Magnus to Notion via remote MCP, plus skills for research, specs, and meeting prep.</p>
+              <div class="flex items-center gap-2.5 pt-2">
+                <button class="pbtn pbtn-blue" onclick="showToast('Connected Notion MCP server')">+ Add</button>
+                <button class="pbtn" onclick="showToast('Cedar scope: Read pages · Draft requires approval')">Details</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="text-sm font-medium" style="color:var(--ink-2)">Everyday tools ›</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+              <div class="cat-row"><div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style="background:var(--card)">📧</div><div class="min-w-0 flex-1"><div class="text-[14px] font-medium">Google Workspace</div><div class="text-xs truncate" style="color:var(--muted)">Summarize, search, and stage drafts across Gmail &amp; Docs</div></div><button class="w-8 h-8 rounded-full border-0 bg-transparent text-lg cursor-pointer hover:bg-white/10" style="color:var(--ink-2)" onclick="togApp(this,'Google Workspace')">+</button></div>
+              <div class="cat-row"><div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style="background:var(--card)">🎯</div><div class="min-w-0 flex-1"><div class="text-[14px] font-medium">Linear</div><div class="text-xs truncate" style="color:var(--muted)">Track cycles, triage issues, and summarize shipped work</div></div><button class="w-8 h-8 rounded-full border-0 bg-transparent text-lg cursor-pointer hover:bg-white/10" style="color:var(--ink-2)" onclick="togApp(this,'Linear')">+</button></div>
+              <div class="cat-row"><div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style="background:var(--card)">💳</div><div class="min-w-0 flex-1"><div class="text-[14px] font-medium">Stripe</div><div class="text-xs truncate" style="color:var(--muted)">Verify ARR, inspect invoices, and catch billing anomalies</div></div><button class="w-8 h-8 rounded-full border-0 bg-transparent text-lg cursor-pointer hover:bg-white/10" style="color:var(--ink-2)" onclick="togApp(this,'Stripe')">+</button></div>
+              <div class="cat-row"><div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style="background:var(--card)">✍️</div><div class="min-w-0 flex-1"><div class="text-[14px] font-medium">Match your writing style</div><div class="text-xs truncate" style="color:var(--muted)">Learns your voice from real drafts and executive memos</div></div><button class="w-8 h-8 rounded-full border-0 bg-transparent text-lg cursor-pointer hover:bg-white/10" style="color:var(--ink-2)" onclick="togApp(this,'Writing style')">+</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- 7. PERSONAL INTELLIGENCE, COMPANION AVATAR & CEDAR GUARDRAILS   -->
+      <!-- =============================================================== -->
+      <section id="v-settings" class="hidden flex-1 overflow-y-auto px-6 py-8 md:px-12">
+        <div class="max-w-3xl mx-auto space-y-8">
+          <div class="space-y-4">
+            <div class="flex items-center gap-2.5"><h1 class="text-2xl font-medium tracking-tight m-0">Your companion</h1><span class="text-[11px] font-medium px-2.5 py-0.5 rounded-full" style="background:var(--card);color:var(--muted)">Living Presence</span></div>
+            <div class="matte p-6 resp-2col grid gap-6 items-center" style="grid-template-columns: 200px minmax(0, 1fr);">
+              <div class="h-44 rounded-2xl flex flex-col items-center justify-center gap-2" style="background:var(--canvas)">
+                <div class="av-mount" data-size="94"></div>
+                <span class="text-[11px] mono" style="color:var(--muted)" id="set-char-lbl">PIP · READY</span>
+              </div>
+              <div class="space-y-3">
+                <div><div class="text-lg font-semibold">Magnus Presence</div><div class="text-sm" style="color:var(--muted)">Client-side expressive companion reacting to all 9 live states with zero server GPU cost.</div></div>
+                <div class="flex flex-wrap gap-2">
+                  <button class="pbtn" onclick="pickChar('pip')">Pip (Bot)</button>
+                  <button class="pbtn" onclick="pickChar('mochi')">Mochi (Spirit)</button>
+                  <button class="pbtn" onclick="pickChar('orb')">Luminous Orb</button>
+                  <button class="pbtn" onclick="pickChar('prism')">Prism Sprite</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <h2 class="text-xl font-medium m-0">Personal Intelligence &amp; Guardrails</h2>
+            <div class="matte p-5 flex items-start justify-between gap-4">
+              <div class="space-y-1"><div class="text-lg">🧠</div><div class="text-[15px] font-medium">Unified Memory &amp; Promises</div><div class="text-xs" style="color:var(--muted)">Hybrid recall across chats, projects, and verified receipts with full erasure control.</div></div>
+              <button class="sw on" onclick="this.classList.toggle('on'); showToast('Unified memory ' + (this.classList.contains('on') ? 'enabled' : 'paused'))"></button>
+            </div>
+            <div class="matte matte-hover p-5 flex items-center justify-between gap-4 cursor-pointer" onclick="showToast('Cedar Policy: 3 active Trust Graduation rules')">
+              <div class="space-y-1"><div class="text-lg">🛡️</div><div class="text-[15px] font-medium">Cedar Rules &amp; Trust Graduation</div><div class="text-xs" style="color:var(--muted)">Manage wildcard domain rules, financial gates, and daily spend caps</div></div>
+              <span class="text-lg" style="color:var(--muted)">›</span>
+            </div>
+            <div class="matte matte-hover p-5 flex items-center justify-between gap-4 cursor-pointer" onclick="go('apps')">
+              <div class="space-y-1"><div class="text-lg">🧩</div><div class="text-[15px] font-medium">Connected Apps</div><div class="text-xs" style="color:var(--muted)">Granular read / draft / send permissions per connector</div></div>
+              <span class="text-lg" style="color:var(--muted)">›</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ⌘K Command Palette -->
+  <div id="cmd-modal" onclick="if(event.target===this) closeCmd()">
+    <div class="matte w-full max-w-lg mx-4 overflow-hidden" style="border:1px solid var(--hair-strong);box-shadow:var(--shadow)">
+      <div class="flex items-center gap-2.5 px-4 py-3 border-b" style="border-color:var(--hair)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted)"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="cmd-in" type="text" placeholder="Jump to projects, approve pending asks, inspect Live VM…" class="flex-1 bg-transparent border-0 outline-none text-sm" style="color:var(--ink)" />
+        <span class="mono text-[11px] px-1.5 py-0.5 rounded" style="background:var(--pill);color:var(--muted)">ESC</span>
+      </div>
+      <div class="p-2 space-y-1">
+        <button class="nav-btn" onclick="closeCmd(); go('stage'); setStageTab('approvals')"><span class="w-2 h-2 rounded-full" style="background:var(--bad)"></span><span class="flex-1">Approve $420.00 Figma true-up</span><span class="mono text-[11px]" style="color:var(--muted)">Financial</span></button>
+        <button class="nav-btn" onclick="closeCmd(); go('stage'); setStageTab('vm')"><span>🖥️</span><span class="flex-1">Open Live Sandbox VM</span></button>
+        <button class="nav-btn" onclick="closeCmd(); go('stage'); setStageTab('replay')"><span>⏪</span><span class="flex-1">Open Verified Task Replay</span></button>
+        <button class="nav-btn" onclick="closeCmd(); go('projects')"><span>📁</span><span class="flex-1">Open Q4 Launch Project Hub</span></button>
+        <button class="nav-btn" onclick="closeCmd(); go('briefing')"><span>☀️</span><span class="flex-1">Morning Briefing &amp; Routines</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast">
+    <span id="toast-m"></span>
+    <button id="toast-a" class="hidden pbtn pbtn-blue !py-1 !px-3 !text-xs" onclick="showToast('Cedar rule created: Always allow @board-group')"></button>
+  </div>
+
+  <script>
+    // 1. Aurora-Style 3D Perspective Floating Orbs (z-depth projection + parallax + specular halo)
+    const bgC = document.getElementById("orb-canvas"), bgX = bgC.getContext("2d");
+    let bw = 0, bh = 0, lastOrbT = 0, orbPhase = 0;
+    let parX = 0, parY = 0;
+    const spawn3dOrb = randomZ => ({
+      x: (Math.random() * 2 - 1) * 1.18,
+      y: (Math.random() * 2 - 1) * 1.18,
+      z: randomZ ? 0.16 + Math.random() * 0.84 : 0.96 + Math.random() * 0.08,
+      vx: (Math.random() - 0.5) * 0.018,
+      vy: (Math.random() - 0.5) * 0.014 - 0.004,
+      vz: 0.022 + Math.random() * 0.032,
+      size: 1.1 + Math.random() * 2.1,
+      twinkle: Math.random() * Math.PI * 2,
+      hi: Math.random() < 0.45 ? 0 : Math.random() < 0.8 ? 1 : 2,
+    });
+    const orbs = Array.from({ length: 48 }, () => spawn3dOrb(true));
+    const resizeBg = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      bw = innerWidth; bh = innerHeight; bgC.width = Math.round(bw * dpr); bgC.height = Math.round(bh * dpr); bgX.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    addEventListener("resize", resizeBg); resizeBg();
+    const ptr = { x: 0, y: 0 };
+    addEventListener("pointermove", e => { ptr.x = (e.clientX / Math.max(1, innerWidth)) * 2 - 1; ptr.y = (e.clientY / Math.max(1, innerHeight)) * 2 - 1; }, { passive: true });
+    function drawOrbs(now) {
+      const dt = lastOrbT ? Math.min(0.05, (now - lastOrbT) / 1000) : 0.016;
+      lastOrbT = now;
+      orbPhase += dt;
+      parX += (ptr.x * 0.09 - parX) * 0.06;
+      parY += (ptr.y * 0.07 - parY) * 0.06;
+      const dark = document.documentElement.dataset.theme !== "light";
+      const pal = dark ? [[79, 157, 255], [56, 189, 248], [167, 139, 250]] : [[37, 99, 235], [14, 165, 233], [124, 58, 237]];
+      const cx = bw * 0.5, cy = bh * 0.5, scale = Math.min(bw, bh) * 0.82;
+      bgX.clearRect(0, 0, bw, bh);
+      const projected = [];
+      for (let i = 0; i < orbs.length; i++) {
+        const p = orbs[i];
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z -= p.vz * dt;
+        if (p.z < 0.14 || Math.abs(p.x) > 1.45 || Math.abs(p.y) > 1.45) { orbs[i] = spawn3dOrb(false); continue; }
+        const depth = 1 - p.z, persp = 0.64 / p.z;
+        const sx = cx + (p.x + parX * (0.35 + depth * 0.9)) * persp * scale;
+        const sy = cy + (p.y + parY * (0.35 + depth * 0.9)) * persp * scale;
+        if (sx < -40 || sx > bw + 40 || sy < -40 || sy > bh + 40) continue;
+        const fadeFar = Math.min(1, (1.02 - p.z) * 4.5);
+        const fadeNear = Math.min(1, (p.z - 0.14) * 5.0);
+        const tw = 0.78 + Math.sin(orbPhase * 1.4 + p.twinkle) * 0.22;
+        const baseA = dark ? 0.76 : 0.44;
+        const alpha = Math.max(0, Math.min(0.92, baseA * (0.28 + depth * 0.72) * fadeFar * fadeNear * tw));
+        const r = Math.max(0.9, p.size * (0.55 + depth * 1.85));
+        projected.push({ sx, sy, z: p.z, r, alpha, col: pal[p.hi] });
+      }
+      projected.sort((a, b) => b.z - a.z);
+      for (const pt of projected) {
+        const [r, g, b] = pt.col;
+        if (pt.r > 1.6) {
+          const haloR = pt.r * 3.8;
+          const halo = bgX.createRadialGradient(pt.sx, pt.sy, 0, pt.sx, pt.sy, haloR);
+          halo.addColorStop(0, `rgba(${r},${g},${b},${(pt.alpha * 0.44).toFixed(3)})`);
+          halo.addColorStop(1, "rgba(0,0,0,0)");
+          bgX.fillStyle = halo;
+          bgX.beginPath(); bgX.arc(pt.sx, pt.sy, haloR, 0, Math.PI * 2); bgX.fill();
+        }
+        const sphere = bgX.createRadialGradient(pt.sx - pt.r * 0.3, pt.sy - pt.r * 0.3, pt.r * 0.08, pt.sx, pt.sy, pt.r);
+        sphere.addColorStop(0, `rgba(255,255,255,${Math.min(1, pt.alpha * 1.15).toFixed(3)})`);
+        sphere.addColorStop(0.42, `rgba(${r},${g},${b},${pt.alpha.toFixed(3)})`);
+        sphere.addColorStop(1, `rgba(${r},${g},${b},${(pt.alpha * 0.55).toFixed(3)})`);
+        bgX.fillStyle = sphere;
+        bgX.beginPath(); bgX.arc(pt.sx, pt.sy, pt.r, 0, Math.PI * 2); bgX.fill();
+      }
+    }
+
+    // 2. Selectable Animated Companions (Pip, Luminous Orb, Prism)
+    const SP = {
+      ready: { c1: "#3b82f6", c2: "#38bdf8", glow: "rgba(59,130,246,0.38)" },
+      listening: { c1: "#34d399", c2: "#38bdf8", glow: "rgba(52,211,153,0.42)" },
+      thinking: { c1: "#a78bfa", c2: "#6366f1", glow: "rgba(167,139,250,0.44)" },
+      working: { c1: "#38bdf8", c2: "#6366f1", glow: "rgba(56,189,248,0.44)" },
+      waiting: { c1: "#fbbf24", c2: "#f59e0b", glow: "rgba(251,191,36,0.42)" },
+      done: { c1: "#34d399", c2: "#10b981", glow: "rgba(52,211,153,0.44)" },
+    };
+    let curChar = "pip", curSt = "ready";
+    const avs = [];
+    document.querySelectorAll(".av-mount").forEach(h => {
+      const s = Number(h.dataset.size || 32), fixed = h.dataset.fixed || null, hue = Number(h.dataset.hue || 0);
+      const c = document.createElement("canvas"), dpr = Math.min(devicePixelRatio || 1, 2);
+      c.width = s * dpr; c.height = s * dpr; c.style.width = s + "px"; c.style.height = s + "px"; c.style.display = "block";
+      h.appendChild(c); const ctx = c.getContext("2d"); ctx.scale(dpr, dpr);
+      avs.push({ ctx, s, fixed, hue, gx: 0, gy: 0 });
+    });
+    function drawPip(ctx, s, t, st, gx, gy, hue) {
+      const p = SP[st] || SP.ready, cx = s / 2, cy = s / 2;
+      const bob = st === "done" ? Math.abs(Math.sin(t * 5)) * -s * 0.065 : Math.sin(t * 2.4) * s * 0.03;
+      ctx.save(); ctx.clearRect(0, 0, s, s); if (hue) ctx.filter = `hue-rotate(${hue}deg)`;
+      const au = ctx.createRadialGradient(cx, cy + bob, s * 0.08, cx, cy + bob, s * 0.48);
+      au.addColorStop(0, p.glow); au.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = au; ctx.fillRect(0, 0, s, s);
+      ctx.translate(cx + gx * s * 0.04, cy + bob + gy * s * 0.03);
+      ctx.rotate(st === "waiting" ? Math.sin(t * 2.1) * 0.12 : gx * 0.1);
+      if (st === "listening") { const rp = (t * 0.9) % 1; ctx.beginPath(); ctx.arc(0, 0, s * (0.34 + rp * 0.16), 0, Math.PI * 2); ctx.strokeStyle = `rgba(52,211,153,${(1 - rp) * 0.55})`; ctx.lineWidth = Math.max(1.2, s * 0.025); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(0, -s * 0.27); ctx.lineTo(0, -s * 0.37); ctx.strokeStyle = p.c2; ctx.lineWidth = Math.max(1.4, s * 0.034); ctx.lineCap = "round"; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -s * 0.39, s * 0.044, 0, Math.PI * 2); ctx.fillStyle = p.c2; ctx.fill();
+      const bw = s * 0.62, bh = s * 0.54, br = s * 0.22;
+      const g = ctx.createLinearGradient(-bw / 2, -bh / 2, bw / 2, bh / 2); g.addColorStop(0, p.c1); g.addColorStop(1, p.c2);
+      ctx.beginPath(); ctx.roundRect(-bw / 2, -bh / 2, bw, bh, br); ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); ctx.roundRect(-bw * 0.38, -bh * 0.42, bw * 0.76, bh * 0.2, br * 0.6); ctx.fillStyle = "rgba(255,255,255,0.28)"; ctx.fill();
+      const vw = bw * 0.76, vh = bh * 0.54;
+      ctx.beginPath(); ctx.roundRect(-vw / 2, -vh * 0.42, vw, vh, vh * 0.42); ctx.fillStyle = "#0b0d14"; ctx.fill();
+      const ex = vw * 0.22, ey = vh * 0.04, lx = gx * vw * 0.09, ly = gy * vh * 0.08;
+      if (st === "done") { ctx.strokeStyle = "#fff"; ctx.lineWidth = Math.max(1.5, s * 0.04); ctx.lineCap = "round"; [-ex, ex].forEach(x => { ctx.beginPath(); ctx.arc(x + lx, ey + s * 0.02, s * 0.05, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }); }
+      else if (st === "working") { const sc = Math.sin(t * 5) * vw * 0.08; ctx.fillStyle = "#7dd3fc"; [-ex, ex].forEach(x => { ctx.beginPath(); ctx.roundRect(x + sc - s * 0.045, ey - s * 0.024, s * 0.09, s * 0.048, s * 0.024); ctx.fill(); }); }
+      else { const bl = (Math.sin(t * 0.85) > 0.97 && st === "ready") ? 0.14 : 1; ctx.fillStyle = st === "waiting" ? "#fde68a" : "#fff"; [-ex, ex].forEach((x, i) => { const sc = (st === "waiting" && i === 1) ? 1.16 : 1; ctx.beginPath(); ctx.ellipse(x + lx, ey + ly, s * 0.045 * sc, Math.max(1, s * 0.055 * bl * sc), 0, 0, Math.PI * 2); ctx.fill(); }); }
+      if (st === "working" || st === "thinking") { ctx.beginPath(); ctx.arc(0, 0, s * 0.43, t * 3.2, t * 3.2 + Math.PI * 0.65); ctx.strokeStyle = p.c2; ctx.lineWidth = Math.max(1.4, s * 0.032); ctx.stroke(); }
+      ctx.restore();
+    }
+    const ORB_LOOKS = {
+      ready:     { c1: [79, 157, 255],  c2: [56, 189, 248],  c3: [167, 139, 250], speed: 0.9, amp: 0.16, mark: "" },
+      listening: { c1: [52, 211, 153],  c2: [56, 189, 248],  c3: [167, 243, 208], speed: 1.6, amp: 0.24, mark: "ripples" },
+      thinking:  { c1: [155, 109, 255], c2: [56, 189, 248],  c3: [216, 180, 254], speed: 2.6, amp: 0.28, mark: "swirl" },
+      working:   { c1: [56, 189, 248],  c2: [129, 140, 248], c3: [94, 234, 212],  speed: 2.3, amp: 0.24, mark: "arc" },
+      waiting:   { c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199], speed: 1.1, amp: 0.18, mark: "halo" },
+      done:      { c1: [52, 211, 153],  c2: [16, 185, 129],  c3: [209, 250, 229], speed: 0.6, amp: 0.08, mark: "tick" },
+    };
+    const orbRgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a.toFixed(3)})`;
+    function drawOrb(ctx, s, t, st, gx, gy, hue) {
+      const p = ORB_LOOKS[st] || ORB_LOOKS.ready;
+      const ph = t * p.speed;
+      const cx = s / 2 + gx * s * 0.06, cy = s / 2 + gy * s * 0.06;
+      const r = s * 0.33 * (1 + Math.sin(ph * 1.55) * p.amp * 0.28);
+      ctx.save(); ctx.clearRect(0, 0, s, s);
+      if (hue) ctx.filter = `hue-rotate(${hue}deg)`;
+      const glow = ctx.createRadialGradient(cx, cy, r * 0.25, cx, cy, s * 0.5);
+      glow.addColorStop(0, orbRgba(p.c1, 0.48));
+      glow.addColorStop(0.6, orbRgba(p.c2, 0.2));
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = glow; ctx.fillRect(0, 0, s, s);
+
+      // Wobbling organic liquid-glass body
+      ctx.save();
+      ctx.beginPath();
+      const steps = s > 48 ? 60 : 28;
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const w = (Math.sin(a * 3 + ph * 1.8) * 0.085 + Math.cos(a * 5 - ph * 2.3) * 0.055) * r * p.amp * 4;
+        const x = cx + Math.cos(a) * (r + w), y = cy + Math.sin(a) * (r + w);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.clip();
+
+      const core = ctx.createRadialGradient(cx - r * 0.28 + gx * r * 0.3, cy - r * 0.32 + gy * r * 0.3, r * 0.1, cx, cy, r * 1.25);
+      core.addColorStop(0, orbRgba(p.c3, 0.96));
+      core.addColorStop(0.45, orbRgba(p.c1, 0.88));
+      core.addColorStop(0.85, orbRgba(p.c2, 0.68));
+      core.addColorStop(1, "rgba(8,12,24,0.92)");
+      ctx.fillStyle = core; ctx.fillRect(0, 0, s, s);
+
+      // Dual counter-orbiting internal light ribbons
+      if (p.mark !== "tick") {
+        ctx.globalCompositeOperation = "lighter";
+        const spin = p.mark === "swirl" ? 1.8 : 1.2;
+        for (let k2 = 0; k2 < 2; k2++) {
+          const ox = cx + Math.cos(ph * (spin + k2 * 0.55) + k2 * 2.1) * r * 0.4;
+          const oy = cy + Math.sin(ph * (spin * 1.15 + k2 * 0.45) + k2 * 1.4) * r * 0.4;
+          const rib = ctx.createRadialGradient(ox, oy, 1, ox, oy, r * 0.82);
+          rib.addColorStop(0, orbRgba(k2 === 0 ? p.c3 : p.c2, p.mark === "swirl" ? 0.72 : 0.56));
+          rib.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = rib; ctx.fillRect(0, 0, s, s);
+        }
+      }
+      ctx.restore();
+
+      // Top glass rim shine
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(1, r - 0.8), -Math.PI * 0.85, -Math.PI * 0.15);
+      ctx.strokeStyle = "rgba(255,255,255,0.48)";
+      ctx.lineWidth = s > 48 ? 1.5 : 0.95;
+      ctx.lineCap = "round"; ctx.stroke();
+
+      // State-specific outer mark
+      const line = Math.max(1.2, s * 0.05);
+      ctx.lineWidth = line;
+      if (p.mark === "arc") {
+        const a0 = ph * 2.4;
+        ctx.beginPath(); ctx.arc(cx, cy, r + line * 1.6, a0, a0 + Math.PI * 0.7);
+        ctx.strokeStyle = orbRgba(p.c3, 0.95); ctx.stroke();
+      } else if (p.mark === "halo" || p.mark === "ripples") {
+        const n = p.mark === "ripples" ? 2 : 1;
+        for (let i = 0; i < n; i++) {
+          const g = (ph * 0.5 + i / n) % 1;
+          ctx.beginPath(); ctx.arc(cx, cy, r + line + g * s * 0.12, 0, Math.PI * 2);
+          ctx.strokeStyle = orbRgba(p.c1, p.mark === "halo" ? 0.85 - g * 0.4 : 0.7 * (1 - g)); ctx.stroke();
+        }
+      } else if (p.mark === "tick" && s >= 24) {
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.38, cy + r * 0.02);
+        ctx.lineTo(cx - r * 0.08, cy + r * 0.3);
+        ctx.lineTo(cx + r * 0.42, cy - r * 0.3);
+        ctx.strokeStyle = "rgba(255,255,255,0.92)";
+        ctx.lineWidth = Math.max(1.6, s * 0.07); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function drawPrism(ctx, s, t, st, gx, gy, hue) {
+      const p = SP[st] || SP.ready, cx = s / 2 + gx * s * 0.05, cy = s / 2 + gy * s * 0.05 + Math.sin(t * 2.5) * s * 0.03, r = s * 0.34;
+      ctx.save(); ctx.clearRect(0, 0, s, s); if (hue) ctx.filter = `hue-rotate(${hue}deg)`;
+      const gl = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, s * 0.48); gl.addColorStop(0, p.glow); gl.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = gl; ctx.fillRect(0, 0, s, s);
+      ctx.translate(cx, cy); ctx.rotate(st === "working" ? t * 1.5 : Math.sin(t * 1.1) * 0.1);
+      const g = ctx.createLinearGradient(-r, -r, r, r); g.addColorStop(0, "#fff"); g.addColorStop(0.35, p.c2); g.addColorStop(1, p.c1);
+      ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4, rad = i % 2 === 0 ? r : r * 0.42; i === 0 ? ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad) : ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad); }
+      ctx.closePath(); ctx.fillStyle = g; ctx.fill(); ctx.restore();
+    }
+    function drawMochi(ctx, s, t, st, gx, gy, hue) {
+      const p = SP[st] || SP.ready, cx = s / 2, cy = s / 2;
+      const bounce = st === "done" ? Math.abs(Math.sin(t * 5.4)) * -s * 0.08 : Math.sin(t * 2.6) * s * 0.032;
+      const squashX = st === "done" ? 1 + Math.sin(t * 10.8) * 0.06 : 1 + Math.sin(t * 2.6) * 0.025;
+      const squashY = 2 - squashX;
+      const tilt = st === "waiting" ? Math.sin(t * 2.0) * 0.14 : gx * 0.09;
+
+      ctx.save(); ctx.clearRect(0, 0, s, s);
+      if (hue) ctx.filter = `hue-rotate(${hue}deg)`;
+
+      // Soft bioluminescent halo
+      const au = ctx.createRadialGradient(cx, cy + bounce, s * 0.1, cx, cy + bounce, s * 0.49);
+      au.addColorStop(0, p.glow); au.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = au; ctx.fillRect(0, 0, s, s);
+
+      ctx.translate(cx + gx * s * 0.045, cy + bounce + gy * s * 0.035);
+      ctx.rotate(tilt);
+      ctx.scale(squashX, squashY);
+
+      // Listening soundwave ring
+      if (st === "listening") {
+        const rp = (t * 0.95) % 1;
+        ctx.beginPath(); ctx.arc(0, 0, s * (0.36 + rp * 0.15), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(52,211,153,${(1 - rp) * 0.55})`; ctx.lineWidth = Math.max(1.2, s * 0.025); ctx.stroke();
+      }
+
+      // Expressive rounded ears (perk on listening, wiggle on done/waiting)
+      const earWig = st === "listening" ? Math.sin(t * 8) * 0.12 : st === "waiting" ? 0.18 : Math.sin(t * 2.2) * 0.05;
+      const earGrad = ctx.createLinearGradient(0, -s * 0.4, 0, -s * 0.1);
+      earGrad.addColorStop(0, p.c2); earGrad.addColorStop(1, p.c1);
+      [-1, 1].forEach(side => {
+        ctx.save();
+        ctx.translate(side * s * 0.19, -s * 0.21);
+        ctx.rotate(side * (0.34 + earWig));
+        ctx.beginPath();
+        ctx.ellipse(0, -s * 0.07, s * 0.085, s * 0.14, 0, 0, Math.PI * 2);
+        ctx.fillStyle = earGrad; ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(0, -s * 0.06, s * 0.042, s * 0.078, 0, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.45)"; ctx.fill();
+        ctx.restore();
+      });
+
+      // Soft pearlescent marshmallow body
+      const bodyGrad = ctx.createRadialGradient(-s * 0.1, -s * 0.14, s * 0.04, 0, 0, s * 0.36);
+      bodyGrad.addColorStop(0, "#ffffff");
+      bodyGrad.addColorStop(0.55, "#eef4ff");
+      bodyGrad.addColorStop(1, p.c2);
+      ctx.beginPath();
+      ctx.ellipse(0, s * 0.03, s * 0.31, s * 0.27, 0, 0, Math.PI * 2);
+      ctx.fillStyle = bodyGrad; ctx.fill();
+
+      // Subtle rim glow
+      ctx.strokeStyle = p.c1; ctx.lineWidth = Math.max(1, s * 0.018); ctx.stroke();
+
+      // Warm rosy cheeks
+      const lx = gx * s * 0.055, ly = gy * s * 0.04;
+      [-1, 1].forEach(side => {
+        ctx.beginPath();
+        ctx.ellipse(side * s * 0.165 + lx * 0.7, s * 0.095 + ly * 0.7, s * 0.052, s * 0.03, 0, 0, Math.PI * 2);
+        ctx.fillStyle = st === "waiting" ? "rgba(251,191,36,0.45)" : "rgba(244,114,182,0.42)";
+        ctx.fill();
+      });
+
+      // Soulful eyes with catchlight sparkles
+      const ex = s * 0.105, ey = s * 0.02;
+      if (st === "done") {
+        ctx.strokeStyle = "#111827"; ctx.lineWidth = Math.max(1.6, s * 0.036); ctx.lineCap = "round";
+        [-ex, ex].forEach(x => { ctx.beginPath(); ctx.arc(x + lx, ey + ly + s * 0.015, s * 0.048, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); });
+      } else {
+        const blink = (Math.sin(t * 0.9) > 0.97 && st === "ready") ? 0.15 : 1;
+        const scan = st === "working" ? Math.sin(t * 5.2) * s * 0.035 : 0;
+        [-ex, ex].forEach((x, idx) => {
+          const rx = s * 0.044, ry = Math.max(1.1, s * 0.054 * blink * (st === "working" ? 0.72 : 1));
+          ctx.beginPath();
+          ctx.ellipse(x + lx + scan, ey + ly, rx, ry, 0, 0, Math.PI * 2);
+          ctx.fillStyle = "#111827"; ctx.fill();
+          if (blink > 0.5) {
+            ctx.beginPath();
+            ctx.arc(x + lx + scan - rx * 0.32, ey + ly - ry * 0.34, Math.max(1, s * 0.018), 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff"; ctx.fill();
+          }
+        });
+      }
+
+      // Expressive tiny mouth
+      ctx.strokeStyle = "#111827"; ctx.lineWidth = Math.max(1.3, s * 0.026); ctx.lineCap = "round";
+      if (st === "waiting") {
+        ctx.beginPath(); ctx.arc(lx, s * 0.105 + ly, s * 0.024, 0, Math.PI * 2); ctx.stroke();
+      } else if (st === "working") {
+        ctx.beginPath(); ctx.moveTo(-s * 0.03 + lx, s * 0.105 + ly); ctx.lineTo(s * 0.03 + lx, s * 0.105 + ly); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(lx, s * 0.088 + ly, s * 0.038, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
+      }
+
+      // Thinking sparkle bubble
+      if (st === "thinking") {
+        const py = -s * 0.34 - Math.sin(t * 4) * s * 0.025;
+        ctx.beginPath(); ctx.arc(s * 0.25, py, s * 0.042, 0, Math.PI * 2); ctx.fillStyle = p.c1; ctx.fill();
+        ctx.beginPath(); ctx.arc(s * 0.18, py + s * 0.075, s * 0.022, 0, Math.PI * 2); ctx.fillStyle = p.c2; ctx.fill();
+      }
+
+      ctx.restore();
+    }
+    function loop(now) {
+      const t = now / 1000;
+      if (!document.body.classList.contains("orbs-off")) drawOrbs(now);
+      for (const a of avs) {
+        a.gx += (ptr.x - a.gx) * 0.1; a.gy += (ptr.y - a.gy) * 0.1;
+        const st = a.fixed || curSt;
+        if (curChar === "pip") drawPip(a.ctx, a.s, t, st, a.gx, a.gy, a.hue);
+        else if (curChar === "mochi") drawMochi(a.ctx, a.s, t, st, a.gx, a.gy, a.hue);
+        else if (curChar === "orb") drawOrb(a.ctx, a.s, t, st, a.gx, a.gy, a.hue);
+        else drawPrism(a.ctx, a.s, t, st, a.gx, a.gy, a.hue);
+      }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // 3. App Views & Interactive Autonomous Features
+    const TITLES = { home: "New conversation", stage: "Stage & Approvals", projects: "Project Hub · Q4 Launch", briefing: "Morning Briefing & Routines", explore: "Explore & Artifacts", apps: "Apps & Skills", settings: "Personal Intelligence & Companion" };
+    window.go = v => {
+      Object.keys(TITLES).forEach(k => document.getElementById("v-" + k).classList.toggle("hidden", k !== v));
+      document.querySelectorAll(".nav-btn[data-go]").forEach(b => b.classList.toggle("active", b.dataset.go === v));
+      document.getElementById("crumb-title").textContent = TITLES[v] || "Magnus";
+      document.body.classList.toggle("halo-off", v !== "home");
+      if (v === "stage") setSt("waiting"); else if (v === "home") setSt("ready");
+    };
+    window.setStageTab = tab => {
+      ["approvals", "vm", "replay"].forEach(k => document.getElementById("stab-" + k).classList.toggle("hidden", k !== tab));
+      document.querySelectorAll("#stage-right-seg button").forEach(b => b.classList.toggle("active", b.dataset.stab === tab));
+    };
+    document.querySelectorAll("#stage-right-seg button").forEach(b => b.addEventListener("click", () => setStageTab(b.dataset.stab)));
+    document.querySelectorAll(".nav-btn[data-go]").forEach(b => b.addEventListener("click", () => go(b.dataset.go)));
+    window.toggleSidebar = () => document.getElementById("shell").classList.toggle("sidebar-open");
+    window.segClick = btn => { btn.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("active")); btn.classList.add("active"); };
+
+    function setSt(st) {
+      curSt = st;
+      document.getElementById("rail-st").textContent = st[0].toUpperCase() + st.slice(1);
+      document.getElementById("set-char-lbl").textContent = `${curChar.toUpperCase()} · ${st.toUpperCase()}`;
+      document.querySelectorAll("#state-seg button").forEach(b => b.classList.toggle("active", b.dataset.st === st));
+    }
+    window.pickChar = c => {
+      curChar = c;
+      document.querySelectorAll("#char-seg button").forEach(b => b.classList.toggle("active", b.dataset.char === c));
+      document.getElementById("set-char-lbl").textContent = `${c.toUpperCase()} · ${curSt.toUpperCase()}`;
+      showToast(`Switched companion to ${c[0].toUpperCase() + c.slice(1)}`);
+    };
+    document.querySelectorAll("#char-seg button").forEach(b => b.addEventListener("click", () => pickChar(b.dataset.char)));
+    document.querySelectorAll("#state-seg button").forEach(b => b.addEventListener("click", () => setSt(b.dataset.st)));
+
+    window.launchStage = txt => {
+      const intro = document.getElementById("home-intro");
+      if (txt) document.getElementById("stage-prompt").textContent = txt;
+      setSt("thinking"); intro.classList.add("dissolving"); document.body.classList.add("halo-off");
+      setTimeout(() => { go("stage"); intro.classList.remove("dissolving"); }, 420);
+    };
+    document.getElementById("home-form").addEventListener("submit", e => {
+      e.preventDefault();
+      launchStage(document.getElementById("home-in").value.trim() || "Prepare the Q4 board update deck from Stripe and Linear, then stage investor follow-up emails.");
+    });
+
+    // Tips carousel
+    const TIPS = [
+      { t: "Edit before approving", b: "Adjust recipients, subjects, or amounts inline—Magnus executes your exact edit and logs a verified receipt." },
+      { t: "Trust Graduation", b: "Approve the same safe pattern 3 times and Magnus offers to create a scoped Cedar rule automatically." },
+      { t: "Deterministic Undo", b: "Every reversible action is logged with an exact rollback receipt—undo in one click." },
+    ];
+    let ti = 0;
+    window.stepTip = d => { ti = (ti + d + TIPS.length) % TIPS.length; document.getElementById("tip-t").textContent = TIPS[ti].t; document.getElementById("tip-b").textContent = TIPS[ti].b; };
+
+    // Approvals (3-tier: Financial Receipt, Batch Preview, Compact Reversible + Undo Trail)
+    window.togEdit = id => {
+      const el = document.getElementById(id);
+      el?.querySelector(".edit-drawer")?.classList.toggle("hidden");
+    };
+    window.syncBatchCount = () => {
+      const n = document.querySelectorAll('#ap-batch input[type="checkbox"]:checked').length;
+      const btn = document.getElementById("batch-send-btn");
+      if (btn) btn.textContent = n ? `Send all ${n}` : "Select recipients";
+      if (btn) btn.disabled = n === 0;
+    };
+    window.togDec = (id, open) => {
+      const el = document.getElementById(id);
+      el.querySelector(".dec-drawer")?.classList.toggle("hidden", !open);
+      el.querySelector(".act-row")?.classList.toggle("hidden", open);
+      if (open) el.querySelector(".dec-drawer input")?.focus();
+    };
+    let pend = 3;
+    const savedCards = new Map();
+    function updateCounts() {
+      const nb = document.getElementById("nav-badge");
+      const qp = document.getElementById("q-count-pill");
+      if (pend === 0) {
+        nb.style.display = "none";
+        if (qp) { qp.textContent = "All clear"; qp.style.background = "var(--ok-soft)"; qp.style.color = "var(--ok)"; }
+        setSt("done");
+      } else {
+        nb.style.display = "";
+        nb.textContent = String(pend);
+        if (qp) { qp.textContent = `${pend} waiting`; qp.style.background = "var(--warn-soft)"; qp.style.color = "var(--warn)"; }
+      }
+      document.querySelector('#stage-right-seg button[data-stab="approvals"]').textContent = `Approvals (${pend})`;
+    }
+    window.resAppr = (id, msg, kind, canUndo) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      savedCards.set(id, el.outerHTML);
+      el.style.opacity = "0";
+      el.style.transform = "translateY(-6px) scale(0.98)";
+      setTimeout(() => {
+        el.remove();
+        const trail = document.getElementById("resolved-trail");
+        const list = document.getElementById("resolved-list");
+        trail.classList.remove("hidden");
+        const row = document.createElement("div");
+        row.className = "rounded-xl px-3 py-2 flex items-center justify-between gap-2 text-xs";
+        row.style.background = "var(--card)";
+        row.innerHTML = `<span class="truncate" style="color:${kind === "approved" ? "var(--ok)" : "var(--muted)"}">${kind === "approved" ? "✓" : "–"} ${msg}</span>${canUndo ? `<button class="pbtn !py-0.5 !px-2.5 !text-[11px]" onclick="undoAppr('${id}', this)">Undo</button>` : ""}`;
+        list.prepend(row);
+      }, 180);
+      pend = Math.max(0, pend - 1);
+      updateCounts();
+      showToast(msg);
+    };
+    window.undoAppr = (id, btn) => {
+      const html = savedCards.get(id);
+      if (!html) return;
+      const trail = document.getElementById("resolved-trail");
+      trail.insertAdjacentHTML("beforebegin", html);
+      btn.closest("div")?.remove();
+      if (!document.getElementById("resolved-list").children.length) trail.classList.add("hidden");
+      pend += 1;
+      updateCounts();
+      setSt("waiting");
+      showToast("Action undone — returned to Approval Queue");
+    };
+
+    // VM Takeover
+    let vmMine = false;
+    window.toggleVmControl = () => {
+      vmMine = !vmMine;
+      document.getElementById("vm-takeover-btn").textContent = vmMine ? "Hand back to Magnus" : "Take control";
+      const pill = document.getElementById("vm-status-pill");
+      pill.textContent = vmMine ? "You have control" : "Magnus driving";
+      pill.style.color = vmMine ? "#fde68a" : "#6ee7b7";
+      setSt(vmMine ? "waiting" : "working");
+      showToast(vmMine ? "You now control the Sandbox VM" : "Handed control back to Magnus");
+    };
+
+    // Replay Scrubber
+    const REPLAY = [
+      { t: "Queried Stripe ARR & Retention", d: "Read-only query across Q3–Q4 subscriptions via vaulted Stripe token.", m: "duration: 1.4s · taint: clean · receipt: #8839" },
+      { t: "Synced 14 Shipped Linear Milestones", d: "Pulled completed cycle issues and grouped by product area.", m: "duration: 2.1s · taint: clean · receipt: #8840" },
+      { t: "Built Q4_Board_Deck.pptx", d: "Rendered 12 slides using verified Stripe ARR figures and Linear milestones.", m: "duration: 6.8s · taint: clean · receipt: #8841" },
+      { t: "Paused at Cedar Policy Gates", d: "Staged $420.00 payment and 3 observer emails; awaiting human decision.", m: "status: waiting · cedar_gates: 2" },
+    ];
+    window.updateReplay = v => {
+      const r = REPLAY[Number(v) - 1];
+      document.getElementById("replay-step-lbl").textContent = `Step ${v} / 4`;
+      document.getElementById("replay-title").textContent = r.t;
+      document.getElementById("replay-desc").textContent = r.d;
+      document.getElementById("replay-meta").textContent = r.m;
+    };
+
+    window.togApp = (btn, n) => { const on = btn.textContent === "✓"; btn.textContent = on ? "+" : "✓"; btn.style.color = on ? "var(--ink-2)" : "var(--ok)"; showToast(on ? `Disconnected ${n}` : `Connected ${n}`); };
+
+    // Controls
+    document.getElementById("btn-orbs").addEventListener("click", e => { const off = document.body.classList.toggle("orbs-off"); e.currentTarget.textContent = off ? "Orbs: Off" : "Orbs: On"; });
+    document.getElementById("btn-theme").addEventListener("click", e => { const nx = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = nx; e.currentTarget.textContent = nx === "dark" ? "Light" : "Dark"; });
+
+    let tt = 0;
+    window.showToast = (m, a) => {
+      const el = document.getElementById("toast"), ab = document.getElementById("toast-a");
+      document.getElementById("toast-m").textContent = m;
+      if (a) { ab.textContent = a; ab.classList.remove("hidden"); } else ab.classList.add("hidden");
+      el.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("show"), 3800);
+    };
+    window.openCmd = () => { document.getElementById("cmd-modal").classList.add("open"); setTimeout(() => document.getElementById("cmd-in").focus(), 20); };
+    window.closeCmd = () => document.getElementById("cmd-modal").classList.remove("open");
+
+    addEventListener("keydown", e => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.getElementById("cmd-modal").classList.contains("open") ? closeCmd() : openCmd(); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
+      if (e.key === "Escape") { closeCmd(); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const a = document.activeElement;
+      if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+      const firstCard = document.querySelector('#stab-approvals:not(.hidden) [data-appr-card]');
+      if (!firstCard || document.getElementById("v-stage").classList.contains("hidden")) return;
+      if (e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        firstCard.querySelector(".pbtn-blue, .pbtn-bad")?.click();
+      } else if (e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        if (firstCard.querySelector(".dec-drawer")) togDec(firstCard.id, true);
+        else firstCard.querySelector(".pbtn")?.click();
+      }
+    });
+  </script>
+</body>
+</html>
