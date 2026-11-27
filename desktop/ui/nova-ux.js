@@ -42,6 +42,56 @@ const NovaUx = (() => {
 
   const isNova = () => document.documentElement.dataset.style === "nova";
 
+  const LAUNCHPADS = [
+    {
+      requires: ["google-gmail", "microsoft-outlook"],
+      icon: "✨",
+      label: "Triage my inbox &amp; prepare morning brief",
+      prompt: "Triage my unread email and messages, stage replies for my approval, and give me a morning brief.",
+    },
+    {
+      requires: ["github"],
+      icon: "🔎",
+      label: "Review open PRs &amp; summarize CI blockers",
+      prompt: "Rank pull requests waiting on my review by age and CI status, and summarize any failing checks.",
+    },
+    {
+      requires: ["slack"],
+      icon: "💬",
+      label: "Catch up on quiet Slack threads &amp; blockers",
+      prompt: "Summarize decisions, owners, and open blockers from my unread Slack threads.",
+    },
+    {
+      requires: [],
+      icon: "📊",
+      label: "Prepare board deck &amp; investor follow-ups",
+      prompt: "Prepare a board update deck from my recent project files and stage follow-up emails for approval.",
+    },
+    {
+      requires: [],
+      icon: "🧭",
+      label: "Run parallel competitor pricing research",
+      prompt: "Run parallel sub-agents to benchmark competitor pricing and build a live comparison view.",
+    },
+    {
+      requires: [],
+      icon: "⚡",
+      label: "Turn recent notes into an executive brief",
+      prompt: "Read my recent project files, extract key decisions, risks, and owners, and build a 1-page executive brief.",
+    },
+  ];
+
+  function adaptiveLaunchpads() {
+    const connected = new Set(
+      (typeof App !== "undefined" && Array.isArray(App.connectors) ? App.connectors : [])
+        .filter(c => c.state === "connected")
+        .map(c => c.name),
+    );
+    const matched = LAUNCHPADS.filter(lp => lp.requires.length && lp.requires.some(r => connected.has(r)));
+    const universal = LAUNCHPADS.filter(lp => !lp.requires.length);
+    return [...matched, ...universal].slice(0, 3);
+  }
+
   function syncIntroState() {
     if (!isNova()) {
       delete document.body.dataset.novaIntro;
@@ -60,20 +110,15 @@ const NovaUx = (() => {
     if (!onIntro) {
       existing?.remove();
     } else if (conv && slot && !existing) {
+      const pads = adaptiveLaunchpads();
       const wrap = document.createElement("div");
       wrap.className = "nova-showcase";
       wrap.innerHTML = `<div class="nova-intro-grid">
         <div class="nova-launchpads" role="region" aria-label="Autonomous launchpads">
           <span class="nova-launch-head">Autonomous launchpads</span>
-          <button type="button" class="nova-launch-btn" data-nova-prompt="Prepare a board update deck from my recent project files and stage follow-up emails for approval.">
-            <span aria-hidden="true">📊</span><span>Prepare board deck &amp; investor follow-ups</span>
-          </button>
-          <button type="button" class="nova-launch-btn" data-nova-prompt="Triage my unread email and messages, stage replies for my approval, and give me a morning brief.">
-            <span aria-hidden="true">✨</span><span>Triage my inbox &amp; prepare morning brief</span>
-          </button>
-          <button type="button" class="nova-launch-btn" data-nova-prompt="Run parallel sub-agents to benchmark competitor pricing and build a live comparison view.">
-            <span aria-hidden="true">🧭</span><span>Run parallel competitor pricing research</span>
-          </button>
+          ${pads.map(lp => `<button type="button" class="nova-launch-btn" data-nova-prompt="${lp.prompt}">
+            <span aria-hidden="true">${lp.icon}</span><span>${lp.label}</span>
+          </button>`).join("")}
         </div>
         <div class="nova-prism-card" role="region" aria-label="Featured capabilities">
           <button type="button" class="nova-prism-tile nova-prism-wide" data-nova-prompt="Build an interactive summary dashboard from my recent project files and connected apps.">

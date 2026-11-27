@@ -138,8 +138,9 @@ const FULL_SCREEN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M
 /** The strip above the screen, the same on the computer's page and pinned. */
 function controlStrip(c, holding, recording = false) {
   const w = controlWords(c, holding);
+  const paste = w.mine ? `<button type="button" data-paste-clipboard title="Paste your clipboard into this computer">Paste</button>` : "";
   const rec = w.mine ? `<button type="button" class="${recording ? "primary" : ""}" data-record-steps>${recording ? "Stop &amp; teach Magnus" : "Record steps"}</button>` : "";
-  const act = w.mine ? `${rec}<button class="primary" data-done>I'm done</button>` : c.status === "paused" ? "" : `<button class="primary" data-take>Take control</button>`;
+  const act = w.mine ? `${paste}${rec}<button class="primary" data-done>I'm done</button>` : c.status === "paused" ? "" : `<button class="primary" data-take>Take control</button>`;
   return `<span class="state-pill" data-pill="${w.key}" data-control="${w.who}">${esc(w.pill)}</span><span class="small control-words">${esc(w.text)}</span><span class="grow"></span>${act}<button class="icon" data-full title="Full screen" aria-label="Full screen">${FULL_SCREEN_ICON}</button>`;
 }
 

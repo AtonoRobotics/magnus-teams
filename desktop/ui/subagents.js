@@ -73,8 +73,11 @@ function subAgentRow(a) {
   const outputs = ended && Array.isArray(a.outputs) && a.outputs.length
     ? `<div class="sub-agent-files">${a.outputs.map(f => `<a class="fchip" href="#/file/${typeof enc === "function" ? enc(f.id) : encodeURIComponent(f.id)}" data-open="file:${esc(f.id)}">${esc(f.name)}</a>`).join("")}</div>`
     : "";
+  const stopBtn = !ended && a.task_id
+    ? `<button type="button" class="small" data-stop-subagent="${esc(a.task_id)}" aria-label="Stop ${esc(firstLine(a.goal || "") || "sub-agent")}">Stop</button>`
+    : "";
   return `<li class="sub-agent" data-sub-agent="${esc(a.run)}" data-status="${esc(a.status)}" data-depth="${Math.min(Math.max(Number(a.depth) || 1, 1), 3)}">
-    ${main}<span class="chip ${cls}">${esc(label)}</span>${result}${outputs}</li>`;
+    ${main}<span class="chip ${cls}">${esc(label)}</span>${stopBtn}${result}${outputs}</li>`;
 }
 
 /**

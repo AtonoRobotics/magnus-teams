@@ -74,14 +74,15 @@ async function thisComputerSection() {
     <td><div class="row">${online && in_use ? `<button data-act="local-resume" data-id="${esc(c.id)}">Let Magnus go on now</button>` : ""}<button class="link" data-act="local-remove" data-id="${esc(c.id)}">Disconnect</button></div></td></tr>`).join("");
   const here = running?.running ? known.find(k => k.computer.name === running.name)?.computer : null;
   const modes = mode => Object.entries(LOCAL_ASKS).map(([v, l]) => `<option value="${v}"${v === mode ? " selected" : ""}>${l}</option>`).join("");
+  const quickFolders = `<div class="row small" style="gap:6px;margin-top:4px"><span class="muted">Quick add:</span>${["~/Projects", "~/Documents", "~/Desktop", "~/Downloads"].map(p => `<button type="button" class="small" data-act="local-add-folder" data-folder="${esc(p)}">+ ${esc(p)}</button>`).join("")}</div>`;
   const connect = !running ? "" : running.running
     ? `<div class="card flat"><p>This computer is connected as <b>${esc(running.name)}</b>${running.paused ? ". Magnus is paused here." : "."}</p><div class="row"><button data-act="local-pause" data-to="${running.paused ? "" : "1"}">${running.paused ? "Let Magnus work" : "Pause Magnus here"}</button><button class="link" data-act="local-stop">Stop</button></div>
         ${here ? `<form class="local-connect"><label>When Magnus wants to work here<select id="lc-mode">${modes(here.mode)}</select></label>
-          <label>Folders it may use, one per line<textarea id="lc-folders" rows="3">${esc(here.folders.join("\n"))}</textarea></label>
+          <label>Folders it may use, one per line<textarea id="lc-folders" rows="3">${esc(here.folders.join("\n"))}</textarea></label>${quickFolders}
           <div class="row"><button type="button" data-act="local-change" data-name="${esc(running.name)}">Save</button></div></form>` : ""}</div>`
     : `<form class="card flat local-connect"><h3>Connect this computer</h3><p class="small muted">Magnus works here only inside the folders you name, only while this app is open, and pauses while you use the mouse or keyboard.</p>
         <label>Name<input id="lc-name" value="${esc(running.suggested_name || "")}"></label>
-        <label>Folders, one per line<textarea id="lc-folders" rows="3" placeholder="/home/me/Projects"></textarea></label>
+        <label>Folders, one per line<textarea id="lc-folders" rows="3" placeholder="/home/me/Projects"></textarea></label>${quickFolders}
         <label>When Magnus wants to work here<select id="lc-mode">${modes("ask")}</select></label>
         <div class="row"><button type="button" class="primary" data-act="local-connect">Connect</button></div></form>`;
   return `<h2>This computer</h2>${rows ? `<table class="t"><tbody>${rows}</tbody></table>` : `<p class="empty">No computer of yours is connected.</p>`}${known.map(madeThere).join("")}${connect}`;
@@ -91,12 +92,12 @@ async function thisComputerSection() {
  * @param {{computer: {id: string, name: string}, online: boolean, files?: {path: string, at: string}[]}} k */
 function madeThere({ computer: c, online, files = [] }) {
   if (!files.length) return "";
-  const id = esc(c.id);
+  const id = esc(c.id), dis = online ? "" : " disabled";
   return `<div class="card flat" data-local-files="${id}"><h3>Files Magnus made on ${esc(c.name)}</h3>
     ${online ? "" : `<p class="small muted">${esc(c.name)} is offline. Open Magnus on it to download or delete these.</p>`}
-    <div class="row files-bar"><button data-act="local-files-save" data-id="${id}">Download selected</button><button data-act="local-files-delete" data-id="${id}">Delete selected</button></div>
-    <table class="t files"><tbody>${files.map(f => `<tr data-path="${esc(f.path)}"><td><input type="checkbox" data-local-pick aria-label="Select ${esc(f.path)}"></td><td>${esc(f.path)}</td>
-      <td class="small faint n">${esc(when(f.at))}</td><td><button class="link" data-act="local-file-save" data-id="${id}">Download</button> <button class="link danger" data-act="local-file-delete" data-id="${id}">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
+    <div class="row files-bar"><button data-act="local-files-save" data-id="${id}"${dis}>Download selected</button><button data-act="local-files-delete" data-id="${id}"${dis}>Delete selected</button></div>
+    <table class="t files"><tbody>${files.map(f => `<tr data-path="${esc(f.path)}"><td><input type="checkbox" data-local-pick aria-label="Select ${esc(f.path)}"${dis}></td><td>${esc(f.path)}</td>
+      <td class="small faint n">${esc(when(f.at))}</td><td><button class="link" data-act="local-file-save" data-id="${id}"${dis}>Download</button> <button class="link danger" data-act="local-file-delete" data-id="${id}"${dis}>Delete</button></td></tr>`).join("")}</tbody></table></div>`;
 }
 
 /** The paths an action on Magnus's files on this computer is for: its row, or the ones picked. */
@@ -140,6 +141,15 @@ async function thisComputerAction(b, main) {
     case "local-stop": await Magnus.localStop(); return true;
     case "local-resume": await Server.local.resume(id); toast("The agent will go on."); return true;
     case "local-remove": await Magnus.localStop(); await Server.local.remove(id); return true;
+    case "local-add-folder": {
+      const box = $("#lc-folders", main), folder = b.dataset.folder || "";
+      if (box && folder) {
+        const cur = box.value.split("\n").map(f => f.trim()).filter(Boolean);
+        if (!cur.includes(folder)) { cur.push(folder); box.value = cur.join("\n"); }
+        box.focus();
+      }
+      return false;
+    }
     case "local-files-save": case "local-files-delete": case "local-file-save": case "local-file-delete": return madeAction(b, id);
   }
   return false;
@@ -319,10 +329,11 @@ function computerScreen(body, c, alive, opts = {}) {
     if (!bar) return;
     const c = view.c, html = controlStrip(c, view.holding, view.recording);
     if (html !== view.bar) { view.bar = html; bar.innerHTML = html; }
-    const t = $("[data-take]", body), d = $("[data-done]", body), f = $("[data-full]", body), rec = $("[data-record-steps]", body), ask = $("[data-ask-host]", body);
+    const t = $("[data-take]", body), d = $("[data-done]", body), f = $("[data-full]", body), rec = $("[data-record-steps]", body), pasteBtn = $("[data-paste-clipboard]", body), ask = $("[data-ask-host]", body);
     if (t) t.onclick = take;
     if (d) d.onclick = done;
     if (rec) rec.onclick = toggleRecord;
+    if (pasteBtn) pasteBtn.onclick = () => view.pasteClipboard?.();
     if (f) f.onclick = () => fullScreen($("[data-view]", body));
     if (ask) ask.innerHTML = takeoverAsk(c);
     const veil = view.holding ? "" : screenVeil(c, view.shot), v = $("[data-veil]", body);
@@ -407,8 +418,21 @@ function takeOver(body, id, grant, view, strip) {
       if (!view.live) { showLive(true); canvas.focus(); }
     },
     onCopy: (x, y, w, h, fromX, fromY) => ctx.drawImage(canvas, fromX, fromY, w, h, x, y, w, h),
+    onCut: text => { if (text && typeof navigator !== "undefined") navigator.clipboard?.writeText?.(text).catch(() => {}); },
     onError: failed,
   });
+  const sendClipboard = text => {
+    if (!text) return;
+    rfb.cut(text);
+    rfb.key("Control", true); rfb.key("v", true); rfb.key("v", false); rfb.key("Control", false);
+  };
+  view.pasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard?.readText?.();
+      if (!text) { toast("Clipboard is empty."); return; }
+      sendClipboard(text);
+    } catch { toast("Clipboard read was blocked by the browser. Use Ctrl+V on the screen."); }
+  };
   const gone = () => { if (!view.alive()) leave(); };
   // Asked from I'm done, it first says what handing back closes. Left by
   // going elsewhere, it hands back only if that closes nothing; otherwise
@@ -440,6 +464,7 @@ function takeOver(body, id, grant, view, strip) {
   });
   onCanvas("wheel", e => { const [x, y] = at(e), bit = e.deltaY < 0 ? 8 : 16; rfb.pointer(x, y, bit); rfb.pointer(x, y, 0); e.preventDefault(); }, { passive: false });
   onCanvas("contextmenu", e => e.preventDefault());
+  onCanvas("paste", e => { const text = e.clipboardData?.getData?.("text"); if (text) { e.preventDefault(); sendClipboard(text); } });
   for (const [type, down] of [["keydown", true], ["keyup", false]]) onCanvas(type, e => {
     if (down && view.recording) {
       const last = view.recordedSteps.at(-1);

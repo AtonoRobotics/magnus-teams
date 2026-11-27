@@ -3626,6 +3626,17 @@ async function boot() {
         const btn = $(`[data-admin-kill] ${sel}`) || $(`[data-admin-kill-top] ${sel}`);
         if (btn) btn.click();
       }
+      else if (t.closest("[data-stop-subagent]")) {
+        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-stop-subagent]"));
+        const id = b.dataset.stopSubagent;
+        if (!id) return;
+        b.disabled = true;
+        try {
+          await Server.tasks.cancel(id);
+          toast("Sub-agent stopped.");
+          await refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+      }
       else if (t.closest("[data-stop-all-work]")) {
         const b = /** @type {HTMLButtonElement} */ (t.closest("[data-stop-all-work]"));
         if (!await ask("Stop all of your running tasks, pause your schedules, and pause your active computers?", "Stop my active work", true)) return;

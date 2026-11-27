@@ -110,7 +110,10 @@
           if (!this.have(8)) return false;
           const length = this.view(this.peek(8).subarray(4, 8)).getUint32(0);
           if (!this.have(8 + length)) return false;
-          this.take(8 + length);
+          const payload = this.take(8 + length).subarray(8);
+          let text = "";
+          for (let i = 0; i < payload.length; i++) text += String.fromCharCode(payload[i]);
+          this.h.onCut?.(text);
           return true;
         }
         case MSG_COLORS: throw new Error("the display sent a colour map");
@@ -150,6 +153,15 @@
     pointer(x, y, buttons) {
       const m = new Uint8Array(6), v = this.view(m);
       v.setUint8(0, 5); v.setUint8(1, buttons); v.setUint16(2, x); v.setUint16(4, y);
+      this.h.send(m);
+    }
+    /** Send clipboard text to the remote desktop (RFB ClientCutText, message type 6). */
+    cut(text) {
+      const str = String(text ?? "");
+      const m = new Uint8Array(8 + str.length), v = this.view(m);
+      v.setUint8(0, 6);
+      v.setUint32(4, str.length);
+      for (let i = 0; i < str.length; i++) m[8 + i] = str.charCodeAt(i) & 0xff;
       this.h.send(m);
     }
   }
