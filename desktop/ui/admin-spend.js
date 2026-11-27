@@ -65,10 +65,9 @@ async function adminSpend(el, month) {
     <table class="admin-table"><thead><tr><th>Person</th><th class="num">Spent</th><th>Own limit</th><th class="num">Left</th></tr></thead><tbody>
     ${o.by_person.map(p => `<tr><td>${esc(p.name)}</td><td class="num">${dollars(p.usd)}</td><td>${limitForm({ scope: "person", person: p.id }, p.override_usd, "")}${p.override_usd === null || p.override_usd === undefined ? `<span class="small muted">Default${p.extra_usd ? `, +${dollars(p.extra_usd)} approved` : ""}</span>` : p.extra_usd ? `<span class="small muted">+${dollars(p.extra_usd)} approved</span>` : ""}</td><td class="num">${dollars(p.left_usd)}</td></tr>`).join("")}
     </tbody></table>
-    <h3>Team agent</h3>
+    <h3>Shared projects</h3>
     ${o.workspaces.length ? o.workspaces.map(w => `<div class="stack"><p><strong>${esc(w.name)}</strong>: ${dollars(w.spent_usd)} spent this month.</p>
-      ${limitForm({ scope: "workspace", workspace: w.id }, w.limit_usd, "Whole workspace")}
-      <p class="small muted">Its Team Admin sets each channel's limit in the workspace.</p></div>`).join("") : `<p class="empty small">No workspaces.</p>`}
+      ${limitForm({ scope: "workspace", workspace: w.id }, w.limit_usd, "Whole workspace")}</div>`).join("") : `<p class="empty small">No shared projects.</p>`}
     <h3>Breakdown</h3>
     ${spendTable("By person", o.by_person.filter(p => p.usd > 0))}${spendTable("By agent", o.by_agent)}${spendTable("By model", o.by_model)}
     ${o.alerts.length ? `<h3>Alerts this month</h3><ul class="small">${o.alerts.map(a => `<li>${esc(a.limit)} reached ${a.percent}%</li>`).join("")}</ul>` : ""}

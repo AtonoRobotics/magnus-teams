@@ -80,7 +80,7 @@ const NovaPages = (() => {
         </header>
         ${summaryHtml}
         <div class="nova-brief-metrics">
-          <div class="card"><span class="small muted">Pending Decisions</span><strong class="nova-metric-val">${pending.length}</strong><span class="small muted">${pending.length ? "Waiting at Cedar gates" : "Queue clear"}</span></div>
+          <div class="card"><span class="small muted">Pending Decisions</span><strong class="nova-metric-val">${pending.length}</strong><span class="small muted">${pending.length ? "Waiting for your approval" : "Queue clear"}</span></div>
           <div class="card"><span class="small muted">Quiet Routines</span><strong class="nova-metric-val">${scheds.length}</strong><span class="small muted">Run silently in background</span></div>
           <div class="card"><span class="small muted">Active Tasks</span><strong class="nova-metric-val">${activeTasks.length}</strong><span class="small muted">${activeTasks.length ? "Working now" : "Standing by"}</span></div>
           ${spendCard}

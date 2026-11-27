@@ -152,56 +152,104 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["nova", "Nova"], ["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["obsidian-aurora", "Obsidian 2 Aurora"], ["prism", "Prism"], ["studio", "Studio"], ["aurora", "Aurora"]];
-  // Styles that draw the column beside the conversation as a stage of cards
-  // with a canvas for what is opened (aurora-stage.js).
-  const STAGE_STYLES = ["nova", "aurora", "obsidian-aurora"];
-  const stage = style => STAGE_STYLES.includes(style);
-  const AVATAR_CHOICES = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Luminous Orb"], ["prism", "Prism Sprite"]];
-  // Each style names the default avatar that stands for Magnus (aurora-avatar.js);
-  // a style that names none draws its own mark. A user's chosen companion overrides it.
-  const AVATARS = { nova: "pip", aurora: "orb", "obsidian-aurora": "orb" };
-  const avatar = (style, prefAvatar) => {
-    if (!AVATARS[style]) return null;
-    if (prefAvatar && AVATAR_CHOICES.some(a => a[0] === prefAvatar)) return prefAvatar;
-    return AVATARS[style];
+  const DEFAULTS = { style: "nova", mode: "dark", accent: "blue", motion: "full", background: "particles", avatar: "pip" };
+  const BASE_FEATURES = {
+    stage: false,
+    defaultAvatar: null,
+    docksSidebar: false,
+    topBar: false,
+    pageCloseButton: true,
+    signedByline: false,
+    companionFooterInStage: false,
+    hideDockPendingBadge: false,
+    railActiveOnlyBadge: false,
+    introHeading: null,
   };
-  const STYLE_TOKENS = {
-    nova: {
-      "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "18px", "r-xl": "24px",
-      "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px",
-      "focus-ring": "0 0 0 2px var(--accent-soft)",
+  /** @type {Record<string, any>} */
+  const THEMES = {};
+  const STYLES = [];
+  const STYLE_TOKENS = {};
+  const STAGE_STYLES = [];
+
+  function register(def) {
+    const entry = {
+      ...def,
+      defaultAccent: def.defaultAccent || "blue",
+      panelSurface: def.panelSurface || "main",
+      features: { ...BASE_FEATURES, ...(def.features || {}) },
+    };
+    THEMES[entry.id] = entry;
+    const idx = STYLES.findIndex(s => s[0] === entry.id);
+    if (idx >= 0) STYLES[idx] = [entry.id, entry.label];
+    else STYLES.push([entry.id, entry.label]);
+    STYLE_TOKENS[entry.id] = entry.radii;
+    const stIdx = STAGE_STYLES.indexOf(entry.id);
+    if (entry.features.stage && stIdx < 0) STAGE_STYLES.push(entry.id);
+    else if (!entry.features.stage && stIdx >= 0) STAGE_STYLES.splice(stIdx, 1);
+    return entry;
+  }
+
+  register({
+    id: "nova", label: "Nova",
+    palettes: { light: NOVA_LIGHT, dark: NOVA_DARK },
+    radii: { "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "18px", "r-xl": "24px", "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px", "focus-ring": "0 0 0 2px var(--accent-soft)" },
+    defaultAccent: "blue",
+    panelSurface: "panel",
+    features: {
+      stage: true, defaultAvatar: "pip", docksSidebar: true, topBar: true,
+      pageCloseButton: false, signedByline: true, companionFooterInStage: true,
+      hideDockPendingBadge: true, railActiveOnlyBadge: true, introHeading: "Where should we start?",
     },
-    obsidian: {
-      "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
-      "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "12px",
-      "focus-ring": "0 0 0 1px var(--accent)",
-    },
-    "obsidian-2": {
-      "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
-      "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
-      "focus-ring": "0 0 0 1px var(--accent)",
-    },
-    "obsidian-aurora": {
-      "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
-      "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
-      "focus-ring": "0 0 0 1px var(--accent)",
-    },
-    prism: {
-      "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "20px", "r-xl": "24px",
-      "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "24px",
-      "focus-ring": "0 0 0 3px var(--accent-soft)",
-    },
-    studio: {
-      "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "16px", "r-xl": "22px",
-      "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "22px",
-      "focus-ring": "0 0 0 2px var(--accent-soft)",
-    },
-    aurora: {
-      "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "22px", "r-xl": "26px",
-      "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px",
-      "focus-ring": "0 0 0 3px var(--accent-soft)",
-    },
+  });
+  register({
+    id: "obsidian", label: "Obsidian",
+    palettes: { light: LIGHT, dark: DARK },
+    radii: { "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px", "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "12px", "focus-ring": "0 0 0 1px var(--accent)" },
+    defaultAccent: "graphite",
+  });
+  register({
+    id: "obsidian-2", label: "Obsidian 2",
+    palettes: { light: OBSIDIAN2_LIGHT, dark: OBSIDIAN2_DARK },
+    radii: { "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px", "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px", "focus-ring": "0 0 0 1px var(--accent)" },
+    defaultAccent: "blue",
+  });
+  register({
+    id: "obsidian-aurora", label: "Obsidian 2 Aurora",
+    palettes: { light: OBSIDIAN_AURORA_LIGHT, dark: OBSIDIAN_AURORA_DARK },
+    radii: { "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px", "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px", "focus-ring": "0 0 0 1px var(--accent)" },
+    defaultAccent: "graphite",
+    features: { stage: true, defaultAvatar: "orb" },
+  });
+  register({
+    id: "prism", label: "Prism",
+    palettes: { light: PRISM_LIGHT, dark: PRISM_DARK },
+    radii: { "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "20px", "r-xl": "24px", "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "24px", "focus-ring": "0 0 0 3px var(--accent-soft)" },
+    defaultAccent: "blue",
+  });
+  register({
+    id: "studio", label: "Studio",
+    palettes: { light: STUDIO_LIGHT, dark: STUDIO_DARK },
+    radii: { "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "16px", "r-xl": "22px", "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "22px", "focus-ring": "0 0 0 2px var(--accent-soft)" },
+    defaultAccent: "blue",
+  });
+  register({
+    id: "aurora", label: "Aurora",
+    palettes: { light: AURORA_LIGHT, dark: AURORA_DARK },
+    radii: { "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "22px", "r-xl": "26px", "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px", "focus-ring": "0 0 0 3px var(--accent-soft)" },
+    defaultAccent: "blue",
+    features: { stage: true, defaultAvatar: "orb" },
+  });
+
+  const active = () => (typeof document !== "undefined" && document.documentElement?.dataset?.style) || DEFAULTS.style;
+  const get = style => THEMES[style || active()] || THEMES[DEFAULTS.style];
+  const has = (feature, style) => Boolean(get(style)?.features?.[feature]);
+  const stage = style => has("stage", style);
+  const AVATAR_CHOICES = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Luminous Orb"], ["prism", "Prism Sprite"]];
+  const avatar = (style, prefAvatar) => {
+    const def = get(style)?.features?.defaultAvatar;
+    if (!def) return null;
+    if (prefAvatar && AVATAR_CHOICES.some(a => a[0] === prefAvatar)) return prefAvatar;
+    return def;
   };
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
   const BACKGROUNDS = [["off", "Off"], ["particles", "Particles"], ["ribbons", "Ribbons"], ["constellation", "Constellation"]];
@@ -217,7 +265,6 @@
     reduced: "Quick fades instead of movement.",
     off: "No animation. Everything changes instantly.",
   };
-  const DEFAULTS = { style: "nova", mode: "dark", accent: "blue", motion: "full", background: "particles", avatar: "pip" };
   const LAYOUT_BOUNDS = {
     navExpandedWidthPx: 228,
     navCompactWidthPx: 64,
@@ -263,7 +310,7 @@
     const dark = p.mode === "dark" || (p.mode === "system" && !!os.dark);
     const order = ["off", "reduced", "full"];
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
-    const style = STYLES.some(s => s[0] === p.style) ? p.style : DEFAULTS.style;
+    const style = THEMES[p.style] ? p.style : DEFAULTS.style;
     const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
     const background = BACKGROUNDS.some(b => b[0] === p.background) ? p.background : DEFAULTS.background;
     const companion = AVATAR_CHOICES.some(a => a[0] === p.avatar) ? p.avatar : DEFAULTS.avatar;
@@ -272,20 +319,11 @@
 
   function tokens(look) {
     const dark = look.mode === "dark";
-    const style = STYLES.some(s => s[0] === look.style) ? look.style : DEFAULTS.style;
-    const basePal = style === "nova" ? (dark ? NOVA_DARK : NOVA_LIGHT)
-      : style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT)
-      : style === "obsidian-2" ? (dark ? OBSIDIAN2_DARK : OBSIDIAN2_LIGHT)
-      : style === "obsidian-aurora" ? (dark ? OBSIDIAN_AURORA_DARK : OBSIDIAN_AURORA_LIGHT)
-      : style === "studio" ? (dark ? STUDIO_DARK : STUDIO_LIGHT)
-      : style === "aurora" ? (dark ? AURORA_DARK : AURORA_LIGHT)
-      : (dark ? DARK : LIGHT);
-    const t = { ...basePal };
-    Object.assign(t, STYLE_TOKENS[style]);
+    const def = get(THEMES[look.style] ? look.style : DEFAULTS.style);
+    const basePal = dark ? def.palettes.dark : def.palettes.light;
+    const t = { ...basePal, ...def.radii };
     t.shell = t.bg;
-    // Nova's panel is its own matte surface (spec: --side / --panel #141517);
-    // the other styles draw the panel as the stage.
-    t.panel = style === "nova" ? basePal.panel : t.main;
+    t.panel = def.panelSurface === "panel" ? basePal.panel : t.main;
     const preset = ACCENTS.find(a => a.id === look.accent);
     Object.assign(t, preset ? preset[look.mode] : isHex(look.accent) ? customAccentTokens(look.accent, look.mode, basePal) : ACCENTS[0][look.mode]);
     t.focus = t["accent-text"];
@@ -324,7 +362,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, AVATAR_CHOICES, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, navigation, avatar, preferences, contrast, effective, tokens, stage };
+  root.Theme = { LIGHT, DARK, ACCENTS, THEMES, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, AVATAR_CHOICES, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, register, get, has, active, navigation, avatar, preferences, contrast, effective, tokens, stage };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";

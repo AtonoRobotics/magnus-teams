@@ -18,7 +18,7 @@ const NovaUx = (() => {
     },
     {
       title: "Trust Graduation",
-      body: "Approve the same safe pattern three times and Magnus offers to turn it into a scoped Cedar rule automatically.",
+      body: "Approve the same safe pattern three times and Magnus offers to turn it into a standing rule automatically.",
     },
     {
       title: "Quiet routines",
@@ -301,11 +301,12 @@ const NovaUx = (() => {
 
   // Keyboard-first approval triage: A = Allow, E = Edit before allowing, D = open decline note drawer.
   document.addEventListener("keydown", e => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!isNova() || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector("dialog[open]")) return;
     const active = document.activeElement;
     if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
     if (active && /** @type {HTMLElement} */ (active).isContentEditable) return;
-    const ask = document.querySelector(".ask[data-ask]");
+    const ask = [...document.querySelectorAll(".ask[data-ask]")].find(el => !el.closest("[hidden]"));
     if (!ask) return;
     const key = e.key.toLowerCase();
     if (key === "a") {

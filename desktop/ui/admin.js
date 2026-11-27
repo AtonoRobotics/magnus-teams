@@ -129,15 +129,27 @@ async function adminStart() {
   await adminPoll();
 }
 
+/** Every kill-switch mount currently in the DOM (right panel + persistent top bar). */
+function killBoxes() {
+  if (typeof $$ === "function") {
+    const all = $$("[data-admin-kill], [data-admin-kill-top]");
+    if (all.length) return all;
+  }
+  const one = $("[data-admin-kill]");
+  return one ? [one] : [];
+}
+
 /** The kill switch is always in an admin's top bar, wherever they are in
  * the app (spec rev 141, Kill switch): the app's bar holds its place, shown
  * once the person is known to administer. */
 function showKillControl() {
-  const box = $("[data-admin-kill]");
-  if (!box) return;
-  box.hidden = false;
+  const boxes = killBoxes();
+  if (!boxes.length) return;
+  for (const box of boxes) {
+    box.hidden = false;
+    if (!box.dataset.wired) { box.dataset.wired = "1"; box.addEventListener("click", onKillClick); }
+  }
   document.body.dataset.adminBar = "";
-  if (!box.dataset.wired) { box.dataset.wired = "1"; box.addEventListener("click", onKillClick); }
   drawKillControl();
 }
 
@@ -146,20 +158,20 @@ function adminStop() {
   clearInterval(AdminState.poll);
   AdminState.poll = null; AdminState.standing = null; AdminState.stops = [];
   $("#stop-banner")?.remove();
-  const box = $("[data-admin-kill]");
-  if (box) { box.hidden = true; paint(box, ""); }
+  for (const box of killBoxes()) { box.hidden = true; paint(box, ""); }
   delete document.body.dataset?.adminBar;
 }
 
 /** The kill switch in the admin's top bar: the server's, and each level's. */
 async function drawKillControl() {
-  const box = $("[data-admin-kill]");
-  if (!box || !AdminState.standing?.admin) return;
+  const boxes = killBoxes();
+  if (!boxes.length || !AdminState.standing?.admin) return;
   const server = AdminState.stops.find(s => s.level === "server");
   const more = (await Promise.all(AdminState.levels.map(l => l.active ? l.active().catch(() => []) : []))).flat();
   const release = s => `<button data-kill-release="${esc(s.level)}" data-kill-target="${esc(s.target || "")}">Release${s.level === "server" ? "" : ` ${esc(s.level)} ${esc(s.target || "")}`}</button>`;
   const pressMenu = `<details class="kill-menu"><summary class="danger">Emergency Stop ▾</summary><div class="kill-menu-list">${server ? "" : `<button class="danger" title="Refuses all actions, suspends all tasks, revokes sign-ins and seals the vault" data-kill-press="server">Stop everything</button>`}${AdminState.levels.map(l => `<button data-kill-press="${esc(l.level)}">${esc(l.label)}</button>`).join("")}</div></details>`;
-  paint(box, `${server ? `<span class="chip bad">Everything is stopped</span>${release(server)}` : ""}${pressMenu}${more.map(release).join("")}`);
+  const html = `${server ? `<span class="chip bad">Everything is stopped</span>${release(server)}` : ""}${pressMenu}${more.map(release).join("")}`;
+  for (const box of boxes) paint(box, html);
 }
 
 /** Pressing needs no question and no step-up: stopping is always safe.

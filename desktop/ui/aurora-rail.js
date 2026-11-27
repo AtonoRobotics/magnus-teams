@@ -29,7 +29,7 @@ const AuroraRail = (() => {
   // Nova's sidebar opens beside the stage, as its mockup draws it, not over
   // it: the rail's button and Ctrl+B keep it open (the pin's preference),
   // and its collapse, the pin, puts the rail back.
-  const docks = () => document.documentElement.dataset.style === "nova";
+  const docks = () => typeof Theme !== "undefined" && Theme.has?.("docksSidebar");
   const dock = (/** @type {boolean} */ keep) => { Theme.set({ sidebar: keep ? "pinned" : "rail" }); label(); };
   const pinned = () => typeof Theme !== "undefined" && Theme.prefs().sidebar === "pinned";
 
@@ -126,6 +126,7 @@ const AuroraRail = (() => {
   }, true);
 
   document.addEventListener("keydown", e => {
+    if (e.defaultPrevented) return;
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "b") return;
     if (docks() && on() && !open && !document.querySelector("dialog[open]")) { e.preventDefault(); dock(!pinned()); return; }
     if (!on() || (!rail() && !open) || document.querySelector("dialog[open]:not(#navigation-drawer)")) return;
@@ -140,10 +141,8 @@ const AuroraRail = (() => {
     const waiting = typeof needsMe === "function" ? needsMe().length : 0;
     const active = typeof App !== "undefined" && Array.isArray(App.tasks) && typeof ENDED !== "undefined"
       ? App.tasks.filter(t => !ENDED.includes(t.status) && !t.routine && !t.system).length : 0;
-    // Nova shows the waiting count once, on Inbox (spec §4.1): here only work
-    // that runs.
-    const nova = document.documentElement.dataset.style === "nova";
-    const count = nova ? active : waiting || active;
+    const activeOnly = typeof Theme !== "undefined" && Theme.has?.("railActiveOnlyBadge");
+    const count = activeOnly ? active : waiting || active;
     let badge = btn.querySelector(".aurora-rail-badge");
     if (!count) { badge?.remove(); return; }
     if (!badge) {
@@ -152,7 +151,7 @@ const AuroraRail = (() => {
       badge.setAttribute("aria-hidden", "true");
       btn.append(badge);
     }
-    badge.dataset.tone = waiting && !nova ? "warn" : "run";
+    badge.dataset.tone = waiting && !activeOnly ? "warn" : "run";
     badge.textContent = count > 9 ? "9+" : String(count);
   }
 

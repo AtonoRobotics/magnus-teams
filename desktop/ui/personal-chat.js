@@ -169,7 +169,7 @@ function personalTransport(thread) {
   return {
     text: e => entryText(e),
     resend: async (e, text) => {
-      if (typeof ask === "function" && !(await ask("Edit and resend this message? Replies after it will be replaced.", "Edit & resend"))) return;
+      if (typeof ask === "function" && !(await ask("Edit and resend this message? Replies after it will be replaced.", "Edit & resend"))) return false;
       return entry(e.id, "resend", { text });
     },
     retry: e => entry(e.id, "resend"),

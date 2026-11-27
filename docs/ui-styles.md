@@ -17,6 +17,9 @@ kind of style lives, so a change goes in one place and shows.
 | The computer panel | `computer.css` |
 | The Admin section's own parts | `admin.css` |
 | Sign-in and first run | `onboarding.css` |
+| Prism: soft pill surfaces, tonal borderless cards, centered hero, elevated composer | `theme-prism.css` |
+| Obsidian 2: framed pure-black workspace card, matte sidebar, inline file-type badges | `theme-obsidian2.css` |
+| Studio: 2-column editorial hero, bento cards, pill navigation, elevated composer | `theme-studio.css` |
 | Aurora and Obsidian 2 Aurora: the frame, ambient canvas and motion | `aurora.css` |
 | Aurora's widgets: request and approval cards, pill buttons, an answer's reasoning pill, the composer's state line and glow and what it is told, a decision's line in the thread, decisions confirmed in place, toasts as they go | `aurora-widgets.css` |
 | Aurora's stage: the one frame the conversation and the canvas share, the boxes above the input (decisions with their answers, messages among them), the artifact canvas, and Explore as the mockup's bento | `aurora-stage.css` |

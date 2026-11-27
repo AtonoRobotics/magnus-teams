@@ -537,7 +537,7 @@ function nav() {
   const onApps=route.startsWith("#/library");
   const pending=typeof needsMe === "function" ? needsMe().length : 0;
   // Nova names the rail's places as its spec does (§4.1).
-  const nova=document.documentElement.dataset.style==="nova";
+  const nova = typeof Theme !== "undefined" && Theme.has?.("topBar");
   const L=nova ? { inbox: "Inbox / Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills" } : { inbox: "Inbox", briefing: "Briefing", apps: "Apps" };
   // and draws them with its mockup's icons: a pencil, an inbox tray, a grid
   // for Explore and layers for Apps.
@@ -630,6 +630,8 @@ const Workspace = (() => {
           <li><span>Send message</span><kbd class="shortcut-kbd">Enter</kbd></li>
           <li><span>New line in message</span><kbd class="shortcut-kbd">Shift + Enter</kbd></li>
           <li><span>Stop active work (empty composer)</span><kbd class="shortcut-kbd">Esc</kbd></li>
+          <li><span>Format composer text (bold / italic / code / link)</span><kbd class="shortcut-kbd">⌘ / Ctrl + B / I / E / K</kbd></li>
+          <li><span>Triage waiting approval (Allow / Edit / Decline)</span><kbd class="shortcut-kbd">A / E / D</kbd></li>
           <li><span>Navigate @mentions or palette</span><kbd class="shortcut-kbd">↑ / ↓</kbd></li>
           <li><span>Keyboard shortcuts</span><kbd class="shortcut-kbd">⌘ / Ctrl + / or ?</kbd></li>
         </ul>`;
@@ -761,6 +763,7 @@ const Workspace = (() => {
         if(e.target.closest("#navigation-flyout [data-act=sign-out]"))$("nav.side [data-act=sign-out]")?.click();
       });
       document.addEventListener("keydown",e=>{
+        if(e.defaultPrevented)return;
         if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}
         if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){e.preventDefault();openPalette();return;}
         if((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==="b"){
@@ -782,7 +785,7 @@ function shell() {
   document.body.innerHTML = `<div class="shell"><nav class="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 64 64" fill="none"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg></span><span class="brand-name">Magnus</span><button class="icon-btn" data-nav-toggle aria-label="Collapse navigation" title="Collapse navigation">${icon("chev")}</button><button class="icon-btn" data-close-drawer aria-label="Close navigation">${icon("close")}</button></div>
     <button class="icon-btn rail-search" data-rail-search aria-label="Search conversations, tasks and files" title="Search conversations, tasks and files">${icon("search")}</button>
     <form id="find" role="search">${icon("search")}<label class="sr" for="q">Search conversations, tasks and files</label><input id="q" type="search" placeholder="Search…" autocomplete="off"><kbd class="kbd" aria-hidden="true">⌘K</kbd></form><div id="side"></div></nav>
-    <header id="workspace-bar" class="workspace-bar"><button class="icon-btn" data-open-drawer aria-label="Open navigation">${icon("tasks")}</button><span class="workspace-heading">Conversation</span><div class="workspace-selectors" aria-label="Workspace region"><button data-region="work" aria-pressed="false">Work</button><button data-region="conversation" aria-pressed="true">Conversation</button></div><span class="grow"></span><button class="icon-btn" data-expand-work aria-label="Expand work">${icon("grid")}</button><button class="icon-btn" data-close-work data-act="close-panel" aria-label="Close work">${icon("close")}</button></header>
+    <header id="workspace-bar" class="workspace-bar"><button class="icon-btn" data-open-drawer aria-label="Open navigation">${icon("tasks")}</button><span class="workspace-heading">Conversation</span><div class="workspace-selectors" aria-label="Workspace region"><button data-region="work" aria-pressed="false">Work</button><button data-region="conversation" aria-pressed="true">Conversation</button></div><span class="grow"></span><div class="admin-kill" data-admin-kill-top role="group" aria-label="Kill switch" hidden></div><button class="icon-btn" data-expand-work aria-label="Expand work">${icon("grid")}</button><button class="icon-btn" data-close-work data-act="close-panel" aria-label="Close work">${icon("close")}</button></header>
     <main id="main" tabindex="-1"></main><div id="workspace-splitter" role="separator" tabindex="0" aria-label="Conversation width" aria-orientation="vertical" hidden></div><aside id="detail" class="detail" aria-label="Work" hidden><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div></aside></div>
     <dialog id="navigation-drawer" class="navigation-drawer" aria-label="Navigation"></dialog><div id="navigation-flyout" class="navigation-flyout" role="dialog" aria-label="Projects and conversations" hidden></div>
     <dialog id="workspace-search" class="workspace-search" aria-label="Search conversations, tasks and files"><form><label for="workspace-query">Jump or search conversations, tasks and files</label><input id="workspace-query" type="search" role="combobox" aria-autocomplete="list" aria-controls="workspace-palette-list" aria-expanded="false" placeholder="Jump to a page, chat, or search everything…" autocomplete="off"><div id="workspace-palette-list" class="palette-list" role="listbox" aria-label="Quick jump"></div><div class="row"><button type="submit">Search all</button><button type="button" data-close-search>Close search</button></div></form></dialog>`;
@@ -1198,7 +1201,7 @@ async function pollInbox() {
     // Each item is considered once, so turning a kind on later does not
     // bring back everything already waiting.
     const fresh = needsMe().filter(i => !told.has(i.id));
-    for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox" });
+    for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox", blocking: !!i.blocking });
     // Ideas waiting in Explore: only notify while open suggestions still wait.
     const hasOpenIdeas = ExploreIdeas.open(items).length > 0;
     const ideas = hasOpenIdeas ? items.filter(i => ExploreIdeas.isNotice(i) && i.status === "open" && !told.has(i.id)) : [];
@@ -1402,11 +1405,8 @@ function convHead(thread, project) {
   const dnd = typeof Notices !== "undefined" && Notices.isDnd?.();
   const nCount = typeof Notices !== "undefined" && Array.isArray(Notices.history) ? Notices.history.length : 0;
   const noticeBtn = `<div class="notice-center-wrap"><button type="button" class="icon-btn stage-dock-btn${dnd ? " muted" : ""}" data-toggle-notices aria-expanded="false" aria-controls="notice-center" title="${dnd ? "Notifications snoozed (click to open)" : "Notifications & Do Not Disturb"}" aria-label="${dnd ? "Notifications snoozed" : `Notifications${nCount ? `, ${nCount} recent` : ""}`}">${icon("bell")}${!dnd && nCount ? `<span class="stage-dock-badge" aria-hidden="true">${Math.min(nCount, 99)}</span>` : ""}</button><div id="notice-center" class="notice-center card" role="region" aria-label="Notifications" hidden></div></div>`;
-  const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what && document.documentElement.dataset.style !== "nova" ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
-  // Nova's head is de-cluttered (spec §4.2): besides the bell and the
-  // sidebar toggle, everything sits in the ••• menu. Its quick controls are
-  // in the top bar above it (nova-frame.js).
-  const nova = document.documentElement.dataset.style === "nova";
+  const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what && !(typeof Theme !== "undefined" && Theme.has?.("hideDockPendingBadge")) ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
+  const nova = typeof Theme !== "undefined" && Theme.has?.("topBar");
   const chip = computerChip(App.computers);
   const inMenu = nova ? `${chip}${shareBtn}` : "";
   const moreMenu = thread
@@ -2219,7 +2219,7 @@ function needsView(composed) {
   const guardrails = guardrailsRow();
   // Nova heads the queue as its mockup does: the queue, how many wait, and
   // the keys that decide (A allows, D declines: nova-ux.js).
-  const nova = document.documentElement.dataset.style === "nova";
+  const nova = typeof Theme !== "undefined" && Theme.has?.("topBar");
   const queueHead = n => nova ? `<div class="companion-sec-head appr-queue-head"><span>Approval queue</span><span class="count"${n ? "" : " data-none"}>${n} waiting</span>${n ? `<span class="appr-keys" aria-hidden="true"><kbd>A</kbd>allow <kbd>D</kbd>decline</span>` : ""}</div>` : `<div class="companion-sec-head"><span>Approvals</span><span class="count">${n}</span></div>`;
   if (!open.length && !staged.length) return `${nova ? queueHead(0) : ""}<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
   return `${open.length ? `${queueHead(open.length)}${batchBar}${list([...now, ...later])}` : ""}${stagedHtml}${guardrails}${historyHtml}`;
@@ -2347,7 +2347,7 @@ async function drawPanel() {
   // An Aurora stage (aurora-stage.js) shows what is open as a canvas beside
   // the conversation and its cards, with the same top-bar tabs.
   const stage = typeof AuroraStage !== "undefined" && AuroraStage.on();
-  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, tabsHtml, body, foot: isRootCompanion && document.documentElement.dataset.style === "nova" ? companionFooter() : "" }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
+  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, tabsHtml, body, foot: isRootCompanion && typeof Theme !== "undefined" && Theme.has?.("companionFooterInStage") ? companionFooter() : "" }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
   if (n !== Panel.seq || !Panel.what) return;
   const changed = paint(el, markup); liveStatusLines(el);
   if (stage) AuroraStage.settle(el, changed);
@@ -3313,8 +3313,8 @@ function appearanceSection(el) {
   const draw = () => {
     const p = Theme.prefs(), look = Theme.look;
     const isStage = Theme.stage(p.style);
-    const isBlueDefault = p.style === "nova" || p.style === "prism" || p.style === "studio" || p.style === "obsidian-2" || p.style === "aurora";
-    const defAccent = isBlueDefault ? "blue" : "graphite";
+    const defAccent = Theme.get?.(p.style)?.defaultAccent || "blue";
+    const isBlueDefault = defAccent === "blue";
     const defHex = isBlueDefault ? "#7C8CFF" : (look.mode === "light" ? "#111111" : "#F5F5F5");
     const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111111" : a.swatch;
     const currentHex = /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent.toUpperCase() : (Theme.ACCENTS.find(a => a.id === p.accent)?.[look.mode]?.accent || defHex);
@@ -3360,8 +3360,9 @@ function appearanceSection(el) {
     b.focus({ preventScroll: true });
     if (b.dataset.look === "style") {
       const nextStyle = b.dataset.value, p = Theme.prefs(), patch = { style: nextStyle };
-      if ((nextStyle === "nova" || nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2" || nextStyle === "aurora") && p.accent === "graphite") patch.accent = "blue";
-      else if (nextStyle === "obsidian" && p.accent === "blue") patch.accent = "graphite";
+      const nextDef = Theme.get?.(nextStyle)?.defaultAccent || "blue";
+      if (nextDef === "blue" && p.accent === "graphite") patch.accent = "blue";
+      else if (nextDef === "graphite" && p.accent === "blue") patch.accent = "graphite";
       Theme.set(patch);
       return;
     }
@@ -3621,7 +3622,8 @@ async function boot() {
       }
       else if (t.closest("[data-overview-kill]")) {
         const act = /** @type {HTMLElement} */ (t.closest("[data-overview-kill]")).dataset.overviewKill;
-        const btn = $(`[data-admin-kill] [data-kill-${act === "release" ? "release" : "press"}="server"]`);
+        const sel = `[data-kill-${act === "release" ? "release" : "press"}="server"]`;
+        const btn = $(`[data-admin-kill] ${sel}`) || $(`[data-admin-kill-top] ${sel}`);
         if (btn) btn.click();
       }
       else if (t.closest("[data-stop-all-work]")) {

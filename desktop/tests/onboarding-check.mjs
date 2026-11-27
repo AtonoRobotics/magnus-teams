@@ -128,6 +128,6 @@ assert.ok(routes.some(([re]) => re.test("#/start")), "#/start route missing");
 const scheduled = G.Guide.disc.items.filter(p => p.schedule);
 assert.ok(scheduled.length >= 3, "expected at least 3 scheduled discovery proposals");
 for (const p of scheduled) {
-  assert.ok(typeof p.schedule.daily_at === "string" || Number.isFinite(p.schedule.every_minutes), `${p.id} missing valid schedule`);
+  assert.ok(typeof p.schedule.daily_at === "string" || typeof p.schedule.weekdays_at === "string" || Number.isFinite(p.schedule.every_minutes), `${p.id} missing valid schedule`);
 }
 console.log("onboarding check passed");

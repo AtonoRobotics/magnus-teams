@@ -329,7 +329,6 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 .nav-dot.ok { background: var(--ok); }
 @keyframes lpulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 html[data-motion="full"] .nav-dot.run { animation: lpulse 1.8s ease-in-out infinite; }
-html[data-style="prism"] nav.side .new-chat.primary-nav { border-radius: var(--r-pill); }
 /* Right Side Panel Segmented Tab Bar across Obsidian, Obsidian 2, Prism, Studio, and Aurora */
 .panel-tabs {
   display: flex;
@@ -382,10 +381,6 @@ html[data-style="prism"] nav.side .new-chat.primary-nav { border-radius: var(--r
   align-items: center;
   justify-content: center;
 }
-html[data-style="prism"] .panel-tabs,
-html[data-style="studio"] .panel-tabs {
-  box-shadow: none;
-}
 .companion-top-acts { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; position: relative; }
 .companion-id .admin-kill { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .kill-menu { position: relative; display: inline-block; }
@@ -410,41 +405,6 @@ html[data-style="studio"] .panel-tabs {
 @media (any-pointer: coarse) {
   .kill-menu > summary { min-height: 44px; }
 }
-html[data-style="prism"] nav.side { border-right-color: transparent; }
-html[data-style="prism"] nav.side .new-chat.primary-nav { border-color: transparent; background: var(--raised); }
-html[data-style="prism"] nav.side a.on { background: var(--accent-soft); color: var(--accent-text); border-radius: var(--r-pill); }
-html[data-style="prism"] nav.side a.on::before { display: none; }
-html[data-style="prism"] .detail-head { border-bottom-color: transparent; }
-
-/* Obsidian 2: Antigravity-inspired framed pure-black workspace card & quiet matte sidebar */
-html[data-style="obsidian-2"] .shell { background: var(--side); }
-html[data-style="obsidian-2"] nav.side { border-right-color: transparent; }
-html[data-style="obsidian-2"] nav.side .new-chat.primary-nav { border-color: transparent; background: transparent; border-radius: var(--r-md); }
-html[data-style="obsidian-2"] nav.side a.on { background: var(--row-hi); color: var(--fg); border-radius: var(--r-md); }
-html[data-style="obsidian-2"] nav.side a.on::before { display: none; }
-@media (min-width: 761px) {
-  html[data-style="obsidian-2"] .shell > main {
-    margin: 8px 8px 8px 0;
-    height: calc(100% - 16px);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-  }
-  html[data-style="obsidian-2"] body[data-workspace="split"] .shell > aside.detail {
-    margin: 8px 8px 8px 0;
-    height: calc(100% - 16px);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-  }
-}
-
-/* Studio: Google AI Studio-inspired sidebar pills & borderless inspector */
-html[data-style="studio"] nav.side { border-right-color: var(--hair); }
-html[data-style="studio"] nav.side .new-chat.primary-nav { border-radius: var(--r-pill); border-color: transparent; background: var(--raised); }
-html[data-style="studio"] nav.side a.on { background: var(--row-hi); color: var(--fg); border-radius: var(--r-pill); }
-html[data-style="studio"] nav.side a.on::before { display: none; }
-html[data-style="studio"] .detail-head { border-bottom-color: transparent; }
 
 /* Wave C: sidebar conversation quick delete, notification center popover, and briefing summary */
 .nav-conv-row { position: relative; display: flex; align-items: center; }

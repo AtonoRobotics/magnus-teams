@@ -294,6 +294,7 @@ function computerScreen(body, c, alive, opts = {}) {
     if (typeof guideStartTurn === "function") await guideStartTurn(prompt);
     else { App.appSearch = prompt; location.hash = "#/chat/new"; }
   };
+  view.stopRecording = toggleRecord;
   const take = async () => {
     if (view.holding) return;
     view.holding = true;
@@ -381,8 +382,19 @@ function takeOver(body, id, grant, view, strip) {
   view.holding = true;
   view.c = { ...view.c, status: "running", controller: App.me?.id || view.c.controller, waking: null };
   let link, ended = false;
+  const inputAbort = typeof AbortController === "function" ? new AbortController() : null;
+  const bound = [];
+  const onCanvas = (type, fn, opts) => {
+    if (inputAbort) canvas.addEventListener(type, fn, opts ? { ...opts, signal: inputAbort.signal } : { signal: inputAbort.signal });
+    else { canvas.addEventListener(type, fn, opts); bound.push([type, fn]); }
+  };
+  const detachCanvas = () => {
+    if (inputAbort) inputAbort.abort();
+    for (const [type, fn] of bound.splice(0)) canvas.removeEventListener?.(type, fn);
+  };
   const showLive = live => { view.live = live; canvas.hidden = !live; preview.hidden = live; };
   const failed = message => {
+    detachCanvas();
     const p = $("#display-error", body);
     if (p) { p.hidden = false; p.textContent = message; }
     showLive(false);
@@ -407,6 +419,7 @@ function takeOver(body, id, grant, view, strip) {
     ended = true;
     const go = asked ? await readyToHandBack(id) : await closesNothing(id);
     if (!go && asked) { ended = false; return false; }
+    detachCanvas();
     window.removeEventListener("hashchange", gone);
     view.leave = null;
     link.close();
@@ -418,16 +431,16 @@ function takeOver(body, id, grant, view, strip) {
   link = Magnus.displayOpen(id, grant.ticket, grant.protocol_prefix, b => rfb.feed(b), reason => { if (!ended) failed(reason || "The connection to the screen ended."); });
   const at = e => { const r = canvas.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * canvas.width / r.width), Math.round((e.clientY - r.top) * canvas.height / r.height)]; };
   const mask = e => (e.buttons & 1) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
-  for (const type of ["mousemove", "mousedown", "mouseup"]) canvas.addEventListener(type, e => {
+  for (const type of ["mousemove", "mousedown", "mouseup"]) onCanvas(type, e => {
     const [x, y] = at(e);
     if (type === "mousedown" && view.recording) {
       view.recordedSteps.push(`Click at (${x}, ${y}) on ${canvas.width}x${canvas.height}`);
     }
     rfb.pointer(x, y, mask(e)); e.preventDefault();
   });
-  canvas.addEventListener("wheel", e => { const [x, y] = at(e), bit = e.deltaY < 0 ? 8 : 16; rfb.pointer(x, y, bit); rfb.pointer(x, y, 0); e.preventDefault(); }, { passive: false });
-  canvas.addEventListener("contextmenu", e => e.preventDefault());
-  for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => {
+  onCanvas("wheel", e => { const [x, y] = at(e), bit = e.deltaY < 0 ? 8 : 16; rfb.pointer(x, y, bit); rfb.pointer(x, y, 0); e.preventDefault(); }, { passive: false });
+  onCanvas("contextmenu", e => e.preventDefault());
+  for (const [type, down] of [["keydown", true], ["keyup", false]]) onCanvas(type, e => {
     if (down && view.recording) {
       const last = view.recordedSteps.at(-1);
       if (e.key.length === 1) {
@@ -441,6 +454,7 @@ function takeOver(body, id, grant, view, strip) {
   });
   // Handing back keeps the last frame on screen as the preview.
   view.done = async () => {
+    if (view.recording && typeof view.stopRecording === "function") await view.stopRecording();
     if (!(await leave(true))) return;
     if (view.live) { try { preview.src = canvas.toDataURL(); } catch { /* The next look replaces it. */ } }
     showLive(false);

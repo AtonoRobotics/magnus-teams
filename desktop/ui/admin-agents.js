@@ -99,7 +99,7 @@ function agentsRunRow(r) {
 function agentsCard(a) {
   const state = a.stopped ? `<span class="chip bad">Stopped by ${esc(a.stopped.name)} ${esc(when(a.stopped.at))}</span>`
     : a.person_stopped ? `<span class="chip bad">Stopped with ${esc(a.name)}'s agents by ${esc(a.person_stopped.name)}</span>`
-    : a.paused ? `<span class="chip">Paused by ${esc(a.paused.name)} ${esc(when(a.paused.at))}</span>` : `<span class="chip">Working</span>`;
+    : a.paused ? `<span class="chip">Paused by ${esc(a.paused.name)} ${esc(when(a.paused.at))}</span>` : (a.running.length ? `<span class="chip">Working</span>` : `<span class="chip">Idle</span>`);
   const id = esc(a.id);
   const buttons = [
     a.paused ? `<button data-agents-resume="${id}">Resume</button>` : `<button data-agents-pause="${id}">Pause</button>`,

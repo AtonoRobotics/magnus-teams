@@ -88,7 +88,7 @@ assert.doesNotMatch(app + ux, /topBarHtml/, "the conversation head no longer pai
 assert.match(frame, /data-nova-set-avatar/, "the top bar has the companion pill");
 assert.match(frame, /data-nova-toggle-mode/, "the top bar has Light / Dark");
 assert.match(frame, /Spend this month: /, "the top bar shows the month's spend, the only period the server keeps");
-assert.match(read("aurora-pages.js"), /dataset\.style === "nova"\) \{ mine\?\.remove\(\); return; \}/, "Nova pages get no lone close");
+assert.match(read("aurora-pages.js"), /!Theme\.has\("pageCloseButton"\)\) \{ mine\?\.remove\(\); return; \}/, "Nova pages get no lone close");
 assert.match(read("index.html"), /<script src="nova-frame\.js"><\/script>/, "the app loads the top bar");
 assert.match(read("nova-shell.css"), /\.shell > \.nova-frame-bar \{[^}]*grid-row: 1;[^}]*grid-column: 2 \/ -1;/, "the bar is the shell's first row, beside the rail");
 
@@ -111,12 +111,13 @@ assert.match(app, /if \(trigger\.closest\("nav\.side"\)\) \{\n\s+tip\.style\.lef
 
 // 4. One inbox count in Nova: not on the sidebar toggle, and the rail's
 // sidebar button counts only running work.
-assert.match(app, /pending && !Panel\.what && document\.documentElement\.dataset\.style !== "nova"/, "Nova's sidebar toggle carries no waiting count");
-assert.match(rail, /const count = nova \? active : waiting \|\| active;/, "Nova's rail button counts running work only");
+assert.match(app, /pending && !Panel\.what && !\(typeof Theme !== "undefined" && Theme\.has\?\.\("hideDockPendingBadge"\)\)/, "Nova's sidebar toggle carries no waiting count");
+assert.match(rail, /const count = activeOnly \? active : waiting \|\| active;/, "Nova's rail button counts running work only");
 assert.match(app, /inbox: "Inbox \/ Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills"/, "Nova's rail labels follow the spec");
 
 // 5. Home title and the Apps spotlight.
-assert.match(discover, /"Where should we start\?"/, "Nova's home asks where to start");
+assert.match(read("theme.js"), /introHeading:\s*"Where should we start\?"/, "Nova's home asks where to start");
+assert.match(discover, /features\?\.introHeading/, "discover.js reads introHeading from Theme");
 assert.match(ux, /:scope > \.lhead[\s\S]*head\.insertAdjacentElement\("afterend", hero\)/, "the spotlight goes straight under the Apps header");
 assert.match(stage, /\$\{v\.foot \|\| ""\}/, "the stage shell can carry the computer footer");
 

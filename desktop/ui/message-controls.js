@@ -155,7 +155,10 @@ const MessageControls = (() => {
       editSend: async () => {
         const typed = (find(`#edit-${CSS.escape(id)}`)?.value || "").trim();
         if (!typed) return toast("Write the message first.");
-        b.disabled = true; await t.resend(e, typed); ui.editing = null; delete drafts[`edit-${id}`]; return t.after(view, "edit");
+        b.disabled = true;
+        const sent = await t.resend(e, typed);
+        if (sent === false) { b.disabled = false; return; }
+        ui.editing = null; delete drafts[`edit-${id}`]; return t.after(view, "edit");
       },
       retry: async () => { b.disabled = true; await t.retry(e); return t.after(view, "retry"); },
       branch: () => t.branch(e),

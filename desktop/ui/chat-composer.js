@@ -26,8 +26,8 @@ if (typeof UI !== "undefined" && !UI.stop) UI.stop = '<rect x="6" y="6" width="1
 
 function composer(placeholder, bar, o = {}) {
   const id = n => o.side ? "" : ` id="${n}"`;
-  const label = o.side ? `<textarea rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(o.label || placeholder)}" required></textarea>`
-    : `<label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}" required></textarea>`;
+  const label = o.side ? `<textarea rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(o.label || placeholder)}"></textarea>`
+    : `<label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}"></textarea>`;
   return `<form${id("say")} class="say">${label}${o.mentions ? `<div class="say-mentions" role="listbox" aria-label="Mention" hidden></div>` : ""}
     <div class="row small pending"${id("pending")}></div>
     <div class="say-bar">${bar}<span class="chip run" data-steer-pill hidden>Steering active task</span><span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button type="button" class="icon-btn say-stop" data-say-stop aria-label="Stop" title="Stop" hidden>${icon("stop")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
@@ -235,10 +235,10 @@ function wireComposer(form, record, conv) {
   box.onkeydown = e => {
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
       const k = e.key.toLowerCase();
-      if (k === "b") { e.preventDefault(); wrapSelection("**"); return; }
-      if (k === "i") { e.preventDefault(); wrapSelection("*"); return; }
-      if (k === "e") { e.preventDefault(); wrapSelection("`"); return; }
-      if (k === "k" && box.selectionStart !== box.selectionEnd) { e.preventDefault(); wrapSelection("[", "](https://)"); return; }
+      if (k === "b") { e.preventDefault(); e.stopPropagation(); wrapSelection("**"); return; }
+      if (k === "i") { e.preventDefault(); e.stopPropagation(); wrapSelection("*"); return; }
+      if (k === "e") { e.preventDefault(); e.stopPropagation(); wrapSelection("`"); return; }
+      if (k === "k" && box.selectionStart !== box.selectionEnd) { e.preventDefault(); e.stopPropagation(); wrapSelection("[", "](https://)"); return; }
     }
     if (menu && !menu.hidden && mentionChoices.length) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -265,7 +265,7 @@ function wireComposer(form, record, conv) {
   zone.ondrop = e => { dragDepth = 0; zone.classList.remove("dropping"); if (!e.dataTransfer?.files?.length) return; e.preventDefault(); attach(e.dataTransfer.files); };
   form.onsubmit = async e => {
     e.preventDefault(); read();
-    const text = record.text.trim(); if (!text || record.sending) return;
+    const text = record.text.trim(); if ((!text && !record.files.length) || record.sending) return;
     if (record.files.some(f => f.state !== "ready")) { toast("Wait for uploads, or retry/remove unavailable files before sending."); return; }
     if (canSteer()) {
       record.sending = true; MessageDrafts.changed();

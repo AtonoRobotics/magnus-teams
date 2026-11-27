@@ -292,12 +292,12 @@ assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWi
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
 
-assert.match(read("chat.css"), /html\[data-style="prism"\]\s*\.msg\.me/);
-assert.match(read("chat.css"), /html\[data-style="obsidian-2"\]\s*\.fchip-inline/);
-assert.match(read("chat.css"), /html\[data-style="studio"\]\s*\.hello-hero/);
-assert.match(read("layout.css"), /html\[data-style="prism"\]\s*\.panel-tabs/);
-assert.match(read("layout.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
-assert.match(read("layout.css"), /html\[data-style="studio"\]\s*nav\.side/);
+assert.match(read("theme-prism.css"), /html\[data-style="prism"\]\s*\.msg\.me/);
+assert.match(read("theme-obsidian2.css"), /html\[data-style="obsidian-2"\]\s*\.fchip-inline/);
+assert.match(read("theme-studio.css"), /html\[data-style="studio"\]\s*\.hello-hero/);
+assert.match(read("theme-prism.css"), /html\[data-style="prism"\]\s*\.panel-tabs/);
+assert.match(read("theme-obsidian2.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
+assert.match(read("theme-studio.css"), /html\[data-style="studio"\]\s*nav\.side/);
 assert.match(read("pages.css"), /\.gbox\s*\{\s*border:\s*0;/);
 
 // 6. No native browser confirm()/alert()/prompt() dialogs in any desktop UI script.

@@ -57,7 +57,7 @@ const NovaFrame = (() => {
     const avatar = document.documentElement.dataset.avatar || "pip";
     const mode = document.documentElement.dataset.mode || "dark";
     const avatars = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Orb"], ["prism", "Prism"]];
-    return `<div class="nova-topbar-ctrls"><div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${avatar === id ? "on" : ""}" data-nova-set-avatar="${id}" aria-pressed="${avatar === id}">${label}</button>`).join("")}</div><button type="button" class="nova-top-pill" data-nova-toggle-mode>${mode === "dark" ? "Light" : "Dark"}</button></div>`;
+    return `<div class="nova-topbar-ctrls"><div class="admin-kill" data-admin-kill-top role="group" aria-label="Kill switch" hidden></div><div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${avatar === id ? "on" : ""}" data-nova-set-avatar="${id}" aria-pressed="${avatar === id}">${label}</button>`).join("")}</div><button type="button" class="nova-top-pill" data-nova-toggle-mode>${mode === "dark" ? "Light" : "Dark"}</button></div>`;
   }
 
   /** Paints the bar when what it shows has changed. */
@@ -79,6 +79,7 @@ const NovaFrame = (() => {
     bar.setAttribute("data-key", key);
     const esc_ = (/** @type {string} */ s) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
     bar.innerHTML = `<div class="nova-frame-where"><span class="nova-page-title">${esc_(title)}</span>${money ? `<span class="nova-frame-sep" aria-hidden="true">·</span><span class="nova-frame-spend">${esc_(money)}</span>` : ""}</div>${controlsHtml()}`;
+    if (typeof AdminState !== "undefined" && AdminState.standing?.admin && typeof showKillControl === "function") showKillControl();
   }
 
   let queued = false;

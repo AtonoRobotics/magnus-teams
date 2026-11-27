@@ -33,9 +33,7 @@ const AuroraPages = (() => {
     const talk = !!main.querySelector(":scope > section.conv, .hello-head, #thread");
     const modalRoute = /^#\/(?:settings|admin|models)(?:\/|$)/.test(location.hash || "") || !!document.querySelector?.("#settings-modal[open]");
     if (talk && isConversationHash(location.hash)) conversation = location.hash || "#/home";
-    // Nova frames every screen with its top bar, as its mockup draws it, and
-    // its rail is the way out: no close (nova-frame.js).
-    if (document.documentElement.dataset.style === "nova") { mine?.remove(); return; }
+    if (typeof Theme !== "undefined" && Theme.has && !Theme.has("pageCloseButton")) { mine?.remove(); return; }
     const want = on() && !talk && !modalRoute && !!main.firstElementChild && !ownWayOut(main);
     if (!want) { mine?.remove(); return; }
     const title = main.querySelector("h1")?.textContent?.trim() || "this page";

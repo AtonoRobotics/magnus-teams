@@ -78,7 +78,7 @@ function tasksView() {
   const activeCount = visibleTasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended && !s.system).length;
   const endedTasks = visibleTasks.filter(t => typeof ENDED !== "undefined" && ENDED.includes(t.status));
   const stopBar = activeCount ? `<div class="spread" style="margin-bottom:8px"><span class="small muted">Active work running or scheduled</span><button type="button" class="danger small" data-stop-all-work>Stop my active work</button></div>` : "";
-  const chips = [["all", "All"], ["needs", "Needs you"], ["running", "Running"], ["done", "Done"], ["failed", "Failed"]];
+  const chips = [["all", "All"], ["needs", "Needs you"], ["running", "Running"], ["waiting", "Waiting"], ["done", "Done"], ["failed", "Failed"]];
   const filterBar = visibleTasks.length ? `<div class="stack" data-tasks-filter style="margin-bottom:10px;gap:6px">
     <div class="row"><input type="search" id="tasks-q" value="${esc(TaskFilter.q)}" placeholder="Filter tasks…" aria-label="Filter tasks" style="flex:1">${endedTasks.length ? `<button type="button" class="small" data-clear-ended-tasks>Clear ended (${endedTasks.length})</button>` : ""}</div>
     <div class="row small" style="flex-wrap:wrap;gap:4px">${chips.map(([k, lbl]) => `<button type="button" class="small${TaskFilter.state === k ? " primary" : ""}" data-task-filter="${k}">${lbl}</button>`).join("")}</div>
@@ -142,18 +142,35 @@ function parseScheduleCadence(sc) {
   return { kind: "daily", at: raw || "08:00", days: ["mon"], monthDay: 1, onceAt: "", every: 60 };
 }
 
+function syncScheduleCadence(form) {
+  const kind = form?.querySelector?.('select[name="kind"]')?.value || "daily";
+  for (const el of form?.querySelectorAll?.("[data-cadence-for]") || []) {
+    const allowed = (el.getAttribute("data-cadence-for") || "").split(/\s+/);
+    el.hidden = !allowed.includes(kind);
+  }
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("change", e => {
+    const sel = /** @type {HTMLElement} */ (e.target).closest?.('select[name="kind"]');
+    const form = sel?.closest?.("[data-create-schedule], [data-edit-schedule]");
+    if (form) syncScheduleCadence(form);
+  });
+}
+
 function scheduleCadenceFields(sc) {
   const c = parseScheduleCadence(sc);
   const opt = (v, label) => `<option value="${v}"${c.kind === v ? " selected" : ""}>${label}</option>`;
+  const hide = kinds => kinds.split(" ").includes(c.kind) ? "" : " hidden";
   return `<div class="row" style="flex-wrap:wrap">
       <label class="small">Cadence<select name="kind">${opt("weekdays", "Weekdays (Mon–Fri)")}${opt("daily", "Every day")}${opt("weekly", "Specific days")}${opt("monthly", "Monthly")}${opt("every", "Every N minutes")}${opt("once", "One-time")}</select></label>
-      <label class="small">Time<input type="time" name="daily_at" value="${esc(c.at)}"></label>
-      <label class="small">Every (min)<input type="number" name="every_minutes" min="5" max="10080" value="${esc(String(c.every))}" style="width:5.5em"></label>
-      <label class="small">Day of month<input type="number" name="month_day" min="1" max="31" value="${esc(String(c.monthDay))}" style="width:4.5em"></label>
-      <label class="small">One-time date<input type="datetime-local" name="once_at" value="${esc(c.onceAt)}"></label>
-      <label class="small">Max runs<input type="number" name="max_runs" min="0" placeholder="Unlimited" value="${esc(sc?.max_runs ? String(sc.max_runs) : "")}" style="width:6em"></label>
+      <label class="small" data-cadence-for="weekdays daily weekly monthly"${hide("weekdays daily weekly monthly")}>Time<input type="time" name="daily_at" value="${esc(c.at)}"></label>
+      <label class="small" data-cadence-for="every"${hide("every")}>Every (min)<input type="number" name="every_minutes" min="5" max="10080" value="${esc(String(c.every))}" style="width:5.5em"></label>
+      <label class="small" data-cadence-for="monthly"${hide("monthly")}>Day of month<input type="number" name="month_day" min="1" max="31" value="${esc(String(c.monthDay))}" style="width:4.5em"></label>
+      <label class="small" data-cadence-for="once"${hide("once")}>One-time date<input type="datetime-local" name="once_at" value="${esc(c.onceAt)}"></label>
+      <label class="small" data-cadence-for="weekdays daily weekly monthly every"${hide("weekdays daily weekly monthly every")}>Max runs<input type="number" name="max_runs" min="0" placeholder="Unlimited" value="${esc(sc?.max_runs ? String(sc.max_runs) : "")}" style="width:6em"></label>
     </div>
-    <div class="row small" style="flex-wrap:wrap;gap:6px" aria-label="Weekly days">${WEEKDAY_OPTS.map(([k, lbl]) => `<label class="row" style="gap:3px"><input type="checkbox" name="days" value="${k}"${c.days.includes(k) ? " checked" : ""}>${lbl}</label>`).join("")}</div>`;
+    <div class="row small" data-cadence-for="weekly"${hide("weekly")} style="flex-wrap:wrap;gap:6px" aria-label="Weekly days">${WEEKDAY_OPTS.map(([k, lbl]) => `<label class="row" style="gap:3px"><input type="checkbox" name="days" value="${k}"${c.days.includes(k) ? " checked" : ""}>${lbl}</label>`).join("")}</div>`;
 }
 
 // Schedules, soonest first, ended last: each opens beside the conversation.

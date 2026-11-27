@@ -37,42 +37,6 @@
   --z-banner: 70;
   --z-tooltip: 80;
 }
-html[data-style="prism"] {
-  --r-xs: 6px;
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
-  --r-xl: 18px;
-  --r-pill: 999px;
-  --r-send: 50%;
-  --r-avatar: 50%;
-  --r-composer: 16px;
-  --focus-ring: 0 0 0 3px var(--accent-soft);
-}
-html[data-style="obsidian-2"] {
-  --r-xs: 5px;
-  --r-sm: 7px;
-  --r-md: 10px;
-  --r-lg: 12px;
-  --r-xl: 14px;
-  --r-pill: 8px;
-  --r-send: 50%;
-  --r-avatar: 6px;
-  --r-composer: 14px;
-  --focus-ring: 0 0 0 1px var(--accent);
-}
-html[data-style="studio"] {
-  --r-xs: 8px;
-  --r-sm: 10px;
-  --r-md: 14px;
-  --r-lg: 16px;
-  --r-xl: 22px;
-  --r-pill: 999px;
-  --r-send: 999px;
-  --r-avatar: 50%;
-  --r-composer: 22px;
-  --focus-ring: 0 0 0 2px var(--accent-soft);
-}
 * { box-sizing: border-box; }
 /* Solid before theme.js sets the tokens, in the colors the window starts
    with (look.rs), so the window is never black while the page starts. */
@@ -120,8 +84,6 @@ button { font: inherit; font-size: 13.5px; font-weight: 500; border: 1px solid v
 button:hover { border-color: var(--line-strong); background: var(--raised); }
 button:disabled { opacity: .55; cursor: default; }
 button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
-html[data-style="prism"] button.primary, html[data-style="prism"] .button.primary,
-html[data-style="studio"] button.primary, html[data-style="studio"] .button.primary { border-radius: var(--r-pill); }
 button.primary:hover { background: var(--accent); filter: brightness(1.08); }
 button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 button.link, button.link:hover { border: 0; background: none; color: var(--accent-text); padding: 0; font-weight: 500; }

@@ -183,9 +183,7 @@ const AuroraAvatar = (() => {
       if (slot.querySelector(":scope > .aurora-avatar")) return;
       mount(/** @type {HTMLElement} */ (slot), 30, "side");
     });
-    // Nova signs Magnus's latest answer with its face, as the mockup's stage
-    // does; an older answer gives its face up.
-    const signed = document.documentElement.dataset.style === "nova" ? [...document.querySelectorAll("#thread .msg.magnus > .byline")].pop() : null;
+    const signed = typeof Theme !== "undefined" && Theme.has?.("signedByline") ? [...document.querySelectorAll("#thread .msg.magnus > .byline")].pop() : null;
     document.querySelectorAll("#thread .msg.magnus > .byline > .aurora-avatar").forEach(b => { if (b.parentElement !== signed) b.remove(); });
     if (signed && !signed.querySelector(":scope > .aurora-avatar")) signed.prepend(mount(/** @type {HTMLElement} */ (signed), 26, "byline").button);
     const heads = document.querySelectorAll(".hello-head");

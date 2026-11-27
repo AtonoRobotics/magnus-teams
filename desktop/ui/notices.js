@@ -17,7 +17,7 @@ const NOTICE_DEVICE_KEY = "magnus.system-notifications", NOTICE_OFFERED_KEY = "m
 
 /**
  * @typedef {{ id: string, kind: "direct"|"mention"|"message"|"answer", workspace: string, workspace_name: string, channel: string, channel_name: string, direct: ?string[], thread: ?string, sender: string, at: string, preview: string }} TeamNotice
- * @typedef {{ key: string, title: string, body: string, system: string, href: string, at?: string }} Shown
+ * @typedef {{ key: string, title: string, body: string, system: string, href: string, at?: string, blocking?: boolean }} Shown
  */
 
 const Notices = {
@@ -132,7 +132,7 @@ const Notices = {
     if (this.seen.size > NOTICE_SEEN_MAX) this.seen.delete(this.seen.values().next().value);
     this.history.unshift({ ...s, at: s.at || new Date().toISOString() });
     if (this.history.length > NOTICE_HISTORY_MAX) this.history.length = NOTICE_HISTORY_MAX;
-    if (this.isDnd()) return;
+    if (this.isDnd() && !s.blocking) return;
     const away = document.hidden || !document.hasFocus();
     if (!away && s.href && location.hash.startsWith(s.href.split("/t/")[0])) return;
     // Aurora shows it on its stage instead of over it.

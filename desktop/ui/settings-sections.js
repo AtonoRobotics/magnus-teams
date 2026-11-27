@@ -319,6 +319,7 @@ async function dataSection(el) {
   let notes = [];
   // The grant being edited, if any.
   let editing = null;
+  let latestSpend = null;
   // The commitment being edited, if any.
   let editingC = null;
   const draw = async () => {
@@ -329,6 +330,7 @@ async function dataSection(el) {
     ]);
     App.prefs = prefs;
     notes = rel.notes;
+    latestSpend = mySpend;
     const STATE = { done: ["ok", "done"], decline: ["bad", "declined"] };
     paint(el, `<h2>Data and privacy</h2>
       ${personalSpendCard(mySpend)}
@@ -348,9 +350,9 @@ async function dataSection(el) {
       <div class="card" data-disagreements><p class="small muted">When Magnus advised one thing and you decided another, it notes both, and later how it turned out. Only your own tasks and chats see these.</p>
         ${disagreements.map(d => `<p class="small"><span class="faint">${esc(when(d.at))}</span> Magnus advised: ${esc(d.position)} You decided: ${esc(d.decision)} ${d.outcome ? `Outcome: ${esc(d.outcome)}` : `<span class="faint">Outcome not known yet.</span>`}</p>`).join("") || `<p class="small faint">None.</p>`}</div>
       <h3>Delete my data</h3>
-      <div class="card"><p class="small muted">The owner is asked, and has 30 days to act. What is deleted leaves every backup within that time.</p>
+      <div class="card"><p class="small muted">The owner is asked, and has 30 days to act. What is deleted leaves every backup within that time. Recently deleted chats, projects, and files can also be restored from <a href="#/trash" data-open-trash>Trash</a>.</p>
         <label for="delwhat">What to delete</label><input id="delwhat" data-draft="delwhat" style="width:100%" placeholder="all of my data">
-        <div class="row" style="margin-top:8px"><button data-act="delete-request">Ask for deletion</button></div>
+        <div class="row" style="margin-top:8px"><button data-act="delete-request">Ask for deletion</button><a class="button" href="#/trash" data-open-trash>Open Trash</a></div>
         ${requests.length ? `<table class="t small" data-deletions style="margin-top:10px"><tbody>${requests.map(q => `<tr><td>${esc(q.what)}${isOwner() && q.person !== App.me.id ? ` <span class="faint">(${esc(q.person)})</span>` : ""}</td>
           <td>${q.decision ? `<span class="chip ${STATE[q.decision]?.[0] || ""}">${esc(STATE[q.decision]?.[1] || q.decision)}</span>${q.note ? ` <span class="muted">${esc(q.note)}</span>` : ""}` : `<span class="chip warn">asked</span> due ${esc(new Date(q.due).toLocaleDateString())}`}</td></tr>`).join("")}</tbody></table>` : ""}</div>
       ${administers() ? `<p class="small muted" data-backups-moved>Backups and restore checks are in <a href="#/admin/operations">Admin › Operations</a>.</p>` : ""}`);
@@ -363,8 +365,17 @@ async function dataSection(el) {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     try {
       if (b.dataset.act === "ask-more-spend") {
-        if (typeof offerMoreSpend === "function") offerMoreSpend({ scope: "person" });
-        else { await Server.spend.ask(10, "Requested from Settings"); toast("Spend request sent."); }
+        if (typeof offerMoreSpend === "function") {
+          const limit = Number(latestSpend?.limit_usd) || 20;
+          const spent = Number(latestSpend?.spent_usd) || 0;
+          offerMoreSpend({
+            error: `You have spent $${spent.toFixed(2)} of your $${limit.toFixed(2)} monthly limit. Ask an admin for more.`,
+            spend_limit: { which: "person", can_ask: true, pending: false, limit_usd: limit },
+          });
+        } else {
+          await Server.spend.ask(10, "Requested from Settings");
+          toast("Spend request sent.");
+        }
         return;
       }
       if (b.dataset.act === "delete-request") {
