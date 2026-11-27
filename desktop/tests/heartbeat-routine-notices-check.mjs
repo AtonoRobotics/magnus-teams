@@ -2,6 +2,7 @@
 // 1. Heartbeat is a system task (never clutters chat, stage, rail badge, or task list unless user is needed).
 // 2. Routine/ideas notifications disappear once resolved or set up (Notices.syncInbox prunes history & live popups).
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -12,7 +13,7 @@ const read = f => fs.readFileSync(path.join(uiDir, f), "utf8");
 
 const noticesSrc = read("notices.js");
 const exploreIdeasSrc = read("explore-ideas.js");
-const appSrc = read("app.js");
+const appSrc = readAppBundle();
 const tasksSchedSrc = read("tasks-schedules.js");
 const railSrc = read("aurora-rail.js");
 const stageSrc = read("aurora-stage.js");

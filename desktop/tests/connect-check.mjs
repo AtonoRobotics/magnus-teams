@@ -5,6 +5,7 @@
 // reviewed on its own and no description is shown, as connect.js and
 // app.js draw them.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,7 +60,7 @@ assert.equal((card.match(/data-decision=/g) || []).length, 2, "the card asks mor
 
 // app.js draws the card, asks for it in Needs you, shows the screen before
 // any sign-in, and has no per-tool review left. The page loads connect.js.
-const app = ["app.js", "app-library.js", "app-settings.js"].map(ui).join("\n");
+const app = readAppBundle();
 assert.match(app, /case "app_tools":\s*body = appToolsCard\(i\);/, "the inbox does not draw the per-app card");
 assert.match(app, /"app_tools"/, "the per-app card is not a decision");
 assert.match(app, /if \(!again && !await consentToConnect\(name\)\) return;[\s\S]*Server\.connectors\.signIn\(/, "connecting signs in without the connect screen");

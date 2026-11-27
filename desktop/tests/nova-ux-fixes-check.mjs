@@ -5,6 +5,7 @@
 // spend and snooze), the de-cluttered top bar, one inbox count, and the
 // Apps spotlight at the top.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = f => readFileSync(join(here, "../ui", f), "utf8");
-const app = read("app.js");
+const app = readAppBundle();
 const pages = read("nova-pages.js");
 const ux = read("nova-ux.js");
 const rail = read("aurora-rail.js");

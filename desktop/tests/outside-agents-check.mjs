@@ -3,6 +3,7 @@
 // them is shown once; their requests and the replies waiting to be released
 // come to the inbox with their own answers (outside-agents.js, app.js).
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +61,7 @@ assert.match(reply, /Three weeks\.[\s\S]*waits for you to release it/);
 assert.match(reply, /data-decision="release"[\s\S]*data-decision="release_always"[\s\S]*data-decision="discard"/);
 
 // app.js draws these cards and mounts the section in Apps; the page loads the script.
-const app = ["app.js", "app-library.js", "app-settings.js"].map(ui).join("\n");
+const app = readAppBundle();
 assert.match(app, /case "outside_request":\s*case "outside_reply":\s*body = outsideAgentCard\(i\);/);
 assert.match(app, /outside_request: "Request from an outside agent"/);
 assert.match(app, /<div id="lib-outside-agents"><\/div>[\s\S]*mountOutsideAgents\(main\)/);

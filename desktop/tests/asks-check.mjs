@@ -3,6 +3,7 @@
 // of the rule, policy, taint or reviewer reasoning. As asks.js draws it and
 // app.js uses it, wherever the card shows.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,7 +51,7 @@ assert.doesNotMatch(sandbox.askCard(item(["allow", "dont_allow"], "task"), false
 assert.match(sandbox.askResolved({ ...item([], "task"), resolution: { decision: "approve", scope: "task" } }), /Allowed for the rest of this work/);
 
 // app.js draws every approval with this card, with none of the old reasoning.
-const app = ui("app.js");
+const app = readAppBundle();
 assert.match(app, /case "approval":\s*\n\s*return `<article class="card item approval"[^\n]*askCard\(i, i\.can_respond\)/, "app.js does not draw approvals with askCard");
 for (const gone of ["Why you are asked", "Approve once", "Approve for an hour", "approve:standing", "approve:window"]) {
   assert.ok(!app.includes(gone), `app.js still has ${gone}`);

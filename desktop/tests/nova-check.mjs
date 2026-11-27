@@ -4,6 +4,7 @@
 // - asks.js renders risk-tier attribute and progressive-disclosure decline drawer;
 // - projects.js renders the quiet inline Project Hub composer and 2-column grid.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,7 +72,7 @@ assert.match(painted, /data-routine-run="s1"/, "briefing should render Run now b
 assert.match(painted, /data-routine-dry="s1"/, "briefing should render Dry run button");
 
 // 5. Structural wiring in app.js, aurora-stage.js, and nova.css.
-const appSrc = ui("app.js");
+const appSrc = readAppBundle();
 assert.match(appSrc, /route\(\/\^#\\\/briefing\$\//, "app.js must route #/briefing");
 assert.match(appSrc, /nav-inbox-count/, "app.js nav must show live Inbox count badge");
 assert.match(appSrc, /conv-more-menu/, "app.js convHead must tuck move/delete into overflow menu");

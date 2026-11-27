@@ -1,6 +1,7 @@
 // Companion inspector, file type filters, style-aware Appearance switching,
 // and modal ask/askText confirmations.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const uiDir = join(here, "../ui");
 const read = f => readFileSync(join(uiDir, f), "utf8");
-const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 const themeSrc = read("theme.js");
 
 function extractFn(src, signature) {

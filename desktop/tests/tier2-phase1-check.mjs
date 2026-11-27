@@ -5,6 +5,7 @@
 // 4. Local computer offline files disable Download/Delete buttons and quick-add folder chips exist.
 // 5. Nova Home launchpads adapt to connected apps (GitHub/Mail/Slack vs universal fallbacks).
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +61,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   const done = ctx.__row({ run: "r2", task_id: "t2", status: "completed", goal: "Done work", depth: 1, at: "2026-11-27T00:00:00Z" });
   assert.match(active, /data-stop-subagent="t1"/, "active sub-agent row must include inline Stop button");
   assert.doesNotMatch(done, /data-stop-subagent/, "completed sub-agent row must not include Stop button");
-  assert.match(ui("app.js"), /data-stop-subagent[\s\S]*Server\.tasks\.cancel\(id\)/, "app.js must wire data-stop-subagent to Server.tasks.cancel");
+  assert.match(readAppBundle(), /data-stop-subagent[\s\S]*Server\.tasks\.cancel\(id\)/, "app.js must wire data-stop-subagent to Server.tasks.cancel");
 }
 
 // 4. Local computer quick-add folder chips & offline file buttons disabled.

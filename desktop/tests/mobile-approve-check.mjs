@@ -1,5 +1,6 @@
 // Regression tests for Tier 3 Phase 2: Out-of-Band Mobile / Async Approval Channel
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -41,8 +42,8 @@ assert.match(read("desktop/ui/index.html"), /<link rel="manifest" href="manifest
 assert.match(read("desktop/ui/index.html"), /<script src="mobile-approve\.js"><\/script>/);
 assert.match(read("crates/magnus/src/ui/assets.rs"), /manifest\.webmanifest/);
 assert.match(read("crates/magnus/src/ui/assets.rs"), /mobile-approve\.js/);
-assert.match(read("desktop/ui/app.js"), /route\(\/\^#\\\/approve/);
-assert.match(read("desktop/ui/app.js"), /Mobile Approvals/);
+assert.match(readAppBundle(), /route\(\/\^#\\\/approve/);
+assert.match(readAppBundle(), /Mobile Approvals/);
 assert.match(read("desktop/ui/settings-sections.js"), /data-copy-mobile-approve/);
 assert.match(read("desktop/ui/pages.css"), /\.mobile-approve-shell/);
 

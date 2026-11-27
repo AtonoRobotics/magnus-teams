@@ -3,6 +3,7 @@
 // one's own message, the people page's rules (add, remove, leave, delete),
 // the Admin › People › Workspaces list, and the pop-ups with what they say.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -145,6 +146,6 @@ const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "
 assert.ok(card.includes("data-reply") && card.includes('data-react="'), "a work card cannot be reacted to or replied to");
 // The reactions menu is a row, and says so, so Left and Right move along it.
 assert.match(post, /class="action-menu reactions"[^>]*aria-orientation="horizontal"/, "the reactions row does not say it is a row");
-assert.match(readFileSync(join(here, "../ui/app.js"), "utf8"), /aria-orientation"\) === "horizontal"/, "menus ignore a row's orientation");
+assert.match(readAppBundle(), /aria-orientation"\) === "horizontal"/, "menus ignore a row's orientation");
 assert.ok(!post.includes("tm-actions") && !readFileSync(join(here, "../ui/teams.css"), "utf8").includes(".tm-actions"), "a post's controls hide in a hover toolbar");
 console.log("team own ok");

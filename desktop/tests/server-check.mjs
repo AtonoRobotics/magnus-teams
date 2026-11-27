@@ -4,6 +4,7 @@
 // limit's offer, the update screen on 426, "Outcome not confirmed" for a
 // change whose reply was lost, and a read for a view no longer on screen.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,7 @@ assert.equal(scripts.indexOf("server.js"), scripts.indexOf("bridge.js") + 1, "in
 assert.ok(read("crates/magnus/src/ui/assets.rs").includes(`("server.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/server.js"))`), "the server serves server.js");
 assert.ok(read("ci/fast.sh").includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 // The transport carries requests; the policy is server.js's alone.
-const bridge = read("desktop/ui/bridge.js"), app = read("desktop/ui/app.js");
+const bridge = read("desktop/ui/bridge.js"), app = readAppBundle();
 assert.ok(!bridge.includes("426") && !bridge.includes("step_up"), "bridge.js holds error policy of its own");
 // Every script asks through Server: none spells out a request of its own.
 for (const f of readdirSync(join(root, "desktop/ui")).filter(f => f.endsWith(".js") && f !== "bridge.js" && f !== "server.js")) {

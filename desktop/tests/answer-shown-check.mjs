@@ -8,6 +8,7 @@
 //   before Sam's "Allow" leaves no "✓ Allowed" on Sam's thread;
 // - an approval box says the answer only once it is told (aurora-stage.js).
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,7 +163,7 @@ const said = (/** @type {El} */ line) => line.querySelector(".aurora-decision-sa
 
 // 1. respond() tells the answer only once the server took it.
 {
-  const app = read("app.js");
+  const app = readAppBundle();
   const start = app.indexOf("async function respond(btn, root) {");
   assert.ok(start >= 0, "app.js has respond(btn, root)");
   const src = app.slice(start, app.indexOf("\n}\n", start) + 2);

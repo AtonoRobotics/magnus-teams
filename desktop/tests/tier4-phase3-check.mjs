@@ -2,6 +2,7 @@
 //   - Live Command Palette items for pending approvals and recent/live tasks
 //   - Verifiable receipt export (Markdown + JSON) in evidence.js
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -37,7 +38,7 @@ assert.match(html, /data-evidence-copy-md="t-99"/, "evidenceSection renders Copy
 assert.match(html, /data-evidence-download-json="t-99"/, "evidenceSection renders Export JSON button");
 
 // 2. Verify live approvals and tasks in Command Palette
-const appSrc = read("desktop/ui/app.js");
+const appSrc = readAppBundle();
 assert.match(appSrc, /label: `Approval:/, "Command Palette includes pending approval entries");
 assert.match(appSrc, /\(App\.tasks \|\| \[\]\)\.slice\(0,\s*12\)\.map/, "Command Palette includes live & recent task entries");
 

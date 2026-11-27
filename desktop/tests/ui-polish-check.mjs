@@ -10,6 +10,7 @@
 // - polite screen-reader reply announcements, centralized --z-* stacking scale,
 //   Workspace.openDrawer hook, and app.js domain extraction.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -173,7 +174,7 @@ const read = f => readFileSync(join(ui, f), "utf8");
 }
 
 // --- 2. Batch 1: Settings, unified Cmd+K, dead code & stale labels ---
-const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 const teamCmd = read("team-command.js");
 const teamsCss = read("teams.css");
 const teamPanel = read("team-panel.js");

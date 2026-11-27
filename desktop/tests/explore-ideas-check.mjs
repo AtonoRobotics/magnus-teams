@@ -9,6 +9,7 @@
 // - an empty Tasks or Schedules offers the ideas, linking to Explore;
 // - the app loads it before Explore.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (/** @type {string} */ f) => readFileSync(join(here, "../ui", f), "utf8");
-const code = read("explore-ideas.js"), app = read("app.js"), tasksSchedules = read("tasks-schedules.js"), discover = read("discover.js"), index = read("index.html");
+const code = read("explore-ideas.js"), app = readAppBundle(), tasksSchedules = read("tasks-schedules.js"), discover = read("discover.js"), index = read("index.html");
 
 const ctx = { String };
 vm.createContext(ctx);

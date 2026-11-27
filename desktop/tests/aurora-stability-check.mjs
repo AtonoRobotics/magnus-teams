@@ -3,6 +3,7 @@
 // container-responsive conversation header, and update flow
 // (decisions/2026-11-22-aurora-stability-navigation-and-updates.md).
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -138,7 +139,7 @@ const aurora = read("ui/aurora.js");
 const stage = read("ui/aurora-stage.js");
 const exploreAnim = read("ui/aurora-explore.js");
 const rail = read("ui/aurora-rail.js");
-const app = ["ui/app.js", "ui/app-library.js", "ui/app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 const admin = read("ui/admin.js");
 const stageCss = read("ui/aurora-stage.css");
 const updateRs = read("src-tauri/src/update.rs");

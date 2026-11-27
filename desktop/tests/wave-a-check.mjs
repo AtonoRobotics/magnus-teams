@@ -2,6 +2,7 @@
 // deliverable bar, personal spend meter, Memory & Promises settings tab, truthful onboarding,
 // and approval card fixes.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +11,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
 const read = f => readFileSync(join(root, f), "utf8");
 
-const app = ["desktop/ui/app.js", "desktop/ui/app-library.js", "desktop/ui/app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 const ts = read("desktop/ui/tasks-schedules.js");
 const compose = read("desktop/ui/compose.js");
 const frames = read("desktop/ui/composed-frames.js");

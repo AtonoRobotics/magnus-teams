@@ -4,13 +4,14 @@
 // was sized from the whole pane, so the padding ate its width. A capped
 // banner's padding is fixed, and every notice can be closed.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ui = join(dirname(fileURLToPath(import.meta.url)), "../ui");
 const css = ["base.css", "layout.css", "chat.css", "pages.css"].map(f => readFileSync(join(ui, f), "utf8")).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
-const js = readFileSync(join(ui, "app.js"), "utf8");
+const js = readAppBundle();
 
 const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, sel]) => sel.split(",").some(s => s.includes("#banners")));
 assert.ok(rules.length > 0, "the stylesheets style #banners");

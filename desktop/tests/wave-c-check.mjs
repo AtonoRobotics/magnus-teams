@@ -3,6 +3,7 @@
 // clear, block-level Edit with Magnus, deterministic receipt Undo, Ask Magnus
 // about file, inline project rename, and sidebar conversation quick delete.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -11,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const uiDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui");
 const read = f => fs.readFileSync(path.join(uiDir, f), "utf8");
 
-const appSrc = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
+const appSrc = readAppBundle();
 const noticesSrc = read("notices.js");
 const composerSrc = read("chat-composer.js");
 const framesSrc = read("composed-frames.js");

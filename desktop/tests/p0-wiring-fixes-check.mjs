@@ -9,6 +9,7 @@
 // 4. Desktop Tauri bridge in bridge.js exposes pickFolder().
 // 5. Blocking approval notices in app-polling.js deep-link to #/approve?ask=<id> on mobile widths.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -26,7 +27,7 @@ const read = rel => fs.readFileSync(path.join(ROOT, rel), "utf8");
   assert.equal(S.derivePhase(), "planning", "UIStore.derivePhase must derive planning from task_id task");
   S.setTask({ task_id: "t_real_1", status: "completed" });
   assert.equal(S.derivePhase(Date.now()), "done", "UIStore.setTask must track completion by task_id");
-  assert.match(read("desktop/ui/app.js"), /asks:\s*typeof needsMe === "function" \? needsMe\(\) : \[\]/, "app.js must publish needsMe() to UIStore.asks");
+  assert.match(readAppBundle(), /asks:\s*typeof needsMe === "function" \? needsMe\(\) : \[\]/, "app.js must publish needsMe() to UIStore.asks");
 }
 
 // 2. Behavioral test: MobileApprove end-to-end with real Server.inbox, respond(btn, main), and Admin Emergency Stop
@@ -85,7 +86,7 @@ const read = rel => fs.readFileSync(path.join(ROOT, rel), "utf8");
 }
 
 // 3. PlanSurface.renderLiveCard mounted in app.js case "turn"
-assert.match(read("desktop/ui/app.js"), /PlanSurface\.renderLiveCard\(e\.task_id\)/, "app.js must mount PlanSurface.renderLiveCard(e.task_id) in turn entries");
+assert.match(readAppBundle(), /PlanSurface\.renderLiveCard\(e\.task_id\)/, "app.js must mount PlanSurface.renderLiveCard(e.task_id) in turn entries");
 
 // 4. Desktop Tauri bridge exposes pickFolder()
 const bridge = read("desktop/ui/bridge.js");

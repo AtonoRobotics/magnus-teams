@@ -2,6 +2,7 @@
 // dynamic bento boxes, right-sidebar top-bar tabs, schedule deletion, and
 // multi-task deletion (decisions/2026-11-23-rich-agent-ux-bento-and-concurrency.md).
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,7 +148,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
 }
 
 // 5. Right sidebar top-bar tabs (both standard & Aurora), keeping sidebar open on task delete, and dynamic bento wiring.
-const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 const stage = read("aurora-stage.js") + "\n" + read("aurora-stage-view.js");
 const chatCss = read("chat.css");
 

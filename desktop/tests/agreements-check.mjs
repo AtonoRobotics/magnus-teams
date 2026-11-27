@@ -4,6 +4,7 @@
 // tester program joined only by accepting the Tester Terms; and Admin ›
 // People showing who is a tester.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +25,7 @@ for (const f of ["agreements.js", "admin-testers.js"]) {
   assert.ok(assets.includes(`include_bytes!("../../../../desktop/ui/${f}")`), `the server serves ${f}`);
 }
 assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
-const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 assert.match(app, /App\.me = await Server\.me\(\);\s*\/\/[^\n]*\n\s*if \(!\(await agreementsGate\(\)\)\)/, "boot does not ask for the agreements before the app opens");
 assert.ok(app.includes(`["agreements", "Agreements", (el) => agreementsSection(el)]`), "Settings has no Agreements section");
 assert.ok(read("admin-people.js").includes("adminTesters("), "Admin › People does not show the testers");

@@ -10,6 +10,7 @@
 // - the share dialog reads its conversation under its own name, so the
 //   chat's redraw cannot leave it empty.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +18,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = f => readFileSync(join(here, "../ui", f), "utf8");
-const app = read("app.js"), canvas = read("shared-canvas.js");
+const app = readAppBundle(), canvas = read("shared-canvas.js");
 /** A top-level piece of app.js, from its first line to the line that closes it. */
 const piece = (src, start, end = "\n}\n") => {
   const at = src.indexOf(start);

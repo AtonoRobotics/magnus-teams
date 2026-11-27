@@ -13,6 +13,7 @@
 //    and Discovery Wizard weekday templates use weekdays_at.
 // 8. User-facing Nova copy has no internal "Cedar" jargon, and Settings links to Trash.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,7 +82,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   assert.equal(topBox.hidden, true, "adminStop must hide top-bar kill switch");
   assert.equal(topBox.html, "", "adminStop must clear top-bar kill switch");
   assert.match(ui("nova-frame.js"), /data-admin-kill-top/, "nova-frame.js must mount data-admin-kill-top");
-  assert.match(ui("app.js"), /id="workspace-bar"[\s\S]*data-admin-kill-top/, "workspace-bar must mount data-admin-kill-top");
+  assert.match(readAppBundle(), /id="workspace-bar"[\s\S]*data-admin-kill-top/, "workspace-bar must mount data-admin-kill-top");
 }
 
 // 3. Spend request payload + Admin Agents Idle badge + Admin Spend clean copy.
@@ -117,7 +118,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   assert.match(compSrc, /if \(k === "b"\) \{ e\.preventDefault\(\); e\.stopPropagation\(\);/, "Cmd/Ctrl+B in composer must stopPropagation");
   assert.match(compSrc, /if \(\(!text && !record\.files\.length\) \|\| record\.sending\) return;/, "composer must allow file-only message submission");
   assert.doesNotMatch(compSrc, /<textarea[^>]*\brequired\b/, "composer textarea must not set required so file-only submits work");
-  assert.match(ui("app.js"), /document\.addEventListener\("keydown",e=>\{\s*if\(e\.defaultPrevented\)return;/, "app.js global shortcuts must respect defaultPrevented");
+  assert.match(readAppBundle(), /document\.addEventListener\("keydown",e=>\{\s*if\(e\.defaultPrevented\)return;/, "app.js global shortcuts must respect defaultPrevented");
   assert.match(ui("aurora-rail.js"), /document\.addEventListener\("keydown", e => \{\s*if \(e\.defaultPrevented\) return;/, "aurora-rail.js Ctrl+B must respect defaultPrevented");
 
   // Behavioral check: Edit-and-resend cancel keeps editing open and preserves draft.
@@ -150,7 +151,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   const novaUx = ui("nova-ux.js");
   assert.match(novaUx, /if \(!isNova\(\) \|\| e\.defaultPrevented \|\| e\.metaKey \|\| e\.ctrlKey \|\| e\.altKey\) return;/, "A/E/D triage must require Nova and ignore defaultPrevented");
   assert.match(novaUx, /if \(document\.querySelector\("dialog\[open\]"\)\) return;/, "A/E/D triage must not fire when a modal dialog is open");
-  const appSrc = ui("app.js");
+  const appSrc = readAppBundle();
   assert.match(appSrc, /Format composer text/, "Shortcuts modal must document composer formatting shortcuts");
   assert.match(appSrc, /Triage waiting approval/, "Shortcuts modal must document approval triage shortcuts");
 }

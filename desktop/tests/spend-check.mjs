@@ -2,6 +2,7 @@
 // more" where a spent limit stops their work. Wiring is checked in the page's
 // files; the sections and the ask are run with the page's helpers stubbed.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +11,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
-const page = read("index.html"), app = read("app.js"), spend = read("admin-spend.js"), server = read("server.js");
+const page = read("index.html"), app = readAppBundle(), spend = read("admin-spend.js"), server = read("server.js");
 const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
 
 // Wiring.

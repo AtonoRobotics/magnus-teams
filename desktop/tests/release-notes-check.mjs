@@ -3,6 +3,7 @@
 // installed app's What's new card broke each sentence at the wrap and showed
 // Co-Authored-By.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +31,7 @@ assert.equal(releaseNotesHtml(""), "<p>Fixes and improvements.</p>");
 assert.equal(releaseNotesHtml("Signed-off-by: A <a@b.test>"), "<p>Fixes and improvements.</p>");
 assert.equal(releaseNotesHtml("<b>x</b>"), "<p>&#60;b&#62;x&#60;/b&#62;</p>");
 
-const app = readFileSync(join(ui, "app.js"), "utf8");
+const app = readAppBundle();
 const settings = readFileSync(join(ui, "settings-sections.js"), "utf8");
 assert.match(app, /<div class="notes">\$\{releaseNotesHtml\(n\.notes\)\}<\/div>/, "What's new uses the shared notes");
 assert.match(settings, /const para = releaseNotesHtml;/, "Settings › Updates uses the shared notes");

@@ -2,6 +2,7 @@
 // Staged Drafts UI, Trust Graduation suggestions + App picker + @domain wildcards,
 // Visual Routine Creator/Editor with calendar-grade cadences, Dry run, and fixed Playbooks.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +12,7 @@ const root = join(here, "../..");
 const read = f => readFileSync(join(root, f), "utf8");
 
 const asks = read("desktop/ui/asks.js");
-const app = ["desktop/ui/app.js", "desktop/ui/app-library.js", "desktop/ui/app-settings.js"].map(read).join("\n");
+const app = readAppBundle();
 const rules = read("desktop/ui/rules.js");
 const ts = read("desktop/ui/tasks-schedules.js");
 const discover = read("desktop/ui/discover.js");

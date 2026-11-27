@@ -4,6 +4,7 @@
 // 2. app.js respond() surfaces an inline Trust Graduation toast action after repeated approvals.
 // 3. rules.js ruleForm renders human-readable #rule-actions-list capability presets.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,7 +60,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
 
 // 2. Inline Trust Graduation after repeated approvals in app.js.
 {
-  const appSrc = ui("app.js");
+  const appSrc = readAppBundle();
   assert.match(appSrc, /Server\.rules\?\.suggestions[\s\S]*label:\s*"Allow automatically"/, "respond() must offer inline Trust Graduation toast action after approval");
 }
 

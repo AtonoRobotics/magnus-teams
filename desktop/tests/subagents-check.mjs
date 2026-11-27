@@ -2,6 +2,7 @@
 // doing, its status, what it waits on and its result, as app.js and
 // subagents.js draw a thread's entries.
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,7 +47,7 @@ assert.match(sandbox.subAgentsCard({ ...entry, agents: [entry.agents[1]] }), /A 
 // app.js draws the entry with the card; the personal chat (personal-chat.js)
 // waits on what the sub-agents wait on and offers no message actions for
 // it; and the page loads subagents.js.
-const app = ui("app.js"), personal = ui("personal-chat.js");
+const app = readAppBundle(), personal = ui("personal-chat.js");
 assert.match(app, /case "sub_agents": return subAgentsCard\(e, ui\);/, "the conversation does not draw sub-agents");
 assert.match(personal, /e\.kind === "sub_agents" \? e\.agents\.map\(a => a\.waiting_item\)/, "a sub-agent's decision is not read before the thread is drawn");
 {

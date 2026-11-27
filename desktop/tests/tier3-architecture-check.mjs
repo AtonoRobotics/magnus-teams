@@ -4,6 +4,7 @@
 //   - nova-ux.js and nova-frame.js retired their global MutationObserver fallbacks
 //     in favor of UIStore subscriptions and app.js's coalesced magnus-render hook
 import assert from "node:assert/strict";
+import { readAppBundle } from "./app-bundle.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -28,13 +29,13 @@ assert.match(novaFrame, /magnus-render/, "nova-frame.js must listen for magnus-r
 assert.match(novaFrame, /UIStore\.subscribe/, "nova-frame.js must subscribe to UIStore");
 
 // 3. app.js emits coalesced magnus-render from paint()
-const appJs = read("desktop/ui/app.js");
+const appJs = readAppBundle();
 assert.match(appJs, /new CustomEvent\("magnus-render"\)/, "app.js paint() must emit coalesced magnus-render event");
 
 // 4. Extracted modules registered in index.html and crates/magnus/src/ui/assets.rs
 const indexHtml = read("desktop/ui/index.html");
 assert.match(indexHtml, /<script src="aurora-stage-view\.js"><\/script>\s*<script src="aurora-stage\.js"><\/script>/);
-assert.match(indexHtml, /<script src="app\.js"><\/script>\s*<script src="app-files\.js"><\/script>/);
+assert.match(indexHtml, /<script src="app\.js"><\/script>\s*<script src="app-shell\.js"><\/script>\s*<script src="app-files\.js"><\/script>/);
 const assetsRs = read("crates/magnus/src/ui/assets.rs");
 assert.match(assetsRs, /aurora-stage-view\.js/);
 assert.match(assetsRs, /app-files\.js/);

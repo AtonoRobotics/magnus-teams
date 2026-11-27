@@ -19,16 +19,22 @@ const aurora = read("desktop/ui/aurora.js");
 assert.doesNotMatch(aurora, /new MutationObserver\(handleDom\)/, "aurora.js must not instantiate fallback handleDom MutationObserver");
 assert.match(aurora, /magnus-render/, "aurora.js listens for magnus-render");
 
-// 2. Extracted modules are strictly < 800 lines and registered
-assert.ok(lines("desktop/ui/app-library.js") < 800, "app-library.js must be < 800 lines");
-assert.ok(lines("desktop/ui/app-settings.js") < 800, "app-settings.js must be < 800 lines");
-assert.ok(lines("desktop/ui/app.js") < 2800, `app.js should have shrunk below 2800 lines (got ${lines("desktop/ui/app.js")})`);
+// 2. Extracted modules and app.js are all strictly < 800 lines and registered
+for (const m of ["app.js", "app-shell.js", "app-files.js", "app-polling.js", "app-chat.js", "app-inbox.js", "app-panel.js", "app-library.js", "app-settings.js", "app-boot.js"]) {
+  assert.ok(lines(`desktop/ui/${m}`) < 800, `${m} must be < 800 lines (got ${lines(`desktop/ui/${m}`)})`);
+}
 
 const indexHtml = read("desktop/ui/index.html");
+assert.match(indexHtml, /<script src="app-shell\.js"><\/script>/);
+assert.match(indexHtml, /<script src="app-chat\.js"><\/script>/);
+assert.match(indexHtml, /<script src="app-inbox\.js"><\/script>/);
+assert.match(indexHtml, /<script src="app-panel\.js"><\/script>/);
 assert.match(indexHtml, /<script src="app-library\.js"><\/script>/);
 assert.match(indexHtml, /<script src="app-settings\.js"><\/script>/);
+assert.match(indexHtml, /<script src="app-boot\.js"><\/script>/);
 const assetsRs = read("crates/magnus/src/ui/assets.rs");
-assert.match(assetsRs, /app-library\.js/);
-assert.match(assetsRs, /app-settings\.js/);
+for (const m of ["app-shell.js", "app-chat.js", "app-inbox.js", "app-panel.js", "app-library.js", "app-settings.js", "app-boot.js"]) {
+  assert.match(assetsRs, new RegExp(m.replace(".", "\\.")));
+}
 
 console.log(`tier5-phase4-check: ok (app.js=${lines("desktop/ui/app.js")}L, app-library.js=${lines("desktop/ui/app-library.js")}L, app-settings.js=${lines("desktop/ui/app-settings.js")}L)`);
