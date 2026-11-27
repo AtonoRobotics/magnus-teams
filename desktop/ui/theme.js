@@ -27,97 +27,6 @@
     "t-read": "#8E8E96", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
     "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8E8E96", "k-tool": "#FDBA74",
   };
-  const PRISM_LIGHT = {
-    ...LIGHT,
-    bg: "#FFFFFF", side: "#F0F4F9", panel: "#F0F4F9", main: "#FFFFFF", surface: "#F0F4F9", raised: "#E9EEF6",
-    bubble: "#E9EEF6", seg: "#E1E5EA", "seg-on": "#FFFFFF",
-    fg: "#1F1F1F", fg2: "#444746", muted: "#5A5E66", faint: "#5A5E66",
-    line: "#DDE3EA", hair: "#E8EDF2", "line-strong": "#C4C7C5", "btn-border": "#C4C7C5", "button-bg": "#F0F4F9",
-    "row-sel": "rgba(31,31,31,0.055)", search: "rgba(31,31,31,0.06)", "group-head": "#F0F4F9", "row-hi": "#E8F0FE",
-    shadow: "0 2px 12px rgba(15,23,42,0.06)",
-  };
-  const PRISM_DARK = {
-    ...DARK,
-    bg: "#131314", side: "#1E1F20", panel: "#1E1F20", main: "#131314", surface: "#1E1F20", raised: "#282A2C",
-    bubble: "#282A2C", seg: "#282A2C", "seg-on": "#333537",
-    fg: "#E3E3E3", fg2: "#C4C7C5", muted: "#9AA0A6", faint: "#9AA0A6",
-    line: "#2E3033", hair: "#242628", "line-strong": "#444746", "btn-border": "#3C4043", "button-bg": "#1E1F20",
-    "row-sel": "rgba(227,227,227,0.07)", search: "rgba(227,227,227,0.07)", "group-head": "#1E1F20", "row-hi": "#282A2C",
-    shadow: "0 4px 20px rgba(0,0,0,0.36)",
-  };
-  const OBSIDIAN2_LIGHT = {
-    ...LIGHT,
-    bg: "#F1F3F6", side: "#F1F3F6", panel: "#F1F3F6", main: "#FFFFFF", surface: "#F6F7F9", raised: "#EAECEF",
-    bubble: "#EAECEF", seg: "#E5E8EE", "seg-on": "#FFFFFF",
-    line: "#E2E5EA", hair: "#ECEFF4", "line-strong": "#CBD5E1", "btn-border": "#D1D5DB", "button-bg": "#FFFFFF",
-    "row-sel": "rgba(15,23,42,0.055)", search: "rgba(15,23,42,0.06)", "group-head": "#F6F7F9", "row-hi": "#E8EEF8",
-  };
-  const OBSIDIAN2_DARK = {
-    ...DARK,
-    bg: "#121215", side: "#121215", panel: "#121215", main: "#000000", surface: "#121215", raised: "#1C1C21",
-    bubble: "#18181C", seg: "#141418", "seg-on": "#222227",
-    line: "#1F1F24", hair: "#18181D", "line-strong": "#2E2E36", "btn-border": "#27272E", "button-bg": "#18181C",
-    "row-sel": "rgba(255,255,255,0.055)", search: "rgba(255,255,255,0.055)", "group-head": "#141418", "row-hi": "#222227",
-    shadow: "0 8px 28px rgba(0,0,0,0.7)",
-  };
-  const STUDIO_LIGHT = {
-    ...LIGHT,
-    bg: "#F8F9FA", side: "#F1F3F4", panel: "#FFFFFF", main: "#FFFFFF", surface: "#F8F9FA", raised: "#E8EAED",
-    bubble: "#F1F3F4", seg: "#E8EAED", "seg-on": "#FFFFFF",
-    fg: "#202124", fg2: "#444746", muted: "#5F6368", faint: "#5F6368",
-    line: "#DADCE0", hair: "#E8EAED", "line-strong": "#BDC1C6", "btn-border": "#DADCE0", "button-bg": "#FFFFFF",
-    "row-sel": "rgba(32,33,36,0.055)", search: "rgba(32,33,36,0.06)", "group-head": "#F8F9FA", "row-hi": "#E8F0FE",
-    shadow: "0 2px 12px rgba(15,23,42,0.06)",
-  };
-  const STUDIO_DARK = {
-    ...DARK,
-    bg: "#181819", side: "#141415", panel: "#181819", main: "#181819", surface: "#232325", raised: "#2C2D30",
-    bubble: "#232325", seg: "#1E1F22", "seg-on": "#2C2D30",
-    fg: "#E8EAED", fg2: "#C4C7C5", muted: "#9AA0A6", faint: "#9AA0A6",
-    line: "#2E3034", hair: "#232326", "line-strong": "#3C3D40", "btn-border": "#3C3D40", "button-bg": "#232325",
-    "row-sel": "rgba(232,234,237,0.06)", search: "rgba(232,234,237,0.06)", "group-head": "#1E1F22", "row-hi": "#26272A",
-    shadow: "0 4px 20px rgba(0,0,0,0.40)",
-  };
-  const AURORA_LIGHT = {
-    ...LIGHT,
-    bg: "#F4F7FE", side: "#EEF3FC", panel: "#F6F9FF", main: "#FAFBFD", surface: "#FFFFFF", raised: "#EAF0FB",
-    bubble: "#EDF3FD", seg: "#E5ECF9", "seg-on": "#FFFFFF",
-    fg: "#0D1526", fg2: "#3B4A66", muted: "#586885", faint: "#586885",
-    line: "#DCE5F4", hair: "#E9EFFA", "line-strong": "#B8C7E2", "btn-border": "#CBD7EC", "button-bg": "#FFFFFF",
-    "row-sel": "rgba(37,99,235,0.07)", search: "rgba(37,99,235,0.06)", "group-head": "#F1F5FD", "row-hi": "#E6EFFD",
-    shadow: "0 12px 36px rgba(15,35,75,0.08)",
-    "aurora-glass": "rgba(255,255,255,0.74)", "aurora-glass-strong": "rgba(255,255,255,0.88)",
-    "aurora-rim": "rgba(37,99,235,0.14)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#8B5CF6",
-    "aurora-exec-text": "#0369A1", "aurora-sweep": "rgba(56,189,248,0.10)",
-    "aurora-spot": "rgba(59,130,246,0.13)",
-  };
-  const AURORA_DARK = {
-    ...DARK,
-    bg: "#05070E", side: "#080C18", panel: "#090E1C", main: "#060913", surface: "#0E1424", raised: "#151E34",
-    bubble: "#121A2E", seg: "#0E1526", "seg-on": "#1B2640",
-    fg: "#F4F7FC", fg2: "#BBC6DC", muted: "#8393B2", faint: "#8393B2",
-    line: "#1C263D", hair: "#131B2E", "line-strong": "#2E3D5E", "btn-border": "#263350", "button-bg": "#0F1628",
-    "row-sel": "rgba(96,165,250,0.10)", search: "rgba(96,165,250,0.08)", "group-head": "#0C1221", "row-hi": "#16213A",
-    shadow: "0 18px 48px rgba(0,4,16,0.62)",
-    "aurora-glass": "rgba(13,19,34,0.62)", "aurora-glass-strong": "rgba(15,22,40,0.82)",
-    "aurora-rim": "rgba(186,215,255,0.12)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#9B6DFF",
-    "aurora-exec-text": "#38BDF8", "aurora-sweep": "rgba(186,230,253,0.08)",
-    "aurora-spot": "rgba(79,157,255,0.20)",
-  };
-  const OBSIDIAN_AURORA_LIGHT = {
-    ...OBSIDIAN2_LIGHT,
-    "aurora-glass": "rgba(246,247,249,0.78)", "aurora-glass-strong": "rgba(255,255,255,0.92)",
-    "aurora-rim": "rgba(15,23,42,0.11)", "aurora-beam-a": "#3B5BDB", "aurora-beam-b": "#64748B",
-    "aurora-exec-text": "#3B5BDB", "aurora-sweep": "rgba(59,91,219,0.08)",
-    "aurora-spot": "rgba(59,91,219,0.09)",
-  };
-  const OBSIDIAN_AURORA_DARK = {
-    ...OBSIDIAN2_DARK,
-    "aurora-glass": "rgba(16,16,20,0.72)", "aurora-glass-strong": "rgba(22,22,27,0.90)",
-    "aurora-rim": "rgba(255,255,255,0.11)", "aurora-beam-a": "#E4E4E7", "aurora-beam-b": "#7C8CFF",
-    "aurora-exec-text": "#E4E4E7", "aurora-sweep": "rgba(228,228,231,0.06)",
-    "aurora-spot": "rgba(255,255,255,0.09)",
-  };
   const NOVA_LIGHT = {
     ...LIGHT,
     bg: "#F4F6FA", side: "#F4F6FA", panel: "#F4F6FA", main: "#FFFFFF", surface: "#F5F7FB", raised: "#EBF0F8",
@@ -153,6 +62,19 @@
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
   const DEFAULTS = { style: "nova", mode: "dark", accent: "blue", motion: "full", background: "particles", avatar: "pip" };
+  /** Maps retired legacy theme ids to their consolidated first-class replacement. */
+  const LEGACY_STYLE_ALIASES = {
+    obsidian: "classic",
+    "obsidian-2": "classic",
+    prism: "classic",
+    studio: "classic",
+    antigravity: "classic",
+    companion: "classic",
+    gemini: "classic",
+    aurora: "nova",
+    "obsidian-aurora": "nova",
+  };
+  const resolveStyle = s => LEGACY_STYLE_ALIASES[/** @type {keyof typeof LEGACY_STYLE_ALIASES} */ (s)] || s;
   const BASE_FEATURES = {
     stage: false,
     defaultAvatar: null,
@@ -202,46 +124,14 @@
     },
   });
   register({
-    id: "obsidian", label: "Obsidian",
+    id: "classic", label: "Classic",
     palettes: { light: LIGHT, dark: DARK },
     radii: { "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px", "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "12px", "focus-ring": "0 0 0 1px var(--accent)" },
     defaultAccent: "graphite",
   });
-  register({
-    id: "obsidian-2", label: "Obsidian 2",
-    palettes: { light: OBSIDIAN2_LIGHT, dark: OBSIDIAN2_DARK },
-    radii: { "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px", "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px", "focus-ring": "0 0 0 1px var(--accent)" },
-    defaultAccent: "blue",
-  });
-  register({
-    id: "obsidian-aurora", label: "Obsidian 2 Aurora",
-    palettes: { light: OBSIDIAN_AURORA_LIGHT, dark: OBSIDIAN_AURORA_DARK },
-    radii: { "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px", "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px", "focus-ring": "0 0 0 1px var(--accent)" },
-    defaultAccent: "graphite",
-    features: { stage: true, defaultAvatar: "orb" },
-  });
-  register({
-    id: "prism", label: "Prism",
-    palettes: { light: PRISM_LIGHT, dark: PRISM_DARK },
-    radii: { "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "20px", "r-xl": "24px", "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "24px", "focus-ring": "0 0 0 3px var(--accent-soft)" },
-    defaultAccent: "blue",
-  });
-  register({
-    id: "studio", label: "Studio",
-    palettes: { light: STUDIO_LIGHT, dark: STUDIO_DARK },
-    radii: { "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "16px", "r-xl": "22px", "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "22px", "focus-ring": "0 0 0 2px var(--accent-soft)" },
-    defaultAccent: "blue",
-  });
-  register({
-    id: "aurora", label: "Aurora",
-    palettes: { light: AURORA_LIGHT, dark: AURORA_DARK },
-    radii: { "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "22px", "r-xl": "26px", "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px", "focus-ring": "0 0 0 3px var(--accent-soft)" },
-    defaultAccent: "blue",
-    features: { stage: true, defaultAvatar: "orb" },
-  });
 
-  const active = () => (typeof document !== "undefined" && document.documentElement?.dataset?.style) || DEFAULTS.style;
-  const get = style => THEMES[style || active()] || THEMES[DEFAULTS.style];
+  const active = () => resolveStyle((typeof document !== "undefined" && document.documentElement?.dataset?.style) || DEFAULTS.style);
+  const get = style => THEMES[resolveStyle(style || active())] || THEMES[DEFAULTS.style];
   const has = (feature, style) => Boolean(get(style)?.features?.[feature]);
   const stage = style => has("stage", style);
   const AVATAR_CHOICES = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Luminous Orb"], ["prism", "Prism Sprite"]];
@@ -310,7 +200,8 @@
     const dark = p.mode === "dark" || (p.mode === "system" && !!os.dark);
     const order = ["off", "reduced", "full"];
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
-    const style = THEMES[p.style] ? p.style : DEFAULTS.style;
+    const resolved = resolveStyle(p.style);
+    const style = THEMES[resolved] ? resolved : DEFAULTS.style;
     const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
     const background = BACKGROUNDS.some(b => b[0] === p.background) ? p.background : DEFAULTS.background;
     const companion = AVATAR_CHOICES.some(a => a[0] === p.avatar) ? p.avatar : DEFAULTS.avatar;
@@ -319,7 +210,8 @@
 
   function tokens(look) {
     const dark = look.mode === "dark";
-    const def = get(THEMES[look.style] ? look.style : DEFAULTS.style);
+    const resolved = resolveStyle(look.style);
+    const def = get(THEMES[resolved] ? resolved : DEFAULTS.style);
     const basePal = dark ? def.palettes.dark : def.palettes.light;
     const t = { ...basePal, ...def.radii };
     t.shell = t.bg;
@@ -337,8 +229,7 @@
       const mode = v.followComputer ? "system" : v.theme === "custom" ? v.mode : ["dark", "ember"].includes(v.theme) ? "dark" : "light";
       v = { ...v, style: DEFAULTS.style, mode, accent: v.theme === "custom" ? v.accent : DEFAULTS.accent };
     }
-    if (v.style === "antigravity") v = { ...v, style: "obsidian" };
-    else if (v.style === "companion" || v.style === "gemini") v = { ...v, style: "prism" };
+    if (typeof v.style === "string") v = { ...v, style: resolveStyle(v.style) };
     // A record from before the Theme choice was written on first load, so its
     // "blue" is the old default (Indigo), not a choice: it takes today's.
     if (value && typeof value === "object" && !("style" in v) && v.accent === "blue") v = { ...v, accent: DEFAULTS.accent };

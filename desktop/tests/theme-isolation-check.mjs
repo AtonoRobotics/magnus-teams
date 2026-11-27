@@ -23,9 +23,6 @@ for (const sheet of BASE_SHEETS) {
 
 // 2. Each theme stylesheet may only target its own declared theme scope(s).
 const THEME_SCOPES = {
-  "theme-prism.css": new Set(["prism"]),
-  "theme-obsidian2.css": new Set(["obsidian-2"]),
-  "theme-studio.css": new Set(["studio"]),
   "aurora.css": new Set(["aurora", "obsidian-aurora"]),
   "aurora-widgets.css": new Set(["aurora", "obsidian-aurora"]),
   "aurora-stage.css": new Set(["aurora", "obsidian-aurora"]),
@@ -45,12 +42,12 @@ for (const [sheet, allowed] of Object.entries(THEME_SCOPES)) {
   }
 }
 
-// 3. Declarative Theme registry contract with Nova as default.
+// 3. Declarative Theme registry contract with Nova as default and Classic as fallback.
 const ctx = {};
 vm.runInNewContext(ui("theme.js"), ctx);
 const Theme = ctx.Theme;
 assert.equal(Theme.DEFAULTS.style, "nova", "Nova must be the default theme");
-assert.equal(Theme.STYLES[0][0], "nova", "Nova must be listed first in Theme.STYLES");
+assert.deepEqual([...Theme.STYLES.map(s => s[0])], ["nova", "classic"], "Consolidated registry must expose Nova and Classic");
 assert.equal(typeof Theme.get, "function", "Theme.get must be exported");
 assert.equal(typeof Theme.has, "function", "Theme.has must be exported");
 assert.equal(typeof Theme.register, "function", "Theme.register must be exported");
@@ -68,8 +65,10 @@ for (const [id, label] of Theme.STYLES) {
 assert.equal(Theme.has("topBar", "nova"), true, "Nova must declare topBar capability");
 assert.equal(Theme.has("docksSidebar", "nova"), true, "Nova must declare docksSidebar capability");
 assert.equal(Theme.has("pageCloseButton", "nova"), false, "Nova must declare pageCloseButton=false");
-assert.equal(Theme.has("topBar", "aurora"), false, "Aurora must not declare topBar");
-assert.equal(Theme.has("pageCloseButton", "aurora"), true, "Aurora must declare pageCloseButton=true");
+assert.equal(Theme.has("topBar", "classic"), false, "Classic must not declare topBar");
+assert.equal(Theme.has("pageCloseButton", "classic"), true, "Classic must declare pageCloseButton=true");
+assert.equal(Theme.get("prism").id, "classic", "Legacy prism alias resolves to classic");
+assert.equal(Theme.get("aurora").id, "nova", "Legacy aurora alias resolves to nova");
 
 // 4. Shared JS modules must query Theme capabilities instead of hardcoding `=== "nova"`.
 const SHARED_JS = ["app.js", "aurora-rail.js", "aurora-pages.js", "aurora-avatar.js", "discover.js"];

@@ -258,46 +258,29 @@ ctx.appearanceSection(appEl);
 assert.match(appEl.innerHTML, /<h3 id="style-h">Theme<\/h3>/);
 assert.match(appEl.innerHTML, /data-look="style" data-value="nova"/);
 assert.match(appEl.innerHTML, /data-look="avatar" data-value="pip"/);
-assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian"/);
-assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian-2"/);
-assert.match(appEl.innerHTML, /data-look="style" data-value="prism"/);
-assert.match(appEl.innerHTML, /data-look="style" data-value="studio"/);
+assert.match(appEl.innerHTML, /data-look="style" data-value="classic"/);
 assert.match(appEl.innerHTML, /data-custom-hex/);
 
 const clickLook = (look, value) => appEl.onclick({ target: { closest: q => q === "[data-look]" ? { dataset: { look, value }, focus() {} } : null } });
 assert.equal(ctx.Theme.prefs().style, "nova");
 assert.equal(ctx.Theme.prefs().accent, "blue");
-clickLook("style", "obsidian");
-assert.equal(ctx.Theme.prefs().style, "obsidian");
-assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Nova -> Obsidian auto-shifts blue -> graphite");
-clickLook("style", "prism");
-assert.equal(ctx.Theme.prefs().style, "prism");
-assert.equal(ctx.Theme.prefs().accent, "blue", "switching Obsidian -> Prism auto-shifts graphite -> blue");
-clickLook("style", "obsidian");
-assert.equal(ctx.Theme.prefs().style, "obsidian");
-assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Prism -> Obsidian auto-shifts blue -> graphite");
-clickLook("style", "obsidian-2");
-assert.equal(ctx.Theme.prefs().style, "obsidian-2");
-assert.equal(ctx.Theme.prefs().accent, "blue", "switching Obsidian -> Obsidian 2 auto-shifts graphite -> blue");
-clickLook("style", "studio");
-assert.equal(ctx.Theme.prefs().style, "studio");
+clickLook("style", "classic");
+assert.equal(ctx.Theme.prefs().style, "classic");
+assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Nova -> Classic auto-shifts blue -> graphite");
+clickLook("style", "nova");
+assert.equal(ctx.Theme.prefs().style, "nova");
+assert.equal(ctx.Theme.prefs().accent, "blue", "switching Classic -> Nova auto-shifts graphite -> blue");
 clickLook("accent", "emerald");
-clickLook("style", "prism");
+clickLook("style", "classic");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
-// 5. On-demand right sidebar toggle, rules panel handler, and multi-theme CSS rules.
+// 5. On-demand right sidebar toggle, rules panel handler, and base CSS rules.
 assert.match(app, /data-toggle-inspector/, "conversation header includes on-demand right sidebar toggle");
 assert.doesNotMatch(app, /openPanel\(needsMe\(\)\.length \? "needs" : "activity", \{ auto: true \}\)/, "right sidebar does not auto-open on startup");
 assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < B\.autoOpenMinWidthPx \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
 
-assert.match(read("theme-prism.css"), /html\[data-style="prism"\]\s*\.msg\.me/);
-assert.match(read("theme-obsidian2.css"), /html\[data-style="obsidian-2"\]\s*\.fchip-inline/);
-assert.match(read("theme-studio.css"), /html\[data-style="studio"\]\s*\.hello-hero/);
-assert.match(read("theme-prism.css"), /html\[data-style="prism"\]\s*\.panel-tabs/);
-assert.match(read("theme-obsidian2.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
-assert.match(read("theme-studio.css"), /html\[data-style="studio"\]\s*nav\.side/);
 assert.match(read("pages.css"), /\.gbox\s*\{\s*border:\s*0;/);
 
 // 6. No native browser confirm()/alert()/prompt() dialogs in any desktop UI script.
