@@ -85,6 +85,23 @@ try {
       check(`${mode}: ${name} has the controls in its bar`, () => assert.equal(f.controls, true, JSON.stringify(f)));
       check(`${mode}: ${name} has no lone close`, () => assert.equal(f.loneClose, false, JSON.stringify(f)));
     }
+    // The rail goes down item by item, clicked as a person clicks: rest on
+    // one until its label shows, then click the next. On 2026-11-26 the label
+    // lay over the next item in the installed app and took the click.
+    const order = [[".nav-projects", "#/projects"], [".nav-briefing", "#/briefing"], [".nav-explore", "#/explore"], [".nav-apps", "#/library"]];
+    await go("#/projects");
+    for (let i = 1; i < order.length; i++) {
+      const mid = async (/** @type {string} */ sel) => { const b = await page.locator(`.shell > nav.side ${sel}`).boundingBox(); return [(b?.x || 0) + (b?.width || 0) / 2, (b?.y || 0) + (b?.height || 0) / 2]; };
+      const [ax, ay] = await mid(order[i - 1][0]);
+      await page.mouse.move(ax, ay);
+      await page.waitForTimeout(700);
+      const [x, y] = await mid(order[i][0]);
+      const hit = await page.evaluate(([px, py]) => { const e = document.elementFromPoint(px, py); return e ? `${e.tagName}#${e.id}.${e.className}` : "nothing"; }, [x, y]);
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(1500);
+      const at = await page.evaluate(() => location.hash);
+      check(`${mode}: the rail goes from ${order[i - 1][1]} down to ${order[i][1]}`, () => assert.equal(at, order[i][1], `the point held ${hit}`));
+    }
     // Inbox opens beside the latest conversation, as the mockup's stage does.
     await go("#/inbox");
     f = await frame();

@@ -107,8 +107,10 @@ table.files td { vertical-align: top; }
 .project-instructions > summary::-webkit-details-marker { display: none; }
 .project-ins-body { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .flist li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 4px 0; border-bottom: 1px solid var(--line); }
-.whats-new { background: var(--surface); position: fixed; right: 20px; bottom: 20px; max-width: 420px; z-index: 50; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.whats-new { background: var(--surface); position: fixed; right: 20px; bottom: 20px; max-width: 420px; max-height: min(70vh, 560px); overflow-y: auto; z-index: 50; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
 .whats-new .notes p { margin: 0 0 8px; }
+.whats-new .notes ul { margin: 0 0 8px; padding-left: 18px; }
+.whats-new .notes li { margin: 0 0 4px; }
 /* Settings > Appearance: sentence-case headings, full-width segmented
    controls and accent swatches. */
 .appearance { max-width: 616px; display: flex; flex-direction: column; }

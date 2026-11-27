@@ -462,9 +462,13 @@ function displayTitle(title) {
   const t = String(title || "").trim();
   if (!t || t.startsWith("This turn is not a message from the person")) return "Automated check";
   // A title is the first words of a message, which may be Markdown: it is
-  // shown as the words, without the marks.
-  const plain = t.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/^#{1,6}\s+|^\s*(?:[-*+>]|\d+\.)\s+/gm, "")
-    .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2").replace(/(^|[\s(])[*_](\S(?:.*?\S)?)[*_](?=[\s).,!?:;]|$)/g, "$1$2").replace(/\s+/g, " ").trim();
+  // shown as the words, without the marks. A title is cut mid-sentence, so a
+  // mark left without its pair goes too, and a list item inside bold loses
+  // its number.
+  const lead = /^#{1,6}\s+|^\s*(?:[-*+>]|\d+\.)\s+/gm;
+  const plain = t.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(lead, "")
+    .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2").replace(/(^|[\s(])[*_](\S(?:.*?\S)?)[*_](?=[\s).,!?:;]|$)/g, "$1$2")
+    .replace(/\*\*|~~|`|(^|\s)__|__(?=\s|$)/g, "$1").replace(lead, "").replace(/\s+/g, " ").trim();
   return plain || t;
 }
 
@@ -876,6 +880,13 @@ const Tooltips = (() => {
     const r = trigger.getBoundingClientRect(), v = window.visualViewport, x = v?.offsetLeft || 0, y = v?.offsetTop || 0, w = v?.width || innerWidth, h = v?.height || innerHeight;
     tip.style.maxWidth = `${Math.min(280, w - 16)}px`;
     const t = tip.getBoundingClientRect();
+    // The navigation's next item sits just below, and a label held open over
+    // it took its click: there the label goes beside.
+    if (trigger.closest("nav.side")) {
+      tip.style.left = `${Math.min(r.right + 8, x + w - t.width - 8)}px`;
+      tip.style.top = `${Math.max(y + 8, Math.min(r.top + (r.height - t.height) / 2, y + h - t.height - 8))}px`;
+      return;
+    }
     tip.style.left = `${Math.max(x + 8, Math.min(r.left + (r.width - t.width) / 2, x + w - t.width - 8))}px`;
     const top = r.bottom + 8 + t.height <= y + h - 8 ? r.bottom + 8 : r.top - t.height - 8;
     tip.style.top = `${Math.max(y + 8, Math.min(top, y + h - t.height - 8))}px`;
@@ -3411,7 +3422,7 @@ async function showWhatsNew() {
   const box = document.createElement("div");
   box.className = "whats-new card"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "What's new");
   box.innerHTML = `<h3>What's new in Magnus ${esc(n.version)}</h3>
-    <div class="notes">${esc(n.notes || "Fixes and improvements.").split(/\n+/).map(l => `<p>${l}</p>`).join("")}</div>
+    <div class="notes">${releaseNotesHtml(n.notes)}</div>
     <div class="row"><button class="primary" data-act="close">Got it</button></div>`;
   box.querySelector("[data-act=close]").onclick = () => box.remove();
   document.body.append(box);

@@ -99,7 +99,15 @@ assert.match(read("nova-shell.css"), /\.shell > \.nova-frame-bar \{[^}]*grid-row
   assert.equal(displayTitle("**Plan** the offsite"), "Plan the offsite");
   assert.equal(displayTitle("# Read [the doc](https://x.test) now"), "Read the doc now");
   assert.equal(displayTitle("snake_case_name stays"), "snake_case_name stays");
+  // A title cut mid-sentence keeps no unpaired marks, and a list item inside
+  // bold loses its number, as seen in the installed app on 2026-11-26.
+  assert.equal(displayTitle("**1. Product Review: What Magnus Actually Is (and Its Real Moat)** Magnus is **"), "Product Review: What Magnus Actually Is (and Its Real Moat) Magnus is");
+  assert.equal(displayTitle("Ship it `now"), "Ship it now");
 }
+
+// A label in the navigation shows beside its item, not over the next one,
+// which it held open and whose click it took (the installed app, 2026-11-26).
+assert.match(app, /if \(trigger\.closest\("nav\.side"\)\) \{\n\s+tip\.style\.left = `\$\{Math\.min\(r\.right \+ 8/, "navigation labels sit beside their item");
 
 // 4. One inbox count in Nova: not on the sidebar toggle, and the rail's
 // sidebar button counts only running work.

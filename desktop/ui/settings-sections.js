@@ -150,7 +150,7 @@ async function updatesSection(el) {
     // The server's own updates (install, roll back, channel) are Admin ›
     // Operations'; here, only what it runs and what changed.
     const [st, notes, ver] = await Promise.all([Magnus.updateState().catch(() => null), Magnus.whatsNew(true).catch(() => null), Server.version()]);
-    const para = t => esc(t || "Fixes and improvements.").split(/\n+/).map(l => `<p>${l}</p>`).join("");
+    const para = releaseNotesHtml;
     paint(el, `<h2>Updates</h2>
       ${st ? `<div class="card" data-app-version><div class="spread"><div><strong>This app</strong> <span class="mono">${esc(st.current)}</span></div>
           ${st.ready ? `<button class="primary" data-act="restart-update">Restart to update</button>` : `<button data-act="look">Check now</button>`}</div>
