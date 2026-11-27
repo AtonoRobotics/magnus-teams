@@ -129,7 +129,7 @@ const snippets = [
   extractFn(app, "function timelineRowHtml(t)"),
   extractFn(app, "function timelineGroups(active, done)"),
   extractFn(app, "function needsInlineCard(i)"),
-  extractFn(app, "function schedRows(scheds, hb)"),
+  extractFn(app, "function schedRows(scheds)"),
   app.slice(app.indexOf("const guardrailsRow = "), app.indexOf("\n", app.indexOf("const guardrailsRow = "))),
   extractFn(app, "function activityParts(composed)"),
   extractFn(app, "function activityView(composed)"),
