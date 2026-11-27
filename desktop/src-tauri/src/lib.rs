@@ -10,6 +10,7 @@ mod detect;
 mod display;
 mod files;
 mod frames;
+mod events_sse;
 mod live;
 mod local;
 mod loopback;
@@ -307,6 +308,7 @@ async fn sign_in_method(app: State<'_, App>) -> Res<Value> {
 /// Sign-out ends everything that was the person's here (`session::Session::end`).
 #[tauri::command]
 async fn sign_out(app: State<'_, App>) -> Res<()> {
+    events_sse::stop();
     if let Ok((url, c, token)) = app.session() {
         let _ = c.post(format!("{url}/v1/sign-out")).bearer_auth(&token).send().await;
     }
@@ -338,17 +340,21 @@ fn allowed(path: &str) -> Res<()> {
 }
 
 #[tauri::command]
-async fn api(app: State<'_, App>, method: String, path: String, body: Option<Value>) -> Res<Value> {
+async fn api(app: State<'_, App>, method: String, path: String, body: Option<Value>, etag: Option<String>) -> Res<Value> {
     allowed(&path)?;
     let (url, c, token) = app.session()?;
     let m = methods::method(&method)?;
     let mut req = c.request(m, format!("{url}{path}")).bearer_auth(&token);
+    if let Some(tag) = etag.filter(|s| !s.is_empty()) {
+        req = req.header(reqwest::header::IF_NONE_MATCH, tag);
+    }
     if let Some(b) = body.filter(|b| !b.is_null()) {
         req = req.json(&b);
     }
     let r = req.send().await.map_err(|e| format!("Cannot reach {url}: {}", pin::describe(&e)))?;
+    let resp_etag = r.headers().get(reqwest::header::ETAG).and_then(|v| v.to_str().ok()).map(String::from);
     let (status, body) = body_of(r).await;
-    Ok(json!({ "status": status, "body": body }))
+    Ok(json!({ "status": status, "body": body, "etag": resp_etag }))
 }
 
 /// Bytes come only from a file: a task's delivered output, a library file,
@@ -683,7 +689,7 @@ pub fn run() {
             use tauri::Manager;
             frames::serve(&ctx.app_handle().state::<frames::Frames>(), request.uri().path())
         })
-        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, bridge::desktop_device, bridge::desktop_refresh, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::page_works, update::whats_new, look::set_background, look::system_look])
+        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, bridge::desktop_device, bridge::desktop_refresh, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, events_sse::events_start, events_sse::events_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::page_works, update::whats_new, look::set_background, look::system_look])
         .run(tauri::generate_context!())
         .expect("start the Magnus app");
 }

@@ -52,19 +52,48 @@ const appBridge = tauri && {
   async pairDevice(publicUrl) { return this.invoke("pair_device", { publicUrl }); },
   // Resolves with who signed in, or { code_needed }, { browser } or
   // { machine_code_needed } (the owner's backup while the provider is down).
-  async signIn(person, password, code, machineCode) { return this.invoke("sign_in", { person, password, code: code || null, machineCode: machineCode || null }); },
+  async signIn(person, password, code, machineCode) { this._etags.clear(); return this.invoke("sign_in", { person, password, code: code || null, machineCode: machineCode || null }); },
   // Sign in through the identity provider in the person's own browser,
   // which comes back to this computer; resolves with who signed in.
-  async providerSignIn(loginHint) { return this.invoke("provider_sign_in", { loginHint: loginHint || null }); },
+  async providerSignIn(loginHint) { this._etags.clear(); return this.invoke("provider_sign_in", { loginHint: loginHint || null }); },
   async providerSignInCancel() { return this.invoke("provider_sign_in_cancel"); },
-  async signOut() { return this.invoke("sign_out"); },
+  async signOut() { this._etags.clear(); return this.invoke("sign_out"); },
   // Ask for a recovery email; the answer is the same whoever holds the address.
   async forgotPassword(email) { return this.invoke("forgot_password", { email }); },
+  _etags: new Map(),
+  clearCache() { this._etags.clear(); },
   // A transport only: every status comes back as it is; server.js holds the error policy.
   async api(method, path, body) {
-    const r = await this.invoke("api", { method, path, body: body === undefined ? null : body });
+    const isGet = method === "GET" && (body === undefined || body === null);
+    const cached = isGet ? this._etags.get(path) : null;
+    const r = await this.invoke("api", { method, path, body: body === undefined ? null : body, etag: cached?.etag || null });
+    if (r.status === 401) this._etags.clear();
+    if (r.status === 304 && cached) return cached.data;
     if (r.status >= 400) throw errorOf(r.status, r.body);
+    if (isGet && r.etag) this._etags.set(path, { etag: r.etag, data: r.body });
     return r.body;
+  },
+  events(onInvalidation, onState) {
+    let closed = false;
+    const unsubs = [];
+    Promise.all([
+      tauri.event.listen("events", e => {
+        if (!closed && e.payload && Array.isArray(e.payload.domains) && e.payload.domains.length) onInvalidation?.(e.payload);
+      }),
+      tauri.event.listen("events-state", e => { if (!closed) onState?.(!!e.payload); }),
+    ]).then(list => {
+      if (closed) { list.forEach(u => u()); return; }
+      unsubs.push(...list);
+      this.invoke("events_start").catch(() => onState?.(false));
+    });
+    return {
+      close: () => {
+        closed = true;
+        unsubs.splice(0).forEach(u => u());
+        this.invoke("events_stop").catch(() => {});
+        onState?.(false);
+      },
+    };
   },
   // One stream per task in the app, however many listeners follow it (the
   // chat and the side panel): a listener that joins late is sent what has
