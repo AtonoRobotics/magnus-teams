@@ -25,7 +25,11 @@ assert.match(shell, /window\.addEventListener\("magnus-render",\s*syncDocumentWi
 {
   const seenHeaders = [];
   let callCount = 0;
+  // bridge.js records load errors until DOMContentLoaded (page-works-check.mjs).
+  const listeners = { addEventListener() {}, removeEventListener() {} };
   const ctx = vm.createContext({
+    ...listeners,
+    document: { ...listeners },
     window: { __TAURI__: null },
     location: { protocol: "https:", host: "magnus.example" },
     fetch: async (_url, opts) => {
