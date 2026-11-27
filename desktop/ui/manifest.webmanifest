@@ -1,0 +1,9 @@
+{
+  "name": "Magnus Approvals",
+  "short_name": "Magnus",
+  "description": "Fast, verifiable mobile approval triage for your Magnus autonomous worker.",
+  "start_url": "/#/approve",
+  "display": "standalone",
+  "background_color": "#0B0C0F",
+  "theme_color": "#0B0C0F"
+}

@@ -118,7 +118,22 @@ async function notificationsSection(el) {
           <label class="small">Daily interruption limit <input type="number" min="1" max="50" data-pref-num="interruptions_per_day" value="${esc(String(budget))}" style="width:5em"></label>
         </div>
       </div>
-      ${systemNotificationsCard()}`);
+      ${systemNotificationsCard()}
+      <h3>On your phone</h3>
+      <div class="card" data-mobile-approve-card>
+        <p class="small muted">Bookmark or add <strong>Mobile Approvals</strong> to your phone's home screen to review and clear waiting approvals while away from your desk.</p>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap">
+          <a class="button small" href="#/approve">Open Mobile Approvals</a>
+          <button type="button" class="small" data-copy-mobile-approve>Copy mobile link</button>
+        </div>
+      </div>`);
+  };
+  el.onclick = async e => {
+    if (e.target.closest("[data-copy-mobile-approve]")) {
+      const url = typeof MobileApprove !== "undefined" ? MobileApprove.approveUrl() : `${location.origin}${location.pathname}#/approve`;
+      try { await navigator.clipboard?.writeText?.(url); toast("Mobile approval link copied."); }
+      catch { toast(url); }
+    }
   };
   el.onchange = async e => {
     if (e.target.closest("input[data-system-notifications]")) {

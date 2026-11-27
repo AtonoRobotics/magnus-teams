@@ -671,6 +671,7 @@ const Workspace = (() => {
       { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
       { label: `Approvals & Inbox${pending.length ? ` (${pending.length} waiting)` : ""}`, kind: "Page", run: () => { location.hash = "#/inbox"; } },
       { label: "Morning Briefing & Routines", kind: "Page", run: () => { location.hash = "#/briefing"; } },
+      { label: "Mobile Approvals", kind: "Page", run: () => { location.hash = "#/approve"; } },
       { label: "Projects", kind: "Page", run: () => { location.hash = "#/projects"; } },
       { label: "Explore playbooks", kind: "Page", run: () => { location.hash = "#/explore"; } },
       { label: "Apps & connectors", kind: "Page", run: () => { location.hash = "#/library"; } },
@@ -1490,6 +1491,7 @@ route(/^#\/inbox$/, main => home(main, "needs"), true);
 route(/^#\/(activity|tasks|schedules|files)$/, (main, k) => home(main, k), true);
 route(/^#\/projects$/, main => Projects.showList(main));
 route(/^#\/briefing$/, main => NovaPages.showBriefing(main));
+route(/^#\/approve(?:\?(.*))?$/, (main, qs) => MobileApprove.show(main, qs));
 // The Library is the connector catalog, a page of its own (connectors spec,
 // Library); a connector's page is under it.
 route(/^#\/explore$/, main => Discover.show(main));

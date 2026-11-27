@@ -600,11 +600,17 @@ dialog.settings-modal::backdrop {
 .trow-del { flex: none; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; opacity: 0.65; }
 .trow-del:hover, .trow-del:focus-visible { opacity: 1; color: var(--bad); background: var(--bad-soft); }
 .trow-del svg.ic { width: 14px; height: 14px; }
+.mobile-approve-shell { max-width: 640px; margin: 0 auto; padding: 16px; gap: 14px; }
+.mobile-approve-head { justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.mobile-approve-item { width: 100%; }
+.mobile-approve-batch { white-space: nowrap; }
 @media (max-width: 760px) {
   .explore-grid { grid-template-columns: 1fr; }
   .explore-ideas-list { grid-template-columns: 1fr; }
+  .mobile-approve-shell { padding: 12px; }
 }
 @media (any-pointer: coarse) {
   .explore-app, #explore-search { min-height: 44px; }
   .trow-del { min-width: 44px; min-height: 44px; }
+  .mobile-approve-shell button, .mobile-approve-shell a.button { min-height: 44px; }
 }

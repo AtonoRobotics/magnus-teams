@@ -6,6 +6,8 @@ use axum::response::Response;
 
 const UI: &[(&str, &str, &[u8])] = &[
     ("index.html", "text/html; charset=utf-8", include_bytes!("../../../../desktop/ui/index.html")),
+    ("manifest.webmanifest", "application/manifest+json; charset=utf-8", include_bytes!("../../../../desktop/ui/manifest.webmanifest")),
+    ("mobile-approve.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/mobile-approve.js")),
     ("base.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/base.css")),
     ("layout.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/layout.css")),
     ("chat.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/chat.css")),
