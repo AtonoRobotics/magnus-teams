@@ -432,3 +432,107 @@ html[data-style="nova"] .stage-item-link {
 html[data-style="nova"] .stage-item-link:hover {
   text-decoration: underline;
 }
+
+/* ---------- Nova Left Sidebar, Menus & Right Side Panel ---------- */
+html[data-style="nova"] .navigation-drawer {
+  background: var(--side);
+  box-shadow: var(--shadow);
+}
+
+html[data-style="nova"] nav.side #find input {
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border-color: var(--hair);
+}
+
+html[data-style="nova"] nav.side a.primary-nav {
+  border-radius: var(--r-sm);
+  min-height: 36px;
+  color: var(--fg2);
+}
+
+html[data-style="nova"] nav.side a.primary-nav:hover {
+  background: var(--raised);
+  color: var(--fg);
+}
+
+html[data-style="nova"] nav.side .who {
+  border-top-color: var(--hair);
+}
+
+html[data-style="nova"] .notice-center,
+html[data-style="nova"] .conv-more-menu {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+
+html[data-style="nova"] aside.detail {
+  background: var(--side);
+}
+
+html[data-style="nova"] aside.detail .detail-head {
+  background: transparent;
+  padding: 14px 16px 8px;
+}
+
+html[data-style="nova"] aside.detail .artifact-close,
+html[data-style="nova"] aside.detail .detail-head .close {
+  border-radius: var(--r-pill);
+  background: var(--seg-on);
+  border: 1px solid var(--hair);
+  color: var(--fg);
+}
+
+html[data-style="nova"] aside.detail .panel-tabs {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-pill);
+  padding: 3px;
+  gap: 2px;
+}
+
+html[data-style="nova"] aside.detail .panel-tabs > :is(a, button) {
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+html[data-style="nova"] aside.detail .panel-tabs > :is(a, button)[aria-current="page"] {
+  background: var(--seg-on);
+  color: var(--fg);
+}
+
+html[data-style="nova"] aside.detail .gbox,
+html[data-style="nova"] aside.detail .companion-cleared-banner,
+html[data-style="nova"] aside.detail .companion-needs-banner,
+html[data-style="nova"] aside.detail .companion-active-card,
+html[data-style="nova"] aside.detail .companion-computer,
+html[data-style="nova"] aside.detail details {
+  border-radius: var(--r-lg);
+  border-color: var(--hair);
+  background: var(--surface);
+}
+
+html[data-style="nova"] aside.detail button {
+  border-radius: var(--r-pill);
+}
+
+html[data-style="nova"] nav.side .nav-tree a,
+html[data-style="nova"] nav.side .nav-project > summary {
+  border-radius: var(--r-sm);
+}
+
+html[data-style="nova"] dialog {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+html[data-style="nova"] dialog::backdrop {
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}

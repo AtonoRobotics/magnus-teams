@@ -104,8 +104,8 @@ html[data-style="nova"] .composer-slot {
 }
 
 html[data-style="nova"] nav.side .new-chat.primary-nav {
-  background: var(--surface);
-  border-color: var(--line);
+  background: transparent;
+  border-color: transparent;
 }
 
 /* ---------- 2. Quiet chrome, airy typography & Gemini pill composer ---------- */
@@ -482,6 +482,8 @@ html[data-style="nova"] section.conv:has(.hello-hero) {
 html[data-style="nova"] section.conv:has(.hello-hero) > .thread {
   flex: 0 1 auto;
   justify-content: center;
+  padding-left: max(20px, calc((100% - 820px) / 2));
+  padding-right: max(20px, calc((100% - 820px) / 2));
   padding-bottom: 12px;
 }
 
