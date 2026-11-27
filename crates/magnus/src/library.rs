@@ -283,9 +283,13 @@ fn project_json(s: &St, p: &crate::state::Project) -> Value {
     })
 }
 
-async fn projects(State(k): K, Caller(p): Caller) -> Response {
+async fn projects(State(k): K, Caller(p): Caller, h: axum::http::HeaderMap) -> Response {
+    let etag = crate::api::seq_etag(&k, &p.id);
+    if let Some(r) = crate::api::not_modified(&h, &etag) {
+        return r;
+    }
     let v: Vec<Value> = k.read(|s| s.library.projects().values().filter(|x| x.person == p.id).map(|x| project_json(s, x)).collect());
-    Json(json!({ "projects": v })).into_response()
+    crate::api::with_etag(Json(json!({ "projects": v })).into_response(), &etag)
 }
 
 fn instructions_of(b: &Value) -> Option<String> {

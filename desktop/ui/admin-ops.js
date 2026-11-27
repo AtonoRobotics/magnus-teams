@@ -99,6 +99,7 @@ function opsWatchRestart(el, fromVersion, again) {
   const startedAt = Date.now();
   opsPollTimer = setInterval(async () => {
     if (!opsPending || Date.now() - startedAt > OPS_UPDATE_WAIT_MS) { opsStopWatch(); return; }
+    if (document.hidden) return;
     try {
       const v = await Server.version({ background: true });
       if (v?.version && v.version !== fromVersion) {

@@ -78,13 +78,14 @@ impl Recall {
         Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
     }
 
-    /// One statement in a transaction as `person`, so the content walls
+    /// One statement in a read-only transaction as `person`, so the content walls
     /// return only their rows.
     async fn walled(&self, person: &str, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
         let mut c = self.pool.get().await?;
-        let tx = c.transaction().await?;
-        tx.batch_execute(&format!("SET LOCAL ROLE {}", self.reader)).await.context("recall as the person (has `magnus migrate` run since this release was installed?)")?;
-        tx.execute("SELECT set_config('magnus.person', $1, true)", &[&person]).await?;
+        let tx = c.build_transaction().read_only(true).start().await?;
+        tx.execute("SELECT set_config('role', $1, true), set_config('magnus.person', $2, true)", &[&self.reader, &person])
+            .await
+            .context("recall as the person (has `magnus migrate` run since this release was installed?)")?;
         let rows = tx.query(sql, params).await?;
         tx.commit().await?;
         Ok(rows)

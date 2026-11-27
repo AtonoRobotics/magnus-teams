@@ -271,7 +271,11 @@ async fn me(State(k): K, h: HeaderMap) -> ApiResult {
 
 /// What the appliance is running now, and every change to it, so apps can
 /// tell people when the agent they work with has changed (U5).
-async fn versions(State(k): K, _: Caller) -> ApiResult {
+async fn versions(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
+    let etag = global_seq_etag(&k, &p.id);
+    if let Some(r) = not_modified(&h, &etag) {
+        return Ok(r);
+    }
     let v = k.read(|s| {
         let changes: Vec<Value> = s.org.version_changes().iter().map(|(seq, at, what, value)| json!({ "seq": seq, "at": at, "what": what, "value": value })).collect();
         json!({
@@ -284,7 +288,7 @@ async fn versions(State(k): K, _: Caller) -> ApiResult {
             "changes": changes,
         })
     });
-    Ok(Json(v).into_response())
+    Ok(with_etag(Json(v).into_response(), &etag))
 }
 
 /// A control's answer as the app gets it.
@@ -646,6 +650,11 @@ async fn speak(State(k): K, _: Caller, Body(b): Body<req::Speak>) -> ApiResult {
 /// Weak ETag derived from the person's latest committed sequence number (unaffected by other users' events).
 pub(crate) fn seq_etag(k: &Kernel, person_id: &str) -> String {
     format!("W/\"seq-{}-{person_id}\"", k.seq_for_person(person_id))
+}
+
+/// Weak ETag derived from the global log sequence number, scoped to the signed-in person (for shared/org views).
+pub(crate) fn global_seq_etag(k: &Kernel, person_id: &str) -> String {
+    format!("W/\"gseq-{}-{person_id}\"", k.last_seq())
 }
 
 /// If the caller's `If-None-Match` already matches `etag`, return `304 Not Modified`.

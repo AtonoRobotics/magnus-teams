@@ -386,8 +386,16 @@ pub struct ResolveBody {
 
 /// `GET /v1/staged`: open staged drafts/actions for the signed-in person,
 /// rendered from server read-back with destination provenance and offered scope steps.
-pub async fn list_route(axum::extract::State(k): axum::extract::State<std::sync::Arc<Kernel>>, crate::extract::Caller(p): crate::extract::Caller) -> axum::response::Response {
+pub async fn list_route(
+    axum::extract::State(k): axum::extract::State<std::sync::Arc<Kernel>>,
+    crate::extract::Caller(p): crate::extract::Caller,
+    h: axum::http::HeaderMap,
+) -> axum::response::Response {
     use axum::response::IntoResponse;
+    let etag = crate::api::seq_etag(&k, &p.id);
+    if let Some(r) = crate::api::not_modified(&h, &etag) {
+        return r;
+    }
     let items: Vec<Value> = k.read(|s| {
         s.staged
             .open_for(&p.id)
@@ -412,7 +420,7 @@ pub async fn list_route(axum::extract::State(k): axum::extract::State<std::sync:
             })
             .collect()
     });
-    axum::Json(json!({ "items": items })).into_response()
+    crate::api::with_etag(axum::Json(json!({ "items": items })).into_response(), &etag)
 }
 
 /// `POST /v1/staged/{id}`: send, discard, edit, or reconcile a staged item

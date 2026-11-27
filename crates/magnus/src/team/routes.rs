@@ -88,8 +88,12 @@ fn short(name: &str) -> bool {
 
 async fn list(State(k): K, h: HeaderMap) -> ApiResult {
     let p = who(&k, &h).await?;
+    let etag = crate::api::global_seq_etag(&k, &p.id);
+    if let Some(r) = crate::api::not_modified(&h, &etag) {
+        return Ok(r);
+    }
     let v: Vec<Value> = k.read(|s| s.team.of(&p.id).into_iter().map(|w| json!({ "id": w.id, "name": w.name, "role": w.members.get(&p.id) })).collect());
-    Ok(Json(v).into_response())
+    Ok(crate::api::with_etag(Json(v).into_response(), &etag))
 }
 
 async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> ApiResult {

@@ -125,7 +125,7 @@ async function adminStart() {
   adminStop();
   AdminState.standing = await Server.admin.standing({ background: true }).catch(() => null);
   if (AdminState.standing?.admin) showKillControl();
-  AdminState.poll = setInterval(adminPoll, ADMIN_STOPS_POLL_MS);
+  AdminState.poll = setInterval(() => { if (!document.hidden) adminPoll(); }, ADMIN_STOPS_POLL_MS);
   await adminPoll();
 }
 

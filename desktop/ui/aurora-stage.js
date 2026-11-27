@@ -588,10 +588,18 @@ const AuroraStage = (() => {
   function watch(main) {
     if (watched.has(main)) return;
     watched.add(main);
-    new MutationObserver(records => {
+    const onRecords = records => {
       if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .stage-bento-bottom, .aurora-canvas-row"))) return;
       queued = requestAnimationFrame(() => { queued = 0; refresh(); });
-    }).observe(main, { childList: true, subtree: true });
+    };
+    if (typeof AuroraCore !== "undefined" && typeof AuroraCore.onDom === "function") {
+      AuroraCore.onDom(records => {
+        const inside = records.filter(r => r.target instanceof Node && main.contains(r.target));
+        if (inside.length) onRecords(inside);
+      });
+      return;
+    }
+    new MutationObserver(onRecords).observe(main, { childList: true, subtree: true });
   }
 
   let drawing = null;

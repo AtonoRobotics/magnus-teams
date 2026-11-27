@@ -70,6 +70,9 @@ pub struct Holding {
     pub seqs: Vec<i64>,
 }
 
+/// Maximum concurrent read-only Postgres connections for log audit/export queries.
+const LOG_READ_POOL_SIZE: usize = 4;
+
 /// The event log. A lost connection (Postgres restarting) is opened again
 /// on the next use, with the writer's lock taken again; until then every
 /// write fails and health says so.
@@ -83,6 +86,8 @@ pub struct Log {
     /// A release installed without `migrate` since writes rows without it.
     owners: bool,
     client: tokio::sync::RwLock<Client>,
+    /// Dedicated read-only connection pool so audit/export/file reads never contend with appends.
+    readers: crate::pg_pool::PgPool,
     /// The last event this process wrote or read, to find one that was
     /// written while its answer was lost.
     last: std::sync::atomic::AtomicI64,
@@ -108,7 +113,8 @@ impl Log {
         if store && !owners {
             tracing::warn!("the content store does not record whose each row is until `magnus migrate` runs");
         }
-        Ok(Log { url: url.into(), writer, store, owners, client: tokio::sync::RwLock::new(client), last: 0.into() })
+        let readers = crate::pg_pool::PgPool::new(url, LOG_READ_POOL_SIZE);
+        Ok(Log { url: url.into(), writer, store, owners, client: tokio::sync::RwLock::new(client), readers, last: 0.into() })
     }
 
     pub async fn open(url: &str) -> Result<Log> {
@@ -307,7 +313,7 @@ impl Log {
     /// One delivered file's content, read straight from the log and the store.
     pub async fn output(&self, run: &str, id: &str) -> Result<Option<(String, String, Vec<u8>)>> {
         let sql = format!("SELECT e.body, c.body FROM {} WHERE e.run_id = $1 AND e.kind = 'output' AND e.body->>'id' = $2", self.rows());
-        let row = self.client().await?.query_opt(&sql, &[&run, &id]).await?;
+        let row = self.readers.get().await?.query_opt(&sql, &[&run, &id]).await?;
         let Some(row) = row else { return Ok(None) };
         let b = join(row.get(0), row.get(1));
         use base64::Engine;
@@ -325,7 +331,7 @@ impl Log {
         // Joined with the events, so content kept in an event (no content
         // store) reads the same.
         let sql = format!("SELECT e.seq, e.body, c.body FROM {} WHERE e.seq = ANY($1)", self.rows());
-        let rows = self.client().await?.query(&sql, &[&seqs]).await.context("read content")?;
+        let rows = self.readers.get().await?.query(&sql, &[&seqs]).await.context("read content")?;
         Ok(rows.iter().map(|r| (r.get::<_, i64>(0), join(r.get(1), r.get(2)))).collect())
     }
 
@@ -349,7 +355,8 @@ impl Log {
             a
         });
         let rows = self
-            .client()
+            .readers
+            .get()
             .await?
             .query(
                 "SELECT e.seq FROM public.events e JOIN public.content c USING (seq)
@@ -371,7 +378,7 @@ impl Log {
         if !self.store {
             return Ok(vec![]);
         }
-        let rows = self.client().await?.query("SELECT seq FROM public.content WHERE person = $1 ORDER BY seq", &[&person]).await.context("find a person's content")?;
+        let rows = self.readers.get().await?.query("SELECT seq FROM public.content WHERE person = $1 ORDER BY seq", &[&person]).await.context("find a person's content")?;
         Ok(rows.iter().map(|r| r.get(0)).collect())
     }
 
@@ -380,7 +387,8 @@ impl Log {
     pub async fn of_kinds(&self, kinds: &[&str], limit: i64) -> Result<Vec<(i64, chrono::DateTime<chrono::Utc>, String, Value)>> {
         let kinds: Vec<String> = kinds.iter().map(|k| k.to_string()).collect();
         let rows = self
-            .client()
+            .readers
+            .get()
             .await?
             .query("SELECT seq, at, actor, body FROM public.events WHERE kind = ANY($1) ORDER BY seq DESC LIMIT $2", &[&kinds, &limit])
             .await
@@ -391,7 +399,7 @@ impl Log {
     /// One bundle path's writes and removals up to `seq`, oldest first.
     pub async fn bundle_history(&self, path: &str, upto: i64) -> Result<Vec<(i64, Value)>> {
         let sql = "SELECT seq, body FROM public.events WHERE kind IN ('bundle_written', 'bundle_removed') AND body->>'path' = $1 AND seq <= $2 ORDER BY seq";
-        let rows = self.client().await?.query(sql, &[&path, &upto]).await.context("read a bundle path's history")?;
+        let rows = self.readers.get().await?.query(sql, &[&path, &upto]).await.context("read a bundle path's history")?;
         Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
     }
 
@@ -399,7 +407,7 @@ impl Log {
     /// its event, kind and body. None when it never changed before then.
     pub async fn bundle_at(&self, path: &str, at: DateTime<Utc>) -> Result<Option<(i64, String, Value)>> {
         let sql = "SELECT seq, kind, body FROM public.events WHERE kind IN ('bundle_written', 'bundle_removed') AND body->>'path' = $1 AND at < $2 ORDER BY seq DESC LIMIT 1";
-        let rows = self.client().await?.query(sql, &[&path, &at]).await.context("read a bundle path as of a time")?;
+        let rows = self.readers.get().await?.query(sql, &[&path, &at]).await.context("read a bundle path as of a time")?;
         Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).next())
     }
 
@@ -414,7 +422,7 @@ impl Log {
     /// Every removal so far: the seq of its `removed` event and the events
     /// whose content it deleted, oldest first.
     pub async fn removals(&self) -> Result<Vec<(i64, Vec<i64>)>> {
-        let rows = self.client().await?.query("SELECT seq, body->'seqs' FROM public.events WHERE kind = 'removed' ORDER BY seq", &[]).await?;
+        let rows = self.readers.get().await?.query("SELECT seq, body->'seqs' FROM public.events WHERE kind = 'removed' ORDER BY seq", &[]).await?;
         Ok(rows.iter().map(|r| (r.get::<_, i64>(0), serde_json::from_value(r.get::<_, Value>(1)).unwrap_or_default())).collect())
     }
 
@@ -423,7 +431,7 @@ impl Log {
     /// of an older backup later gave the same number (#195).
     pub async fn removed_events(&self) -> Result<Vec<(i64, DateTime<Utc>)>> {
         let sql = "SELECT seq, at FROM public.events WHERE seq IN (SELECT jsonb_array_elements_text(body->'seqs')::bigint FROM public.events WHERE kind = 'removed') ORDER BY seq";
-        let rows = self.client().await?.query(sql, &[]).await?;
+        let rows = self.readers.get().await?.query(sql, &[]).await?;
         Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
     }
 
@@ -440,7 +448,7 @@ impl Log {
     /// One run's events in order: the developer view's full trace (V4).
     pub async fn run_events(&self, run: &str) -> Result<Vec<Event>> {
         let sql = format!("SELECT e.seq, e.at, e.actor, e.body, c.body FROM {} WHERE e.run_id = $1 ORDER BY e.seq", self.rows());
-        let rows = self.client().await?.query(&sql, &[&run]).await?;
+        let rows = self.readers.get().await?.query(&sql, &[&run]).await?;
         rows.into_iter()
             .map(|r| {
                 let ev: Ev = serde_json::from_value(join(r.get(3), r.get(4)))?;
@@ -452,7 +460,7 @@ impl Log {
     /// Every row as stored, with its content and salt, for a backup.
     pub async fn dump(&self) -> Result<Vec<Value>> {
         let sql = format!("SELECT e.seq, e.at, e.kind, e.actor, e.run_id, e.body, c.salt, c.body FROM {} ORDER BY e.seq", self.rows());
-        let rows = self.client().await?.query(&sql, &[]).await?;
+        let rows = self.readers.get().await?.query(&sql, &[]).await?;
         Ok(rows
             .into_iter()
             .map(|r| {
