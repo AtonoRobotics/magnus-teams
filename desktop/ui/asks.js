@@ -114,7 +114,7 @@ function askEditFields(i, d) {
       ? `<label class="small">${label}<textarea data-edit-field="${esc(k)}" data-orig="${esc(v)}" rows="3">${esc(v)}</textarea></label>`
       : `<label class="small">${label}<input type="text" data-edit-field="${esc(k)}" data-orig="${esc(v)}" value="${esc(v)}"></label>`;
   }).join("");
-  return `<details class="ask-edit" data-ask-edit="${esc(i.id)}"><summary class="small">Edit before allowing</summary><div class="stack" style="margin-top:6px">${controls}</div></details>`;
+  return `<details class="ask-edit" data-ask-edit="${esc(i.id)}"><summary class="small">Edit before allowing</summary><div class="stack" style="margin-top:6px"><p class="small muted">Edits apply to this single action only.</p>${controls}</div></details>`;
 }
 
 // The card. `canRespond` is whether this person may answer it.
@@ -126,8 +126,9 @@ function askCard(i, canRespond) {
   const declineNote = canRespond
     ? `<details class="ask-decline-wrap" data-ask-decline="${esc(i.id)}"><summary class="small">Add a note if declining</summary><input type="text" class="ask-decline-note" data-draft="rev-${esc(i.id)}" placeholder="Optional note if declining (tells Magnus what to change)…" aria-label="Optional note"></details>`
     : "";
+  const highRisk = i.tier === "financial" || i.tier === "irreversible";
   const buttons = canRespond
-    ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(ASK_LABELS[o])}</button>`).join("")}</div>`
+    ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}"${o === "allow_always" && highRisk ? ` data-risk="${esc(i.tier)}"` : ""}>${esc(ASK_LABELS[o])}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
   const isReceipt = i.tier === "financial" || i.tier === "irreversible";
   const headHtml = isReceipt

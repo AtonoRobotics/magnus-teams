@@ -1868,6 +1868,16 @@ async function respond(btn, root) {
       }
       if (Object.keys(edited).length) body.edited_input = edited;
     }
+    if (scope === "always" && body.edited_input) {
+      scope = "once";
+      body.scope = "once";
+    } else if (scope === "always") {
+      const risk = btn.dataset.risk || btn.closest?.(".ask[data-tier]")?.dataset.tier || "";
+      if (risk === "irreversible" || risk === "financial") {
+        const ok = await ask(`Allow future ${risk} actions like this automatically without asking? You can review or remove this anytime in Rules.`, "Allow always", true);
+        if (!ok) return;
+      }
+    }
   }
   if (decision === "answer" && !body.text) { toast("Write an answer first."); return; }
   btn.disabled = true;

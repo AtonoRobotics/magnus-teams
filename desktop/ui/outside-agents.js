@@ -36,7 +36,9 @@ function outsideAgentRow(a, me) {
  */
 function outsideAgentsSection(list, me, key) {
   if (!list) return "";
-  const issued = key ? `<p class="small" data-outside-key>Give its operator this key, so it can ask you here. It is shown once: <code>${esc(key)}</code></p>` : "";
+  const issued = key
+    ? `<div class="row small" data-outside-key style="margin-top:8px;flex-wrap:wrap;gap:6px;align-items:center"><span>Give its operator this key, so it can ask you here. It is shown once: <code>${esc(key)}</code></span><button type="button" class="small" data-act="outside-copy-key">Copy key</button><button type="button" class="small" data-act="outside-clear-key">Clear</button></div>`
+    : "";
   return `<section class="lsect" data-section="outside-agents"><div class="lsect-head"><div><h2>Outside agents</h2>
     <p>Agents run by others, a supplier's or a customer's. Magnus can send them tasks, and what they answer is read as outside content, never as instructions.</p></div></div>
     <form data-outside-connect class="row"><label class="sr" for="oa-card">Agent card address</label><input id="oa-card" name="card_url" type="url" placeholder="https://agent.example/.well-known/agent-card.json" required>
@@ -65,9 +67,20 @@ async function loadOutsideAgents() {
 
 /** Connect, let ask, disconnect. @param {HTMLElement} target */
 async function outsideAgentAct(target) {
+  const act = target.dataset.act;
+  if (act === "outside-copy-key") {
+    if (!OutsideAgents.key) return;
+    try { await navigator.clipboard?.writeText?.(OutsideAgents.key); toast("Key copied."); }
+    catch { toast("Copy failed — select the key manually."); }
+    return;
+  }
+  if (act === "outside-clear-key") {
+    OutsideAgents.key = null;
+    return;
+  }
   const id = target.dataset.agent;
-  if (target.dataset.act === "outside-admit") await Server.outsideAgents.admit(id, { person: App.me?.id });
-  if (target.dataset.act === "outside-disconnect") {
+  if (act === "outside-admit") await Server.outsideAgents.admit(id, { person: App.me?.id });
+  if (act === "outside-disconnect") {
     if (!(await ask("Disconnect this agent? Its open tasks, both ways, are cancelled.", "Disconnect"))) return;
     await Server.outsideAgents.disconnect(id);
   }
@@ -78,6 +91,7 @@ async function mountOutsideAgents(root) {
   const box = root.querySelector("#lib-outside-agents");
   if (!box) return;
   const paint = () => { box.innerHTML = outsideAgentsSection(OutsideAgents.list, App.me?.id, OutsideAgents.key); };
+  if (typeof onLeave === "function") onLeave(() => { OutsideAgents.key = null; });
   await loadOutsideAgents();
   paint();
   if (box.dataset.bound) return;
@@ -99,7 +113,7 @@ async function mountOutsideAgents(root) {
     if (!a) return;
     e.preventDefault();
     try { await outsideAgentAct(a); } catch (err) { toast(err.message); }
-    await loadOutsideAgents();
+    if (a.dataset.act !== "outside-copy-key" && a.dataset.act !== "outside-clear-key") await loadOutsideAgents();
     paint();
   });
 }
