@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// In use until the mouse and keyboard have been still this long.
-const IDLE_AFTER: Duration = Duration::from_secs(30);
+const IDLE_AFTER_SECS: Duration = Duration::from_secs(30);
 
 fn output(program: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(program).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
@@ -47,7 +47,7 @@ fn idle_for() -> Option<Duration> {
 
 /// A pause file is the app's own switch, for "keep off my computer for now".
 pub fn in_use(pause_file: Option<&Path>) -> bool {
-    pause_file.is_some_and(Path::exists) || idle_for().is_some_and(|idle| idle < IDLE_AFTER)
+    pause_file.is_some_and(Path::exists) || idle_for().is_some_and(|idle| idle < IDLE_AFTER_SECS)
 }
 
 #[cfg(test)]

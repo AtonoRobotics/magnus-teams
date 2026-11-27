@@ -20,18 +20,18 @@ use tauri::{AppHandle, Manager, State};
 /// The first person whose server takes it keeps it; anyone else gets their own.
 const UNKEYED_DEVICE_FILE: &str = "desktop-device.json";
 /// How often installs are looked for again.
-const DETECT_EVERY: Duration = Duration::from_secs(60);
+const DETECT_EVERY_SECS: Duration = Duration::from_secs(60);
 /// Signed out, or with no server: how long before looking again.
-const IDLE_WAIT: Duration = Duration::from_secs(5);
+const IDLE_WAIT_SECS: Duration = Duration::from_secs(5);
 /// A server from before the bridge: asked again only now and then.
-const OLD_SERVER_WAIT: Duration = Duration::from_secs(10 * 60);
+const OLD_SERVER_WAIT_SECS: Duration = Duration::from_secs(10 * 60);
 /// The server's long poll waits 20 seconds; this leaves it room.
-const POLL_TIMEOUT: Duration = Duration::from_secs(30);
-const REPORT_TIMEOUT: Duration = Duration::from_secs(15);
+const POLL_TIMEOUT_SECS: Duration = Duration::from_secs(30);
+const REPORT_TIMEOUT_SECS: Duration = Duration::from_secs(15);
 /// Whether a program's server answers, asked each round.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+const PROBE_TIMEOUT_SECS: Duration = Duration::from_secs(2);
 /// Less than the server waits for an answer (two minutes).
-const CALL_TIMEOUT: Duration = Duration::from_secs(110);
+const CALL_TIMEOUT_SECS: Duration = Duration::from_secs(110);
 const MAX_TEXT_CHARS: usize = 512 * 1024;
 const MCP_PATH: &str = "/mcp";
 const MCP_VERSION: &str = "2025-06-18";
@@ -118,8 +118,8 @@ impl Mcp {
 
     /// The program's tools, as its server lists them.
     pub async fn tools(&self, addr: SocketAddr) -> Res<Vec<Value>> {
-        let session = self.open(addr, PROBE_TIMEOUT).await?;
-        let (v, _) = self.rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), PROBE_TIMEOUT).await?;
+        let session = self.open(addr, PROBE_TIMEOUT_SECS).await?;
+        let (v, _) = self.rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), PROBE_TIMEOUT_SECS).await?;
         Ok(v["tools"]
             .as_array()
             .cloned()
@@ -131,9 +131,9 @@ impl Mcp {
 
     /// One call: whether it worked, and its text.
     pub async fn call(&self, addr: SocketAddr, tool: &str, arguments: &Value) -> Res<(bool, String)> {
-        let session = self.open(addr, CALL_TIMEOUT).await?;
+        let session = self.open(addr, CALL_TIMEOUT_SECS).await?;
         let (v, _) = self
-            .rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": arguments } }), CALL_TIMEOUT)
+            .rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": arguments } }), CALL_TIMEOUT_SECS)
             .await?;
         let text: String = v["content"].as_array().map(|c| c.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n")).unwrap_or_default();
         Ok((v["isError"] != true, text.chars().take(MAX_TEXT_CHARS).collect()))
@@ -296,21 +296,21 @@ async fn run(handle: AppHandle) {
         let session = app.session();
         let key = Session::key_of(&app.store);
         let (Ok((url, client, token)), Some(key), Ok(dir)) = (session, key, settings_dir()) else {
-            tokio::time::sleep(IDLE_WAIT).await;
+            tokio::time::sleep(IDLE_WAIT_SECS).await;
             continue;
         };
         let Ok((id, confirmed)) = device_id(&dir, &key) else {
-            tokio::time::sleep(IDLE_WAIT).await;
+            tokio::time::sleep(IDLE_WAIT_SECS).await;
             continue;
         };
-        if detected_at.is_none_or(|t| t.elapsed() >= DETECT_EVERY) {
+        if detected_at.is_none_or(|t| t.elapsed() >= DETECT_EVERY_SECS) {
             let d = detector.clone();
             found = tokio::task::spawn_blocking(move || d.detect()).await.unwrap_or_default();
             detected_at = Some(Instant::now());
         }
         let programs = report(&found, &enabled, &ports, &mcp).await;
         let body = json!({ "id": id, "name": crate::machine_name(), "programs": programs });
-        let r = client.post(format!("{url}/v1/desktop/devices")).bearer_auth(&token).timeout(REPORT_TIMEOUT).json(&body).send().await;
+        let r = client.post(format!("{url}/v1/desktop/devices")).bearer_auth(&token).timeout(REPORT_TIMEOUT_SECS).json(&body).send().await;
         let wake = &app.person.wake;
         match after_report(r.as_ref().ok().map(|r| r.status().as_u16()), confirmed) {
             Next::Poll | Next::Adopt => {
@@ -327,7 +327,7 @@ async fn run(handle: AppHandle) {
                 continue;
             }
             Next::OldServer => {
-                tokio::time::sleep(OLD_SERVER_WAIT).await;
+                tokio::time::sleep(OLD_SERVER_WAIT_SECS).await;
                 continue;
             }
             Next::Wait => {
@@ -335,17 +335,17 @@ async fn run(handle: AppHandle) {
                 continue;
             }
             Next::Retry => {
-                tokio::time::sleep(IDLE_WAIT).await;
+                tokio::time::sleep(IDLE_WAIT_SECS).await;
                 continue;
             }
         }
-        let poll = client.get(format!("{url}/v1/desktop/devices/{id}/next")).bearer_auth(&token).timeout(POLL_TIMEOUT).send();
+        let poll = client.get(format!("{url}/v1/desktop/devices/{id}/next")).bearer_auth(&token).timeout(POLL_TIMEOUT_SECS).send();
         let job = tokio::select! {
             r = poll => match r {
                 Ok(r) if r.status() == reqwest::StatusCode::OK => r.json::<Value>().await.ok(),
                 Ok(r) if r.status().is_success() => None,
                 _ => {
-                    tokio::time::sleep(IDLE_WAIT).await;
+                    tokio::time::sleep(IDLE_WAIT_SECS).await;
                     None
                 }
             },
@@ -356,7 +356,7 @@ async fn run(handle: AppHandle) {
             let _ = client
                 .post(format!("{url}/v1/desktop/devices/{id}/result"))
                 .bearer_auth(&token)
-                .timeout(REPORT_TIMEOUT)
+                .timeout(REPORT_TIMEOUT_SECS)
                 .json(&json!({ "job": job["id"], "ok": ok, "text": text }))
                 .send()
                 .await;

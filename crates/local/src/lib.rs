@@ -16,11 +16,11 @@ use std::time::Duration;
 
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
-const EXEC_LIMIT: Duration = Duration::from_secs(120);
+const EXEC_LIMIT_SECS: Duration = Duration::from_secs(120);
 /// Where macOS keeps its confinement tool, by absolute path so nothing can stand in.
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
-const RETRY_DELAY: Duration = Duration::from_secs(2);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const RETRY_DELAY_SECS: Duration = Duration::from_secs(2);
+const REQUEST_TIMEOUT_SECS: Duration = Duration::from_secs(60);
 
 /// The folders the person granted, each resolved once at startup.
 #[derive(Clone, Debug)]
@@ -171,9 +171,9 @@ async fn exec(command: &str, cwd: &Path, folders: &Folders, bwrap: &Path, networ
         bail!("commands cannot be confined on this operating system yet, so they do not run");
     };
     cmd.env_clear().env("PATH", "/usr/bin:/bin").env("HOME", cwd).stdin(Stdio::null()).kill_on_drop(true);
-    let out = tokio::time::timeout(EXEC_LIMIT, cmd.output())
+    let out = tokio::time::timeout(EXEC_LIMIT_SECS, cmd.output())
         .await
-        .map_err(|_| anyhow!("the command ran past {EXEC_LIMIT:?} and was stopped"))?
+        .map_err(|_| anyhow!("the command ran past {EXEC_LIMIT_SECS:?} and was stopped"))?
         .context("the confinement did not start")?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
@@ -189,7 +189,7 @@ async fn exec(command: &str, cwd: &Path, folders: &Folders, bwrap: &Path, networ
 /// Connects and works through jobs one at a time until the process ends.
 /// One at a time also means no job's symlink can race another job's check.
 pub async fn serve(cfg: Config) -> Result<()> {
-    let http = tls::apply(reqwest::Client::builder().timeout(REQUEST_TIMEOUT), &cfg.trust)?.build()?;
+    let http = tls::apply(reqwest::Client::builder().timeout(REQUEST_TIMEOUT_SECS), &cfg.trust)?.build()?;
     let register = json!({ "name": cfg.name, "mode": cfg.mode, "folders": cfg.folders.list() });
     let reply: Value = http.post(format!("{}/v1/local/computers", cfg.server)).bearer_auth(&cfg.token).json(&register).send().await?.error_for_status()?.json().await?;
     let id = reply["id"].as_str().context("the server gave no id")?.to_string();
@@ -201,7 +201,7 @@ pub async fn serve(cfg: Config) -> Result<()> {
                 return Err(e.context("the session ended, so this computer stopped working for it"));
             }
             eprintln!("magnus-local: {e:#}");
-            tokio::time::sleep(RETRY_DELAY).await;
+            tokio::time::sleep(RETRY_DELAY_SECS).await;
         }
     }
 }

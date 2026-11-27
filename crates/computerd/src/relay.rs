@@ -89,8 +89,8 @@ pub fn run(root: &Path, uid: u32, port: u32) -> Result<()> {
 }
 
 const API_SOCKET: &str = "/run/firecracker.socket";
-const API_WAIT: Duration = Duration::from_secs(5);
-const API_POLL: Duration = Duration::from_millis(20);
+const API_WAIT_SECS: Duration = Duration::from_secs(5);
+const API_POLL_MS: Duration = Duration::from_millis(20);
 pub const SNAPSHOT_STATE: &str = "snapshot.state";
 pub const SNAPSHOT_MEMORY: &str = "snapshot.mem";
 
@@ -99,8 +99,8 @@ fn api_call(method: &str, path: &str, body: &str) -> Result<()> {
     let mut s = loop {
         match UnixStream::connect(API_SOCKET) {
             Ok(s) => break s,
-            Err(e) if started.elapsed() > API_WAIT => return Err(e).context("reach firecracker's API"),
-            Err(_) => std::thread::sleep(API_POLL),
+            Err(e) if started.elapsed() > API_WAIT_SECS => return Err(e).context("reach firecracker's API"),
+            Err(_) => std::thread::sleep(API_POLL_MS),
         }
     };
     write!(s, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len())?;

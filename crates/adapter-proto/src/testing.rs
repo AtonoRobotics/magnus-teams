@@ -9,8 +9,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// How long a test waits for the adapter's socket to appear.
-const SOCKET_WAIT: Duration = Duration::from_secs(5);
-const SOCKET_POLL: Duration = Duration::from_millis(10);
+const SOCKET_WAIT_SECS: Duration = Duration::from_secs(5);
+const SOCKET_POLL_MS: Duration = Duration::from_millis(10);
 
 /// A provider that answers one request: the status line and headers
 /// `head`, then `body`, then it hangs up. With `chunked`, the body is sent
@@ -64,10 +64,10 @@ where
     let socket = std::env::temp_dir().join(format!("magnus-adapter-test-{}-{}.sock", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
     let path = socket.clone();
     tokio::spawn(async move { serve(&path, handle).await });
-    let deadline = tokio::time::Instant::now() + SOCKET_WAIT;
+    let deadline = tokio::time::Instant::now() + SOCKET_WAIT_SECS;
     while !socket.exists() {
         anyhow::ensure!(tokio::time::Instant::now() < deadline, "the adapter's socket did not appear");
-        tokio::time::sleep(SOCKET_POLL).await;
+        tokio::time::sleep(SOCKET_POLL_MS).await;
     }
     let mut call = Call::open(&socket, Request::Complete(params)).await?;
     let mut out = vec![];

@@ -17,7 +17,7 @@ pub const GATEWAY: &str = "10.200.0.1";
 pub const GUEST_NETMASK_BITS: u8 = 30;
 pub const PROXY_PORT: u16 = 3128;
 const MAX_CONNECTIONS: usize = 512;
-const VM_CHECK: Duration = Duration::from_secs(1);
+const VM_CHECK_SECS: Duration = Duration::from_secs(1);
 
 fn check(rc: i32, what: &str) -> Result<()> {
     if rc != 0 {
@@ -57,7 +57,7 @@ pub fn run(netns: &Path, uid: u32, socket_gid: u32, proxy: &Path, pids: &[i32]) 
     }
     let watched = pids.to_vec();
     std::thread::spawn(move || loop {
-        std::thread::sleep(VM_CHECK);
+        std::thread::sleep(VM_CHECK_SECS);
         if all_gone(&watched) {
             std::process::exit(0);
         }

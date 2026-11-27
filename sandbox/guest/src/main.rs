@@ -31,14 +31,14 @@ const PORT: u32 = 52;
 const DISPLAY_PORT: u32 = 5900;
 const VNC_PORT: u16 = 5901;
 const VNC_CONNECT_TRIES: u32 = 50;
-const VNC_CONNECT_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
+const VNC_CONNECT_WAIT_MS: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_OUT: usize = 200_000;
 /// What a command's own `timeout_s` is held between.
 const MIN_EXEC_TIMEOUT_SECONDS: u64 = 1;
 const MAX_EXEC_TIMEOUT_SECONDS: u64 = 3600;
 /// How long a command's output is still read after it exits.
-const OUTPUT_GRACE: Duration = Duration::from_millis(150);
-const OUTPUT_POLL: Duration = Duration::from_millis(2);
+const OUTPUT_GRACE_MS: Duration = Duration::from_millis(150);
+const OUTPUT_POLL_MS: Duration = Duration::from_millis(2);
 const MIN_ENTROPY_BYTES: usize = 32;
 const NET_DEVICE: &[u8] = b"eth0";
 const GUEST_ADDRESS: [u8; 4] = [10, 200, 0, 2];
@@ -49,7 +49,7 @@ const ARPHRD_ETHER: libc::sa_family_t = 1;
 const FIFREEZE: u64 = 0xC004_5877;
 const FITHAW: u64 = 0xC004_5878;
 /// A host that froze the volume and went away cannot leave it frozen.
-const MAX_FREEZE: Duration = Duration::from_secs(120);
+const MAX_FREEZE_SECS: Duration = Duration::from_secs(120);
 const OVERLAY_DRIVE: &str = "/dev/vdc";
 const ERASE_BUFFER_BYTES: usize = 1 << 20;
 const FREE_SPACE_FILE: &str = "/workspace/.magnus-free-space";
@@ -176,7 +176,7 @@ fn freeze(frozen: bool) -> Value {
     }
     if frozen {
         std::thread::spawn(|| {
-            std::thread::sleep(MAX_FREEZE);
+            std::thread::sleep(MAX_FREEZE_SECS);
             let _ = freeze(false);
         });
     }
@@ -423,7 +423,7 @@ fn exec(command: &str, timeout_s: u64) -> Value {
             Err(_) => break None,
         }
     };
-    wait_for_readers(&[so_reader, se_reader], OUTPUT_GRACE);
+    wait_for_readers(&[so_reader, se_reader], OUTPUT_GRACE_MS);
     let (stdout, c1) = truncate(so.lock().unwrap_or_else(|e| e.into_inner()).clone());
     let (stderr, c2) = truncate(se.lock().unwrap_or_else(|e| e.into_inner()).clone());
     json!({
@@ -439,7 +439,7 @@ fn exec(command: &str, timeout_s: u64) -> Value {
 fn wait_for_readers(readers: &[std::thread::JoinHandle<()>], grace: Duration) {
     let start = Instant::now();
     while start.elapsed() < grace && !readers.iter().all(|r| r.is_finished()) {
-        std::thread::sleep(OUTPUT_POLL);
+        std::thread::sleep(OUTPUT_POLL_MS);
     }
 }
 
@@ -536,7 +536,7 @@ const DISPLAY_SCRIPT: &str = "export DISPLAY=:0; magnus-desktop start >/dev/null
 fn connect_vnc() -> Option<std::net::TcpStream> {
     (0..VNC_CONNECT_TRIES).find_map(|_| {
         std::net::TcpStream::connect(("127.0.0.1", VNC_PORT)).ok().or_else(|| {
-            std::thread::sleep(VNC_CONNECT_WAIT);
+            std::thread::sleep(VNC_CONNECT_WAIT_MS);
             None
         })
     })
@@ -628,14 +628,14 @@ mod tests {
     fn a_commands_output_comes_back_as_soon_as_it_is_read() {
         let read = std::thread::spawn(|| {});
         let started = Instant::now();
-        wait_for_readers(&[read], OUTPUT_GRACE);
-        assert!(started.elapsed() < OUTPUT_GRACE / 2, "a finished command waited out the grace");
+        wait_for_readers(&[read], OUTPUT_GRACE_MS);
+        assert!(started.elapsed() < OUTPUT_GRACE_MS / 2, "a finished command waited out the grace");
         // A background process holding the pipes is waited for no longer.
-        let held = std::thread::spawn(|| std::thread::sleep(OUTPUT_GRACE * 4));
+        let held = std::thread::spawn(|| std::thread::sleep(OUTPUT_GRACE_MS * 4));
         let started = Instant::now();
-        wait_for_readers(&[held], OUTPUT_GRACE);
+        wait_for_readers(&[held], OUTPUT_GRACE_MS);
         let waited = started.elapsed();
-        assert!(waited >= OUTPUT_GRACE && waited < OUTPUT_GRACE * 3, "{waited:?}");
+        assert!(waited >= OUTPUT_GRACE_MS && waited < OUTPUT_GRACE_MS * 3, "{waited:?}");
     }
 
     /// Every request line the senders write (computerd-proto's tests hold

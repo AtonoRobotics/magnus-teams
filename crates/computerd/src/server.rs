@@ -16,8 +16,8 @@ use std::time::{Duration, SystemTime};
 
 const MAX_REQUEST_BYTES: u64 = 4096;
 const MAX_CONNECTIONS: usize = 64;
-const BACKUP_EVERY: Duration = Duration::from_secs(3600);
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
+const BACKUP_EVERY_SECS: Duration = Duration::from_secs(3600);
+const READ_TIMEOUT_SECS: Duration = Duration::from_secs(5);
 const SOCKET_MODE: u32 = 0o660;
 const EGRESS_DIR_MODE: u32 = 0o2770;
 /// So the socket is never open to others between bind and chmod.
@@ -129,7 +129,7 @@ fn relay_or_say(computers: &Computers, conn: UnixStream, id: &str, port: u32) {
 /// newline is lost to the buffer.
 fn read_request(conn: &UnixStream) -> Result<Request> {
     let mut line = String::new();
-    conn.set_read_timeout(Some(READ_TIMEOUT))?;
+    conn.set_read_timeout(Some(READ_TIMEOUT_SECS))?;
     BufReader::new(conn.take(MAX_REQUEST_BYTES)).read_line(&mut line)?;
     serde_json::from_str(&line).context("bad request")
 }
@@ -174,7 +174,7 @@ pub fn serve(cfg: Config) -> Result<()> {
     }
     let keeper = computers.clone();
     std::thread::spawn(move || loop {
-        std::thread::sleep(BACKUP_EVERY);
+        std::thread::sleep(BACKUP_EVERY_SECS);
         if let Err(e) = keeper.backup_changed() {
             eprintln!("magnus-computerd: {e:#}");
         }

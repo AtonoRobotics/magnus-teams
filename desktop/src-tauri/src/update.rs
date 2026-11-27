@@ -21,16 +21,16 @@ use tauri_plugin_updater::UpdaterExt;
 
 /// An hour, as the appliance looks for its own releases: a release reaches
 /// every app within the hour, and a look is one small request.
-const EVERY: Duration = Duration::from_secs(3600);
+const EVERY_SECS: Duration = Duration::from_secs(3600);
 
 /// How long the page has, from the app's start, to say it works (its first
 /// screen drawn with no error while its scripts loaded). A page that has not
 /// said so by then is broken: the "Restart to update" button it would draw
 /// is not there, so the app installs a downloaded release on its own.
-const PAGE_WORKS_WAIT: Duration = Duration::from_secs(90);
+const PAGE_WORKS_WAIT_SECS: Duration = Duration::from_secs(90);
 
 /// How often an app whose page is broken looks for a release that mends it.
-const BROKEN_PAGE_LOOK_EVERY: Duration = Duration::from_secs(5 * 60);
+const BROKEN_PAGE_LOOK_EVERY_SECS: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Default)]
 pub struct Updates {
@@ -41,11 +41,11 @@ pub struct Updates {
 }
 
 /// Whether to install a downloaded release without the person's click:
-/// only when the page has not said it works within `PAGE_WORKS_WAIT`, as on
+/// only when the page has not said it works within `PAGE_WORKS_WAIT_SECS`, as on
 /// 0.2.6-test.380, whose page stopped while loading and left the app an
 /// empty window that could not offer the update that mended it.
 fn install_unasked(page_works: bool, since_start: Duration, update_ready: bool) -> bool {
-    !page_works && since_start >= PAGE_WORKS_WAIT && update_ready
+    !page_works && since_start >= PAGE_WORKS_WAIT_SECS && update_ready
 }
 
 /// Whether this copy of the app can replace itself.
@@ -112,7 +112,7 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
         loop {
             let r = look(&handle).await;
             *handle.state::<Updates>().error.lock().unwrap() = r.err();
-            tokio::time::sleep(EVERY).await;
+            tokio::time::sleep(EVERY_SECS).await;
         }
     });
 }
@@ -124,7 +124,7 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
 pub fn watch_page<R: Runtime>(handle: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let started = Instant::now();
-        tokio::time::sleep(PAGE_WORKS_WAIT).await;
+        tokio::time::sleep(PAGE_WORKS_WAIT_SECS).await;
         loop {
             let ups = handle.state::<Updates>();
             if ups.page_works.load(Ordering::SeqCst) {
@@ -142,7 +142,7 @@ pub fn watch_page<R: Runtime>(handle: AppHandle<R>) {
                     }
                 }
             }
-            tokio::time::sleep(BROKEN_PAGE_LOOK_EVERY).await;
+            tokio::time::sleep(BROKEN_PAGE_LOOK_EVERY_SECS).await;
         }
     });
 }
@@ -229,21 +229,21 @@ mod tests {
 
     #[test]
     fn a_page_that_never_works_gets_the_downloaded_release_unasked() {
-        assert!(install_unasked(false, PAGE_WORKS_WAIT, true));
+        assert!(install_unasked(false, PAGE_WORKS_WAIT_SECS, true));
     }
 
     #[test]
     fn a_working_page_waits_for_the_persons_click() {
-        assert!(!install_unasked(true, PAGE_WORKS_WAIT * 10, true));
+        assert!(!install_unasked(true, PAGE_WORKS_WAIT_SECS * 10, true));
     }
 
     #[test]
     fn a_page_still_starting_is_given_its_time() {
-        assert!(!install_unasked(false, PAGE_WORKS_WAIT - Duration::from_secs(1), true));
+        assert!(!install_unasked(false, PAGE_WORKS_WAIT_SECS - Duration::from_secs(1), true));
     }
 
     #[test]
     fn nothing_is_installed_before_a_release_is_downloaded() {
-        assert!(!install_unasked(false, PAGE_WORKS_WAIT * 10, false));
+        assert!(!install_unasked(false, PAGE_WORKS_WAIT_SECS * 10, false));
     }
 }

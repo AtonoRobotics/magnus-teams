@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-const CAPTURE_LIMIT: Duration = Duration::from_secs(40);
+const CAPTURE_LIMIT_SECS: Duration = Duration::from_secs(40);
 const MAX_RECORD_SECONDS: u64 = 30;
 const DEFAULT_RECORD_SECONDS: u64 = 5;
 /// Prefixed to an image's base64, which the server turns back into an image.
@@ -38,11 +38,11 @@ async fn first_that_works(tried: Vec<Vec<String>>) -> Result<()> {
     for c in &tried {
         let Some((program, args)) = c.split_first() else { continue };
         let run = tokio::process::Command::new(program).args(args).stdin(Stdio::null()).kill_on_drop(true).output();
-        match tokio::time::timeout(CAPTURE_LIMIT, run).await {
+        match tokio::time::timeout(CAPTURE_LIMIT_SECS, run).await {
             Ok(Ok(out)) if out.status.success() => return Ok(()),
             Ok(Ok(out)) => why = format!("{program}: {}", String::from_utf8_lossy(&out.stderr)),
             Ok(Err(e)) => why = format!("{program}: {e}"),
-            Err(_) => bail!("{program} ran past {CAPTURE_LIMIT:?} and was stopped"),
+            Err(_) => bail!("{program} ran past {CAPTURE_LIMIT_SECS:?} and was stopped"),
         }
     }
     bail!("the capture did not work: {why}")

@@ -23,9 +23,9 @@ const PROFILE: &str = "/workspace/profile";
 const HOME: &str = "/tmp/browser-home";
 /// Not root: the page process has nothing else on this machine to reach.
 const BROWSER_UID: u32 = 1000;
-const SIDECAR_RESTART_WAIT: Duration = Duration::from_secs(1);
-const SIDECAR_START_WAIT: Duration = Duration::from_secs(45);
-const SIDECAR_POLL: Duration = Duration::from_millis(100);
+const SIDECAR_RESTART_WAIT_SECS: Duration = Duration::from_secs(1);
+const SIDECAR_START_WAIT_SECS: Duration = Duration::from_secs(45);
+const SIDECAR_POLL_MS: Duration = Duration::from_millis(100);
 const MAX_REPLY_BYTES: u64 = 64 * 1024 * 1024;
 /// One context: the VM belongs to a single identity or throwaway.
 const RUN: &str = "vm";
@@ -73,7 +73,7 @@ fn keep_sidecar_running() {
             }
             Err(e) => eprintln!("magnus-guest: the browser did not start: {e}"),
         }
-        std::thread::sleep(SIDECAR_RESTART_WAIT);
+        std::thread::sleep(SIDECAR_RESTART_WAIT_SECS);
     }
 }
 
@@ -119,8 +119,8 @@ fn answer(req: &Value) -> Value {
 /// still starting. Serves anyway after this long, to say what went wrong.
 fn wait_for_sidecar() {
     let started = Instant::now();
-    while UnixStream::connect(SOCKET).is_err() && started.elapsed() < SIDECAR_START_WAIT {
-        std::thread::sleep(SIDECAR_POLL);
+    while UnixStream::connect(SOCKET).is_err() && started.elapsed() < SIDECAR_START_WAIT_SECS {
+        std::thread::sleep(SIDECAR_POLL_MS);
     }
 }
 

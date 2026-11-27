@@ -10,13 +10,13 @@ use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::Stdio;
 
-const GUEST_ANSWER: Duration = Duration::from_secs(30);
-const GUEST_RETRY: Duration = Duration::from_millis(100);
+const GUEST_ANSWER_SECS: Duration = Duration::from_secs(30);
+const GUEST_RETRY_MS: Duration = Duration::from_millis(100);
 
 impl Computers {
     fn guest_once(&self, id: &ComputerId, uid: u32, req: &GuestRequest) -> Result<Value> {
         let (mine, theirs) = UnixStream::pair()?;
-        mine.set_read_timeout(Some(GUEST_ANSWER))?;
+        mine.set_read_timeout(Some(GUEST_ANSWER_SECS))?;
         let out = theirs.try_clone()?;
         let mut relay = Command::new(std::env::current_exe().context("find this program")?)
             .env_clear()
@@ -53,8 +53,8 @@ impl Computers {
         loop {
             match self.guest_once(id, uid, req) {
                 Ok(v) => return Ok(v),
-                Err(e) if started.elapsed() > GUEST_ANSWER => return Err(e),
-                Err(_) => std::thread::sleep(GUEST_RETRY),
+                Err(e) if started.elapsed() > GUEST_ANSWER_SECS => return Err(e),
+                Err(_) => std::thread::sleep(GUEST_RETRY_MS),
             }
         }
     }

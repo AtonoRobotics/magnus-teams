@@ -543,7 +543,7 @@ async fn loopback_open(app: State<'_, App>, redirect: Option<String>) -> Res<Str
 }
 
 /// How long a sign-in page may take before the app stops waiting.
-const SIGN_IN_WAIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+const SIGN_IN_WAIT_SECS: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Wait for the sign-in page's redirect: its code, its state and the
 /// server's name when it gives one (RFC 9207, as Google does: without it the
@@ -551,7 +551,7 @@ const SIGN_IN_WAIT: std::time::Duration = std::time::Duration::from_secs(10 * 60
 #[tauri::command]
 async fn loopback_wait(app: State<'_, App>) -> Res<Value> {
     let l = app.loopback.lock().unwrap().take().ok_or("no sign-in is waiting")?;
-    let q = redirected(l, SIGN_IN_WAIT).await?;
+    let q = redirected(l, SIGN_IN_WAIT_SECS).await?;
     Ok(json!({ "code": q["code"], "state": q["state"], "iss": q.get("iss") }))
 }
 
@@ -591,7 +591,7 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     }
     handle.opener().open_url(page.as_str(), None::<&str>).map_err(|e| format!("cannot open the browser: {e}"))?;
     // As long as the appliance keeps the sign-in open.
-    let wait = std::time::Duration::from_secs(begun["expires_in"].as_u64().unwrap_or(SIGN_IN_WAIT.as_secs()));
+    let wait = std::time::Duration::from_secs(begun["expires_in"].as_u64().unwrap_or(SIGN_IN_WAIT_SECS.as_secs()));
     let q = unless_cancelled(redirected(l, wait), &mut cancel).await?;
     if q.get("state").map(String::as_str) != Some(state) {
         return Err("the browser came back from a different sign-in; start again".into());

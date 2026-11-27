@@ -37,12 +37,12 @@ const CPU_PERIOD_US: u64 = 100_000;
 const MAX_OPEN_FILES: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1 << 20;
 const BYTES_PER_GIB: u64 = 1 << 30;
-const START_WAIT: Duration = Duration::from_secs(10);
-const START_SETTLE: Duration = Duration::from_millis(300);
-const KILL_WAIT: Duration = Duration::from_secs(10);
+const START_WAIT_SECS: Duration = Duration::from_secs(10);
+const START_SETTLE_MS: Duration = Duration::from_millis(300);
+const KILL_WAIT_SECS: Duration = Duration::from_secs(10);
 /// A stuck start must not hold up a kill for long.
-const LOCK_WAIT: Duration = Duration::from_secs(5);
-const POLL_INTERVAL: Duration = Duration::from_millis(20);
+const LOCK_WAIT_SECS: Duration = Duration::from_secs(5);
+const POLL_INTERVAL_MS: Duration = Duration::from_millis(20);
 const VM_CONFIG: &str = "vm.json";
 const BASE_ID: &str = "base.id";
 const VOLUME: &str = "volume.ext4";
@@ -153,11 +153,11 @@ impl Computers {
     fn lock_for_kill(&self) -> Option<File> {
         let file = File::options().create(true).write(true).truncate(false).mode(0o600).open(self.state("lock")).ok()?;
         let started = Instant::now();
-        while started.elapsed() < LOCK_WAIT {
+        while started.elapsed() < LOCK_WAIT_SECS {
             if file.try_lock().is_ok() {
                 return Some(file);
             }
-            std::thread::sleep(POLL_INTERVAL);
+            std::thread::sleep(POLL_INTERVAL_MS);
         }
         None
     }
@@ -335,12 +335,12 @@ impl Computers {
         }
         let started = Instant::now();
         while !self.is_live(id) {
-            ensure!(started.elapsed() < START_WAIT, "computer {} did not start", id.as_str());
-            std::thread::sleep(POLL_INTERVAL);
+            ensure!(started.elapsed() < START_WAIT_SECS, "computer {} did not start", id.as_str());
+            std::thread::sleep(POLL_INTERVAL_MS);
         }
         // A VM that cannot run exits at once, and nothing else would say so:
         // a daemonized jailer has already reported success.
-        std::thread::sleep(START_SETTLE);
+        std::thread::sleep(START_SETTLE_MS);
         ensure!(self.is_live(id), "computer {} exited as it started", id.as_str());
         if networked {
             self.start_forwarder(id, uid)?;
@@ -460,9 +460,9 @@ fn kill_cgroup(cgroup: &Path) -> Result<()> {
         match std::fs::remove_dir(cgroup) {
             Ok(()) => return Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => ensure!(started.elapsed() < KILL_WAIT, "a computer's processes did not exit: {e}"),
+            Err(e) => ensure!(started.elapsed() < KILL_WAIT_SECS, "a computer's processes did not exit: {e}"),
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(POLL_INTERVAL_MS);
     }
 }
 
