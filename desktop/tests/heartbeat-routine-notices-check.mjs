@@ -60,10 +60,11 @@ assert.deepEqual(Notices.history.map(n => n.key), ["inbox:i_open"], "resolved ro
 assert.ok(removed.includes("inbox:i_done") && removed.includes("inbox:i_ideas") && !removed.includes("inbox:i_open"), "live popups for resolved/stale items removed");
 assert.equal(ctx.AuroraStage.notes.has("inbox:i_ideas"), false, "stale ideas note cleared from AuroraStage.notes");
 
-// 2. Verify Heartbeat is created as a system schedule and filtered out of quiet UI surfaces.
-assert.match(appSrc, /Server\.schedules\.create\(\{\s*title:\s*"Heartbeat"[\s\S]*?system:\s*true/, "Enable Heartbeat passes system: true");
+// 2. The heartbeat is retired (decisions/2026-11-26-the-heartbeat-is-retired.md):
+// nothing offers to start one, and a system schedule still listed stays out of quiet UI surfaces.
+assert.doesNotMatch(appSrc + tasksSchedSrc, /data-enable-heartbeat|Enable Heartbeat|title:\s*"Heartbeat"/, "nothing offers to start a heartbeat");
 assert.match(appSrc, /const isQuietSystemTask =/, "app.js defines isQuietSystemTask helper");
-assert.match(tasksSchedSrc, /data-system-heartbeat/, "schedulesView renders dedicated System Heartbeat card");
+assert.doesNotMatch(tasksSchedSrc, /data-system-heartbeat/, "schedulesView has no Heartbeat card");
 assert.match(tasksSchedSrc, /const list = sorted\.filter\(sc => !isSys\(sc\)\)/, "schedulesView does not duplicate System Heartbeat into user routines");
 assert.match(railSrc, /!t\.routine && !t\.system/, "aurora-rail excludes quiet system tasks from rail badge");
 assert.match(stageSrc, /!\(t\.system && !waits\(t\) && t\.status !== "failed"\)/, "aurora-stage excludes quiet system tasks unless user is needed");

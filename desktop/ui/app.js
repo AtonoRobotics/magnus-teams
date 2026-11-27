@@ -1998,14 +1998,14 @@ function needsInlineCard(i) {
     <div class="needs-inline-acts">${acts}</div>
   </div>`;
 }
-// The schedules coming up, each with its app's icon or a calendar (a bell
-// for the heartbeat), or the offer to start the heartbeat.
-function schedRows(scheds, hb) {
+// The schedules coming up, each with its app's icon or a calendar. The
+// heartbeat is retired (decisions/2026-11-26-the-heartbeat-is-retired.md):
+// nothing here offers to start one.
+function schedRows(scheds) {
   return scheds.length ? scheds.slice(0, 3).map(sc => {
-    const isHb = /heartbeat/i.test(sc.title || sc.text || "");
-    const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
+    const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic sch">${icon("calendar")}</span>`;
     return `<div class="trow-wrap"><a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a><button type="button" class="trow-del" data-act="delete-schedule" data-id="${esc(sc.id)}" title="Delete schedule" aria-label="Delete ${esc(sc.title)}">${icon("trash")}</button></div>`;
-  }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`;
+  }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span></div>`;
 }
 const guardrailsRow = () => `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
 // The overview's parts, which the panel stacks and an Aurora stage
@@ -2017,9 +2017,7 @@ function activityParts(composed) {
   const active = visibleTasks.filter(t => !ENDED.includes(t.status));
   const done = visibleTasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
   const pending = needsMe();
-  const allScheds = App.schedules.filter(sc => !sc.ended);
-  const hb = allScheds.find(sysSched);
-  const scheds = allScheds.filter(sc => !sysSched(sc));
+  const scheds = App.schedules.filter(sc => !sc.ended && !sysSched(sc));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i) && !ExploreIdeas.isIdea(i));
   const hasOpenIdeas = typeof ExploreIdeas !== "undefined" ? ExploreIdeas.open(App.inbox).length > 0 : false;
   const shownOther = other.filter(i => !(typeof ExploreIdeas !== "undefined" && ExploreIdeas.isNotice(i) && !hasOpenIdeas));
@@ -2060,11 +2058,11 @@ function activityParts(composed) {
   const schedCard = `<section class="companion-scheds">
     <div class="companion-sec-head"><span>Up Next</span><a class="sec-head-link" href="#/schedules" data-open="schedules">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</a></div>
     <div class="scheds-list">
-      ${schedRows(scheds, hb)}
+      ${schedRows(scheds)}
     </div>
   </section>`;
   const updates = (feed || shownOther.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${shownOther.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${shownOther.map(i => card(i, composed)).join("")}</details>` : "";
-  return { active, done, pending, scheds, hb, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
+  return { active, done, pending, scheds, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
 }
 function briefingCard() {
   const b = App.briefing;
@@ -3555,15 +3553,6 @@ async function boot() {
         const act = /** @type {HTMLElement} */ (t.closest("[data-overview-kill]")).dataset.overviewKill;
         const btn = $(`[data-admin-kill] [data-kill-${act === "release" ? "release" : "press"}="server"]`);
         if (btn) btn.click();
-      }
-      else if (t.closest("[data-enable-heartbeat]")) {
-        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-enable-heartbeat]"));
-        b.disabled = true;
-        try {
-          await Server.schedules.create({ title: "Heartbeat", text: "Heartbeat: Check connected email, calendar, and active threads for anything urgent or stalled. Stay silent unless something needs my attention.", every_minutes: 30, system: true });
-          toast("Heartbeat enabled (every 30 min).");
-          await refresh();
-        } catch (err) { toast(err.message); b.disabled = false; }
       }
       else if (t.closest("[data-stop-all-work]")) {
         const b = /** @type {HTMLButtonElement} */ (t.closest("[data-stop-all-work]"));

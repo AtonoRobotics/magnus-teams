@@ -161,9 +161,9 @@ function schedulesView() {
   const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
   const isSys = sc => typeof isSystemSchedule === "function" ? isSystemSchedule(sc) : !!(sc?.system || /heartbeat/i.test(sc?.title || sc?.text || ""));
   const sorted = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
-  const hb = sorted.find(sc => !sc.ended && isSys(sc));
+  // The heartbeat is retired (decisions/2026-11-26-the-heartbeat-is-retired.md):
+  // the server ends one still set up, and nothing here offers to start one.
   const list = sorted.filter(sc => !isSys(sc));
-  const hbCard = `<div class="card flat" data-system-heartbeat style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong> <span class="chip">System</span><div class="small muted">${hb ? `Every ${esc(String(hb.every_minutes || 30))} min · ${hb.paused ? "Paused" : `Next check ${esc(until(hb.next))}`} · Quiet unless you're needed` : "Background system check every 30 min. Stays out of chat and notifies only when you're needed."}</div></div>${hb ? `<div class="row"><span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span><button type="button" class="danger small" data-act="delete-schedule" data-id="${esc(hb.id)}">Delete</button></div>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
   const creator = `<details class="card flat" data-key="sched-new" style="margin-bottom:10px">
       <summary class="small"><strong>+ New routine</strong></summary>
       <form data-create-schedule style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
@@ -173,7 +173,7 @@ function schedulesView() {
       </form>
     </details>`;
   const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past routine${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
-  return header + creator + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
+  return header + creator + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
       <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
       ${scheduleFacts(sc)}
       <div class="small muted" data-last>${scheduleState(sc)}</div>

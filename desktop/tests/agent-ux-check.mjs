@@ -108,7 +108,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   assert.match(html, /Post to #general.*\(slack__post\)/, "not_done shows tool context");
 }
 
-// 4. Tasks & Schedules: inline task delete on ended rows, Delete on active/paused/ended & Heartbeat schedules.
+// 4. Tasks & Schedules: inline task delete on ended rows, Delete on active/paused/ended schedules, and no Heartbeat card.
 {
   const sandbox = {
     esc, enc: encodeURIComponent,
@@ -141,7 +141,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   assert.match(tHtml, /data-trash="t-done"/, "ended task row offers inline Delete button");
   assert.doesNotMatch(tHtml, /data-trash="t-run"/, "running task row does not offer Delete");
   const sHtml = sandbox.schedulesView();
-  assert.match(sHtml, /data-act="delete-schedule" data-id="sc-hb"/, "Heartbeat card offers Delete");
+  assert.doesNotMatch(sHtml, /data-id="sc-hb"|data-enable-heartbeat|Heartbeat/, "the retired heartbeat is neither shown nor offered");
   assert.match(sHtml, /data-act="delete-schedule" data-id="sc-act">Delete<\/button>/, "active schedule offers Delete");
   assert.match(sHtml, /data-act="delete-schedule" data-id="sc-end">Delete schedule<\/button>/, "ended schedule offers Delete schedule");
 }

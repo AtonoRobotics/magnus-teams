@@ -70,6 +70,8 @@ pub(crate) mod gate_reads;
 pub mod generated;
 pub mod grants;
 pub mod halts;
+#[cfg(test)]
+mod heartbeat_retired_tests;
 pub mod identity;
 pub mod inbox;
 #[cfg(test)]

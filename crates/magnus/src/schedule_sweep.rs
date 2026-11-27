@@ -164,10 +164,14 @@ impl Kernel {
                 }
                 let prompt_text = w.text(sc.seq).to_string();
                 let is_system = sc.system || crate::outcomes::is_heartbeat_text(w.title(sc.seq).as_deref(), &prompt_text);
-                let mut modules: std::collections::BTreeMap<String, bool> = [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into();
+                // The heartbeat is retired (owner, 2026-11-25): the built-in
+                // reviews do its checks. One still set up ends here instead
+                // of running.
                 if is_system {
-                    modules.insert(crate::outcomes::SYSTEM_MODULE.to_string(), true);
+                    self.retire_heartbeat(&sc).await;
+                    return;
                 }
+                let modules: std::collections::BTreeMap<String, bool> = [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into();
                 let o = NewRun {
                     // Unattended and reaching someone else: its untrusted reads
                     // are quarantined from its first step, recorded with it.
@@ -178,9 +182,9 @@ impl Kernel {
                     project: self.read(|s| s.project_of(&sc.id)),
                     scope: w.opt(sc.seq, "scope"),
                     // Each run posts in the conversation the schedule was set up in, where
-                    // its outcome wakes the agent too (outcomes.rs, owner 2026-11-10). System
-                    // schedules (e.g. Heartbeat) and those with no conversation never post to chat.
-                    chat: (!is_system).then(|| self.read(|s| crate::schedule_thread::of(s, &sc))).flatten().map(|thread| crate::events::ChatOrigin {
+                    // its outcome wakes the agent too (outcomes.rs, owner 2026-11-10).
+                    // One with no conversation never posts to chat.
+                    chat: self.read(|s| crate::schedule_thread::of(s, &sc)).map(|thread| crate::events::ChatOrigin {
                         thread,
                         turn: false,
                         from_run: None,
@@ -220,18 +224,18 @@ impl Kernel {
     pub(crate) async fn fire_schedule_now(self: &Arc<Self>, sc: Schedule) -> anyhow::Result<String> {
         let w = self.words_of(&sc.person, sc.seq).await?;
         let prompt_text = w.text(sc.seq).to_string();
-        let is_system = sc.system || crate::outcomes::is_heartbeat_text(w.title(sc.seq).as_deref(), &prompt_text);
-        let mut modules: std::collections::BTreeMap<String, bool> = [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into();
-        if is_system {
-            modules.insert(crate::outcomes::SYSTEM_MODULE.to_string(), true);
+        if sc.system || crate::outcomes::is_heartbeat_text(w.title(sc.seq).as_deref(), &prompt_text) {
+            self.retire_heartbeat(&sc).await;
+            anyhow::bail!("the heartbeat is retired: the built-in reviews do its checks");
         }
+        let modules: std::collections::BTreeMap<String, bool> = [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into();
         let o = NewRun {
             quarantine: self.unattended_quarantine(&crate::quarantine_runtime::Unattended::schedule(&sc, &prompt_text)),
             budget: Some(crate::task_budget::scheduled(&self.cfg.budget, sc.budget.as_ref())),
             label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),
             project: self.read(|s| s.project_of(&sc.id)),
             scope: w.opt(sc.seq, "scope"),
-            chat: (!is_system).then(|| self.read(|s| crate::schedule_thread::of(s, &sc))).flatten().map(|thread| crate::events::ChatOrigin {
+            chat: self.read(|s| crate::schedule_thread::of(s, &sc)).map(|thread| crate::events::ChatOrigin {
                 thread,
                 turn: false,
                 from_run: None,
@@ -245,4 +249,21 @@ impl Kernel {
         let _ = self.emit("kernel", Ev::ScheduleFired { id: sc.id.clone(), task: task.clone() }).await;
         Ok(task)
     }
+
+    /// Ends a heartbeat (a system schedule) instead of running it, and tells
+    /// its person once why it is gone.
+    async fn retire_heartbeat(self: &Arc<Self>, sc: &Schedule) {
+        let title = self.schedule_title_for_notice(sc).await;
+        let notice = self.notice_to(
+            None,
+            None,
+            sc.person.clone(),
+            format!("A schedule ended: {title}"),
+            serde_json::json!({ "reason": "schedule_ended", "evidence": { "schedule": sc.id, "why": HEARTBEAT_RETIRED } }),
+        );
+        self.tell(vec![("kernel", Ev::ScheduleEnded { id: sc.id.clone(), reason: HEARTBEAT_RETIRED.into(), run: None }), ("kernel", notice)]).await;
+    }
 }
+
+/// Why a heartbeat ended (decisions/2026-11-26-the-heartbeat-is-retired.md).
+pub const HEARTBEAT_RETIRED: &str = "the heartbeat is retired: the built-in reviews already check your apps, approvals and work";
