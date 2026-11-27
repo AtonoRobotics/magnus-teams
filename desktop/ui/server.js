@@ -375,6 +375,7 @@ const Server = (() => {
       remove: (/** @type {Id} */ w) => del(ws(w)),
       join: (/** @type {string} */ code) => post(`/v1/invites/${enc(code)}/join`),
       home: (/** @type {Id} */ w) => get(`${ws(w)}/home`),
+      setInstructions: (/** @type {Id} */ w, /** @type {string} */ instructions) => put(`${ws(w)}/instructions`, { instructions }),
       capabilities: (/** @type {Id} */ w) => get(`${ws(w)}/capabilities`),
       missions: (/** @type {Id} */ w, /** @type {Id} */ room) => get(`${ws(w)}/rooms/${enc(room)}/missions`),
       createMission: (/** @type {Id} */ w, /** @type {Id} */ room, /** @type {any} */ body) => post(`${ws(w)}/rooms/${enc(room)}/missions`, body),

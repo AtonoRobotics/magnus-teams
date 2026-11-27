@@ -35,6 +35,7 @@ pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
         .route("/v1/workspaces", get(list).post(create))
         .route("/v1/workspaces/{ws}", get(one).delete(remove))
+        .route("/v1/workspaces/{ws}/instructions", axum::routing::put(set_instructions))
         .route("/v1/workspaces/{ws}/members", post(set_member))
         .route("/v1/workspaces/{ws}/members/{person}", delete(remove_member))
         .route("/v1/workspaces/{ws}/channels", post(add_channel))
@@ -130,6 +131,29 @@ async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(w
     if let Err(e) = k.delete_workspace(&format!("person:{}", p.id), &ws).await {
         return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
+    Ok(Json(json!({ "ok": true })).into_response())
+}
+
+const MAX_INSTRUCTIONS_CHARS: usize = 8_000;
+
+#[derive(Deserialize)]
+struct SetInstructions {
+    #[serde(default)]
+    instructions: String,
+}
+
+async fn set_instructions(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<SetInstructions>) -> ApiResult {
+    let trimmed = b.instructions.trim();
+    if trimmed.chars().count() > MAX_INSTRUCTIONS_CHARS {
+        return refuse(StatusCode::BAD_REQUEST, format!("instructions are at most {MAX_INSTRUCTIONS_CHARS} characters"));
+    }
+    if !trimmed.is_empty() {
+        if let Some(reason) = crate::compartment::query_gate::scrub_check(trimmed) {
+            return refuse(StatusCode::BAD_REQUEST, format!("refused instructions: {reason}"));
+        }
+    }
+    let text = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    send(&k, &p, Change::Instructions { workspace: ws, text, by: p.id.clone() }).await?;
     Ok(Json(json!({ "ok": true })).into_response())
 }
 

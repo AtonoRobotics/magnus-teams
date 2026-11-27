@@ -194,6 +194,7 @@ const table = [
   ["workspaces.remove", [W], "DELETE", w, undefined],
   ["workspaces.join", ["a/b"], "POST", "/v1/invites/a%2Fb/join", {}],
   ["workspaces.home", [W], "GET", `${w}/home`, undefined],
+  ["workspaces.setInstructions", [W, "Keep it brief"], "PUT", `${w}/instructions`, { instructions: "Keep it brief" }],
   ["workspaces.capabilities", [W], "GET", `${w}/capabilities`, undefined],
   ["workspaces.missions", [W, "r1"], "GET", `${w}/rooms/r1/missions`, undefined],
   ["workspaces.createMission", [W, "r1", { goal: "g" }], "POST", `${w}/rooms/r1/missions`, { goal: "g" }],

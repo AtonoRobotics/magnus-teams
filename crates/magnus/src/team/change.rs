@@ -211,6 +211,13 @@ pub enum Change {
     TeamAdminsSeeded {
         people: Vec<String>,
     },
+    /// Shared project instructions (mirrors personal Project::instructions).
+    Instructions {
+        workspace: String,
+        #[serde(default)]
+        text: Option<String>,
+        by: String,
+    },
     /// A co-edited file's history: see `coedit`. Everything but the
     /// workspace is content, its people included.
     Coedit {

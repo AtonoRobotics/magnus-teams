@@ -304,6 +304,13 @@ const Projects = (() => {
           </section>
         </div>
         <div class="project-hub-side">
+          <details class="project-sec project-instructions"${(home.instructions || "").trim() ? " open" : ""}>
+            <summary><span>Instructions</span><span class="small muted">${(home.instructions || "").trim() ? "Active" : "Optional"}</span></summary>
+            <div class="project-ins-body">
+              <textarea id="spin" rows="3" data-draft="spin-${esc(ws)}" placeholder="Rules or context Magnus should follow in this shared project…"${edit ? "" : " readonly"}>${esc(home.instructions || "")}</textarea>
+              ${edit ? `<div class="row"><button type="button" data-shared-save-ins="${esc(ws)}">Save</button></div>` : ""}
+            </div>
+          </details>
           <section class="project-sec">
             <div class="spread"><h2>People</h2><button type="button" class="link small" data-open="shared:settings">${edit ? "Add or invite" : "See all"}</button></div>
             <ul class="tlist">${members.map(m => `<li class="trow"><span><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)}${m.id === home.me ? ` <span class="small faint">you</span>` : ""}</span><span class="small faint">${esc(typeof teamRoleLabel === "function" ? teamRoleLabel(m.role) : m.role)}</span></li>`).join("")}</ul>
@@ -385,6 +392,16 @@ const Projects = (() => {
     };
     main.onclick = async e => {
       const t = /** @type {HTMLElement} */ (e.target);
+      if (t.closest?.("[data-shared-save-ins]")) {
+        try {
+          const val = /** @type {?HTMLTextAreaElement} */ ($("#spin", main))?.value || "";
+          await Server.workspaces.setInstructions(wsId, val);
+          delete drafts[`spin-${wsId}`];
+          toast("Instructions saved.");
+          await draw();
+        } catch (err) { toast(err.message); }
+        return;
+      }
       const dl = t.closest?.("[data-shared-file-dl]");
       if (dl) {
         const name = dl.dataset.sharedFileDl || "";

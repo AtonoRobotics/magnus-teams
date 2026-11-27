@@ -241,49 +241,62 @@ const SharedCanvas = (() => {
    * @param {{ thread?: ?string, title?: string, projectId?: ?string, projectName?: string }} opts
    */
   async function openShareDialog(opts = {}) {
-    const [workspaces, mayStart, directory, threadData] = await Promise.all([
+    const isProjectPromote = Boolean(opts.projectId);
+    const [workspaces, mayStart, directory, threadData, projData] = await Promise.all([
       Server.workspaces.list().catch(() => App.workspaces || []),
       typeof mayStartWorkspace === "function" ? mayStartWorkspace().catch(() => false) : Promise.resolve(false),
       Server.directory ? Server.directory().catch(() => []) : Promise.resolve([]),
       opts.thread && typeof Resources !== "undefined" ? Resources.read(SHARE_SOURCE, `/v1/chat/${enc(opts.thread)}`).catch(() => null) : Promise.resolve(null),
+      isProjectPromote && Server.projects?.get ? Server.projects.get(opts.projectId).catch(() => null) : Promise.resolve(null),
     ]);
     const entries = (threadData?.entries || []).filter(e => (e.kind === "message" || e.kind === "answer") && String(e.text || "").trim());
     const lastAnswer = [...entries].reverse().find(e => e.kind === "answer");
-    const defaultSummary = lastAnswer ? String(lastAnswer.text).trim() : (opts.title || opts.projectName || "");
+    const defaultSummary = lastAnswer ? String(lastAnswer.text).trim() : (isProjectPromote ? "" : (opts.title || opts.projectName || ""));
     const defaultName = (opts.title || opts.projectName || "shared-topic").slice(0, 60);
     const dirList = Array.isArray(directory) ? directory : (directory?.people || []);
     const teammates = dirList.filter(p => p.id && p.id !== App.me?.id);
     const hasExisting = workspaces.length > 0;
+    const defaultNew = isProjectPromote ? mayStart : !hasExisting;
     const canProceed = hasExisting || mayStart;
+    const projFiles = projData?.files || [];
+    const projIns = (projData?.instructions || "").trim();
 
     const d = document.createElement("dialog");
     d.className = "share-dialog";
-    d.setAttribute("aria-label", "Share to a shared project");
+    d.setAttribute("aria-label", isProjectPromote ? "Share project with people" : "Share to a shared project");
     const wsOptions = workspaces.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join("")
-      + (mayStart ? `<option value="__new__"${!hasExisting ? " selected" : ""}>+ Create a new shared project…</option>` : "");
+      + (mayStart ? `<option value="__new__"${defaultNew ? " selected" : ""}>+ Create a new shared project…</option>` : "");
     const peoplePicks = teammates.length
       ? `<fieldset class="share-fieldset"><legend class="small">Add people (optional)</legend><div class="share-pick-list">${teammates.map(p => `<label class="room-pick small"><input type="checkbox" name="member" value="${esc(p.id)}"> ${esc(p.name)}</label>`).join("")}</div></fieldset>`
+      : "";
+    const filePicks = projFiles.length
+      ? `<fieldset class="share-fieldset"><legend class="small">Documents to copy into the shared project</legend><div class="share-pick-list">${projFiles.map(f => `<label class="room-pick small"><input type="checkbox" name="proj_file" value="${esc(f.id)}" data-file-name="${esc(f.name)}" checked> ${esc(f.name)}</label>`).join("")}</div></fieldset>`
+      : "";
+    const insPick = projIns
+      ? `<label class="room-pick small"><input type="checkbox" name="copy_instructions" value="1" checked> Copy project instructions</label>`
       : "";
     const msgPicks = entries.length
       ? entries.map(e => `<label class="share-msg-pick small"><input type="checkbox" name="msg_id" value="${esc(e.id)}"><span><strong>${e.kind === "answer" ? "Magnus" : "You"}:</strong> ${esc(firstLine(e.text).slice(0, 120))}</span></label>`).join("")
       : `<p class="small faint">No individual messages to select.</p>`;
 
     d.innerHTML = `<form method="dialog" class="share-form">
-      <div class="share-dialog-head"><h2>Share to a shared project</h2><button type="button" class="icon-btn" data-share-close aria-label="Close">${icon("close")}</button></div>
-      <p class="small share-boundary-note">Your private conversation stays private. Only what you explicitly choose below is copied into the shared conversation.</p>
+      <div class="share-dialog-head"><h2>${isProjectPromote ? "Add people to project" : "Share to a shared project"}</h2><button type="button" class="icon-btn" data-share-close aria-label="Close">${icon("close")}</button></div>
+      <p class="small share-boundary-note">Your private ${isProjectPromote ? "project stays" : "conversation stays"} private. Only what you explicitly choose below is copied into the shared project.</p>
       ${canProceed ? `
         <label class="stack small"><span>Shared project</span><select name="workspace" data-share-ws>${wsOptions}</select></label>
-        <label class="stack small" data-share-new-wrap${hasExisting ? " hidden" : ""}><span>New shared project name</span><input name="new_ws_name" placeholder="e.g. Q4 Launch" autocomplete="off" value="${esc(opts.projectName || "")}"></label>
-        <label class="stack small"><span>Shared conversation name</span><input name="channel_name" required autocomplete="off" value="${esc(defaultName)}"></label>
+        <label class="stack small" data-share-new-wrap${defaultNew ? "" : " hidden"}><span>New shared project name</span><input name="new_ws_name" placeholder="e.g. Q4 Launch" autocomplete="off" value="${esc(opts.projectName || "")}"></label>
+        ${isProjectPromote ? "" : `<label class="stack small"><span>Shared conversation name</span><input name="channel_name" required autocomplete="off" value="${esc(defaultName)}"></label>`}
         ${peoplePicks}
+        ${filePicks}
+        ${insPick}
         <label class="room-pick small"><input type="checkbox" name="copy_invite" value="1"> Copy an invite link after sharing</label>
-        <fieldset class="share-fieldset">
+        ${isProjectPromote ? "" : `<fieldset class="share-fieldset">
           <legend class="small">What crosses into the shared conversation</legend>
           <label class="room-pick small"><input type="radio" name="share_mode" value="summary" checked> Summary or deliverable only (recommended)</label>
           <textarea name="summary" rows="4" aria-label="Summary to share" placeholder="Edit the summary or deliverable to share…">${esc(defaultSummary)}</textarea>
           ${entries.length ? `<label class="room-pick small"><input type="radio" name="share_mode" value="selected"> Selected messages only</label><div class="share-msg-list" data-share-msgs hidden>${msgPicks}</div>` : ""}
-        </fieldset>
-        <div class="row share-actions"><button type="button" data-share-close>Cancel</button><button type="submit" class="primary" data-share-go>Share clean-room copy</button></div>
+        </fieldset>`}
+        <div class="row share-actions"><button type="button" data-share-close>Cancel</button><button type="submit" class="primary" data-share-go>${isProjectPromote ? "Create shared project" : "Share clean-room copy"}</button></div>
       ` : `<p class="empty">Guest accounts cannot create shared projects.</p><div class="row share-actions"><button type="button" data-share-close>Close</button></div>`}
     </form>`;
 
@@ -320,14 +333,28 @@ const SharedCanvas = (() => {
         }
         const pickedMembers = [...d.querySelectorAll('input[name="member"]:checked')].map(el => el.value).filter(Boolean);
         for (const pid of pickedMembers) await Server.workspaces.setMember(wsId, pid, "member").catch(() => {});
-        const chName = ($('input[name="channel_name"]', d)?.value || defaultName).trim() || "shared-topic";
-        const started = await Server.workspaces.start(wsId, { kind: "channel", name: chName }).catch(() => null);
-        const home = await loadHome(wsId);
-        const chId = started?.channel || firstChannel(home);
-        const mode = d.querySelector('input[name="share_mode"]:checked')?.value === "selected" ? "selected" : "summary";
-        const selectedIds = [...d.querySelectorAll('input[name="msg_id"]:checked')].map(el => el.value);
-        const payload = cleanRoomPayload({ mode, summary: sumBox?.value || "", messages: entries, selectedIds });
-        if (payload && chId) await Server.channels.post(wsId, chId, { text: payload, no_agent: true });
+        if (projIns && $('input[name="copy_instructions"]', d)?.checked && Server.workspaces.setInstructions) {
+          await Server.workspaces.setInstructions(wsId, projIns).catch(() => {});
+        }
+        const pickedFiles = [...d.querySelectorAll('input[name="proj_file"]:checked')];
+        for (const el of pickedFiles) {
+          const fid = el.value, fname = el.dataset.fileName || fid;
+          try {
+            const bytes = await Magnus.getBytes(`/v1/files/${enc(fid)}`);
+            await Magnus.putBytes(`/v1/workspaces/${enc(wsId)}/files/${enc(fname)}`, bytes);
+          } catch { /* skip unreadable file */ }
+        }
+        let chId = null;
+        if (!isProjectPromote) {
+          const chName = ($('input[name="channel_name"]', d)?.value || defaultName).trim() || "shared-topic";
+          const started = await Server.workspaces.start(wsId, { kind: "channel", name: chName }).catch(() => null);
+          const home = await loadHome(wsId);
+          chId = started?.channel || firstChannel(home);
+          const mode = d.querySelector('input[name="share_mode"]:checked')?.value === "selected" ? "selected" : "summary";
+          const selectedIds = [...d.querySelectorAll('input[name="msg_id"]:checked')].map(el => el.value);
+          const payload = cleanRoomPayload({ mode, summary: sumBox?.value || "", messages: entries, selectedIds });
+          if (payload && chId) await Server.channels.post(wsId, chId, { text: payload, no_agent: true });
+        }
         if ($('input[name="copy_invite"]', d)?.checked) {
           const inv = await Server.workspaces.invite(wsId).catch(() => null);
           if (inv) {
@@ -336,7 +363,7 @@ const SharedCanvas = (() => {
             toast(`Shared! Invite link copied: ${link}`, 6000);
           }
         } else {
-          toast("Shared into the shared project. Your original conversation stayed private.");
+          toast(isProjectPromote ? "Shared project ready. Your original project stayed private." : "Shared into the shared project. Your original conversation stayed private.");
         }
         d.close();
         if (typeof refresh === "function") refresh().catch(() => {});

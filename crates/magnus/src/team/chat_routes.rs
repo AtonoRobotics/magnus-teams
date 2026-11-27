@@ -85,6 +85,7 @@ async fn home(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pa
     let spent = k.read(|s| super::spend::spent_this_month(s, &ws, chrono::Utc::now()));
     Ok(Json(json!({
         "id": w.id, "name": w.name, "role": role, "me": p.id, "me_name": me,
+        "instructions": w.instructions,
         "agent": { "id": AGENT_ID, "name": AGENT_NAME },
         "members": members, "channels": channels, "projects": projects,
         "computer": k.team_computer(&ws), "spend": super::spend::summary(&w, &spent),

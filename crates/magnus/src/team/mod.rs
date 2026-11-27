@@ -132,6 +132,10 @@ pub struct Workspace {
     pub local_ceiling: Option<crate::local::Mode>,
     pub routines: BTreeMap<String, Routine>,
     pub chat: chat::ChatState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions_by: Option<String>,
     #[serde(skip_serializing_if = "coedit::Coedits::is_empty")]
     pub coedit: coedit::Coedits,
 }
@@ -358,6 +362,12 @@ impl Ledger {
                     routines::apply(w, c);
                 }
             }
+            Change::Instructions { workspace, text, by } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.instructions = text.clone();
+                    w.instructions_by = text.as_ref().map(|_| by.clone());
+                }
+            }
             Change::Chat { workspace, chat } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     chat::apply(w, chat);
@@ -472,6 +482,19 @@ mod tests {
     #[test]
     fn roles_are_ordered_from_the_least() {
         assert!(Role::Guest < Role::Member && Role::Member < Role::Admin && Role::Admin < Role::Owner);
+    }
+
+    #[test]
+    fn shared_project_instructions_apply_and_clear() {
+        let mut l = made();
+        l.apply(&Change::Instructions { workspace: "w".into(), text: Some("Be concise.".into()), by: "alice".into() });
+        let w = l.workspace("w").unwrap();
+        assert_eq!(w.instructions.as_deref(), Some("Be concise."));
+        assert_eq!(w.instructions_by.as_deref(), Some("alice"));
+        l.apply(&Change::Instructions { workspace: "w".into(), text: None, by: "bob".into() });
+        let w = l.workspace("w").unwrap();
+        assert_eq!(w.instructions, None);
+        assert_eq!(w.instructions_by, None);
     }
 
     #[test]

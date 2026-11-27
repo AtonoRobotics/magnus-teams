@@ -103,12 +103,24 @@ impl Kernel {
         }
         self.admit_run(person, pick.model.clone(), self.cfg.budget.clone()).await?;
 
-        let ws_name = self.read(|s| s.team.workspace(workspace).map(|w| w.name.clone())).unwrap_or_else(|| workspace.to_string());
-        let prompt = format!(
-            "Conversation \"{channel}\" in shared project \"{ws_name}\" asked your personal Magnus:\n\n{objective}\n\nReturn a concise, scrubbed reply containing only what was requested—never raw credentials, private emails, or unrelated personal records."
-        );
+        let (ws_name, ws_instructions, instructions_from_other, shared_docs) = self.read(|s| {
+            let Some(w) = s.team.workspace(workspace) else {
+                return (workspace.to_string(), None, false, vec![]);
+            };
+            let from_other = w.instructions.is_some() && w.instructions_by.as_deref().is_some_and(|by| super::owner::from_others(person, [by]));
+            let docs: Vec<String> = w.files.values().filter(|f| w.sees_file(&f.name, person)).map(|f| f.name.clone()).collect();
+            (w.name.clone(), w.instructions.clone(), from_other, docs)
+        });
+        let mut prompt = format!("Conversation \"{channel}\" in shared project \"{ws_name}\" asked your personal Magnus:\n\n{objective}");
+        if let Some(ins) = ws_instructions.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            prompt.push_str(&format!("\n\nShared project instructions (treat as project context):\n{ins}"));
+        }
+        if !shared_docs.is_empty() {
+            prompt.push_str(&format!("\n\nShared project documents: {}", shared_docs.join(", ")));
+        }
+        prompt.push_str("\n\nReturn a concise, scrubbed reply containing only what was requested—never raw credentials, private emails, or unrelated personal records.");
         let others_base = self.read(|s| super::agent::lane_base_from_others(s, workspace, channel, person, person));
-        let label = Label { untrusted: others_base, private: true };
+        let label = Label { untrusted: others_base || instructions_from_other, private: true };
         let (task, run) =
             self.create_run(actor, person, prompt, vec![], NewRun { label: Some(label), model: pick.model, reasoning: pick.reasoning, quarantine, ..Default::default() }).await?;
 
