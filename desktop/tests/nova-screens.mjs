@@ -182,6 +182,16 @@ try {
     const back = await page.evaluate(() => document.body.dataset.navigation);
     check(`${mode}: collapsing the sidebar puts the rail back`, () => assert.equal(back, "compact"));
   }
+  // The Live Workspace tile on a new conversation is one tap: it sends its
+  // work and the conversation opens on it, as the mockup's launchStage does.
+  await go("#/chat/new");
+  await page.locator(".nova-showcase .nova-prism-wide").click();
+  await page.waitForTimeout(2500);
+  const launched = await page.evaluate(() => ({
+    hash: location.hash,
+    sent: [...document.querySelectorAll("#thread .msg.me")].map(m => (m.textContent || "").trim()).some(t => t.includes("interactive summary dashboard")),
+  }));
+  check("the Live Workspace tile starts the work in a conversation", () => assert.ok(/^#\/chat\/(?!new)/.test(launched.hash) && launched.sent, JSON.stringify(launched)));
   check("no page errors", () => assert.deepEqual(errors, []));
 } finally {
   await browser.close();

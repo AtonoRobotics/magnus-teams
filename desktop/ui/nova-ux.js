@@ -238,13 +238,15 @@ const NovaUx = (() => {
       }
       return;
     }
+    // A launchpad or the Live Workspace tile is one tap: it sends its work
+    // and the conversation opens on it, as the mockup's launchStage does.
     const promptBtn = t.closest?.("[data-nova-prompt]");
     if (promptBtn) {
       const box = /** @type {?HTMLTextAreaElement} */ (document.getElementById("msg"));
       if (box) {
         box.value = promptBtn.getAttribute("data-nova-prompt") || "";
         box.dispatchEvent(new Event("input", { bubbles: true }));
-        box.focus();
+        box.form?.requestSubmit();
       }
       return;
     }
