@@ -45,14 +45,26 @@ assert.deepEqual(states, [true, false]);
 handle.close();
 assert.equal(lastEs.closed, true);
 
-// 2. app.js defines refreshDomains() and app-boot.js wires Magnus.events() + pauses pollRefreshTick when SSE is connected.
+// 2. webBridge clears ETag cache on signOut() and clearCache() (prevents cross-user 304 leaks).
+ctx.window.Magnus._etags.set("/v1/tasks", { etag: 'W/"seq-1-alice"', data: { tasks: [{ id: "t1" }] } });
+ctx.window.Magnus.clearCache();
+assert.equal(ctx.window.Magnus._etags.size, 0, "clearCache() must empty _etags");
+ctx.window.Magnus._etags.set("/v1/tasks", { etag: 'W/"seq-1-alice"', data: { tasks: [{ id: "t1" }] } });
+await ctx.window.Magnus.signOut();
+assert.equal(ctx.window.Magnus._etags.size, 0, "signOut() must empty _etags");
+
+// 3. app.js defines refreshDomains() covering all SSE domains and app-boot.js reconciles safely while SSE is open.
 const appSrc = fs.readFileSync(path.join(uiDir, "app.js"), "utf8");
 const bootSrc = fs.readFileSync(path.join(uiDir, "app-boot.js"), "utf8");
 assert.match(appSrc, /async function refreshDomains\s*\(/, "app.js must define refreshDomains()");
+assert.match(appSrc, /want\.has\("projects"\)/, "refreshDomains() must handle projects");
+assert.match(appSrc, /want\.has\("computers"\)/, "refreshDomains() must handle computers");
+assert.match(appSrc, /want\.has\("workspaces"\)/, "refreshDomains() must handle workspaces");
+assert.match(appSrc, /want\.has\("staged"\)/, "refreshDomains() must handle staged");
 assert.match(bootSrc, /Magnus\.events\(/, "app-boot.js must subscribe to Magnus.events()");
-assert.match(bootSrc, /if\s*\(\s*sseConnected\s*\)\s*return;/, "app-boot.js must skip 10s poll while SSE is connected");
+assert.match(bootSrc, /if\s*\(\s*sseConnected\s*&&\s*Date\.now\(\)\s*-\s*lastRefreshMs\s*<\s*REFRESH_SSE_RECONCILE_MS\s*\)\s*return;/, "app-boot.js must throttle to 60s reconcile while SSE is connected");
 
-// 3. Zero-build concatenated JS bundle parses with zero syntax errors.
+// 4. Zero-build concatenated JS bundle parses with zero syntax errors.
 const indexHtml = fs.readFileSync(path.join(uiDir, "index.html"), "utf8");
 const scripts = [...indexHtml.matchAll(/<script src="([^"]+\.js)"><\/script>/g)].map(m => m[1]);
 assert.ok(scripts.length >= 80, `expected >= 80 scripts in index.html, got ${scripts.length}`);

@@ -16,7 +16,7 @@ use axum::{
 use serde_json::{json, Value};
 
 pub(super) async fn schedules(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
-    let etag = seq_etag(&k);
+    let etag = seq_etag(&k, &p.id);
     if let Some(r) = not_modified(&h, &etag) {
         return Ok(r);
     }

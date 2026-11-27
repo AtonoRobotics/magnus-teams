@@ -196,7 +196,7 @@ fn visible_task(p: &Person, t: &crate::state::Task) -> bool {
 }
 
 pub(super) async fn list_tasks(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
-    let etag = seq_etag(&k);
+    let etag = seq_etag(&k, &p.id);
     if let Some(r) = not_modified(&h, &etag) {
         return Ok(r);
     }
@@ -213,6 +213,9 @@ pub(super) async fn list_tasks(State(k): K, Caller(p): Caller, h: HeaderMap) -> 
     Ok(with_etag(Json(json!({ "tasks": tasks })).into_response(), &etag))
 }
 
+/// Maximum concurrent thread-entry reads during a personal search.
+const SEARCH_THREAD_CONCURRENCY: usize = 8;
+
 /// A search's words, lowercased; a match has every one.
 pub(crate) fn terms(q: &str) -> Vec<String> {
     q.to_lowercase().split_whitespace().map(String::from).collect()
@@ -223,16 +226,30 @@ pub(crate) fn terms(q: &str) -> Vec<String> {
 /// matches them). A conversation comes with the first thing said in it that
 /// matches.
 pub(super) async fn search(State(k): K, Caller(p): Caller, Query(q): Query<std::collections::HashMap<String, String>>) -> ApiResult {
+    use futures::StreamExt;
     let terms = terms(q.get("q").map(String::as_str).unwrap_or_default());
     if terms.is_empty() {
         return Ok(Json(json!({ "conversations": [], "tasks": [], "files": [] })).into_response());
     }
     let all = |hay: &str| terms.iter().all(|t| hay.contains(t.as_str()));
-    let mut conversations = vec![];
     let threads = k.threads(&p.id).await?;
-    for t in threads {
+    let fetched: Vec<_> = futures::stream::iter(threads)
+        .map(|t| {
+            let k = k.clone();
+            let pid = p.id.clone();
+            async move {
+                let id = t["thread"].as_str().unwrap_or_default().to_string();
+                let res = k.thread_entries(&pid, &id).await;
+                (t, res)
+            }
+        })
+        .buffered(SEARCH_THREAD_CONCURRENCY)
+        .collect()
+        .await;
+    let mut conversations = vec![];
+    for (t, entries_res) in fetched {
         let id = t["thread"].as_str().unwrap_or_default();
-        let said: Vec<String> = match k.thread_entries(&p.id, id).await {
+        let said: Vec<String> = match entries_res {
             Ok(e) => e.unwrap_or_default(),
             Err(e) => return Ok(internal(e)),
         }
@@ -284,7 +301,7 @@ pub(super) async fn chat_post(State(k): K, Caller(p): Caller, Body(b): Body<Valu
 pub(super) async fn chat_threads(State(k): K, h: HeaderMap) -> ApiResult {
     Ok(match who(&k, &h).await {
         Ok(p) => {
-            let etag = seq_etag(&k);
+            let etag = seq_etag(&k, &p.id);
             if let Some(r) = not_modified(&h, &etag) {
                 return Ok(r);
             }
@@ -581,7 +598,7 @@ pub(super) async fn inbox_opened(State(k): K, Caller(p): Caller, Body(b): Body<r
 }
 
 pub(super) async fn inbox_list(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
-    let etag = seq_etag(&k);
+    let etag = seq_etag(&k, &p.id);
     if let Some(r) = not_modified(&h, &etag) {
         return Ok(r);
     }
@@ -614,7 +631,7 @@ pub(super) async fn respond(State(k): K, Caller(p): Caller, Path(id): Path<Strin
 /// turn is appended to the log (K6).
 /// The stream asks again, this often, whether its session is still signed
 /// in: one ended (sign-out, revoked, disabled) stops getting the run's text.
-const LIVE_RECHECK: std::time::Duration = std::time::Duration::from_secs(15);
+const LIVE_RECHECK_SECS: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(super) async fn live(State(k): K, Caller(p): Caller, h: HeaderMap, Path(id): Path<String>) -> ApiResult {
     let Some(run_id) = k.read(|s| s.tasks.get(&id).filter(|t| visible_task(&p, t)).map(|t| t.run_id.clone())) else {
@@ -627,7 +644,7 @@ pub(super) async fn live(State(k): K, Caller(p): Caller, h: HeaderMap, Path(id):
         }
         // Ends when the client goes, the session ends or the run ends: a
         // stream left open on a finished run would wake for every run's text.
-        let mut tick = tokio::time::interval(LIVE_RECHECK);
+        let mut tick = tokio::time::interval(LIVE_RECHECK_SECS);
         loop {
             tokio::select! {
                 () = tx.closed() => return,
@@ -655,7 +672,7 @@ pub(super) async fn live(State(k): K, Caller(p): Caller, h: HeaderMap, Path(id):
     Ok(r)
 }
 
-fn async_stream<F, Fut>(f: F) -> impl futures::Stream<Item = Result<String, std::convert::Infallible>>
+pub(super) fn async_stream<F, Fut>(f: F) -> impl futures::Stream<Item = Result<String, std::convert::Infallible>>
 where
     F: FnOnce(tokio::sync::mpsc::Sender<String>) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,

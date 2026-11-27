@@ -122,8 +122,9 @@ async function boot() {
       ok => { sseConnected = !!ok; }
     );
   }
+  const REFRESH_SSE_RECONCILE_MS = 60_000;
   const pollRefreshTick = () => {
-    if (sseConnected) return;
+    if (sseConnected && Date.now() - lastRefreshMs < REFRESH_SSE_RECONCILE_MS) return;
     if (document.hidden && Date.now() - lastRefreshMs < REFRESH_HIDDEN_MS) return;
     refresh();
   };

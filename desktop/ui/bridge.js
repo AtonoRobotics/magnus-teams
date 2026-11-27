@@ -168,6 +168,7 @@ const webBridge = {
   async trust() {},
   async signInMethod() { return this.api("GET", "/v1/sign-in"); },
   async signIn(person, password, code, machineCode) {
+    this._etags.clear();
     try {
       return (await this.api("POST", "/v1/sign-in", { person, password, code: code || undefined, machine_code: machineCode || undefined })).person;
     } catch (e) {
@@ -181,11 +182,13 @@ const webBridge = {
     const body = await r.json().catch(() => null);
     if (r.status === 202) return { pending: true };
     if (!r.ok) throw errorOf(r.status, body);
+    this._etags.clear();
     return { person: body.person };
   },
-  async signOut() { await this.api("POST", "/v1/sign-out", {}).catch(() => {}); },
+  async signOut() { this._etags.clear(); await this.api("POST", "/v1/sign-out", {}).catch(() => {}); },
   async forgotPassword(email) { return this.api("POST", "/v1/password-reset/request", { email }); },
   _etags: new Map(),
+  clearCache() { this._etags.clear(); },
   async api(method, path, body) {
     const isGet = method === "GET" && (body === undefined || body === null);
     const cached = isGet ? this._etags.get(path) : null;
@@ -194,6 +197,7 @@ const webBridge = {
     const opts = { method, credentials: "same-origin", headers };
     if (body !== undefined && body !== null) { opts.headers["content-type"] = "application/json"; opts.body = JSON.stringify(body); }
     const r = await fetch(path, opts);
+    if (r.status === 401) this._etags.clear();
     if (r.status === 304 && cached) return cached.data;
     const text = await r.text();
     let parsed = text;

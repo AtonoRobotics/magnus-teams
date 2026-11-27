@@ -177,6 +177,7 @@ struct Bundles {
     js: Vec<u8>,
     js_gz: Option<Vec<u8>>,
     index_html: String,
+    index_html_gz: Option<Vec<u8>>,
 }
 
 static BUNDLES: LazyLock<Bundles> = LazyLock::new(|| {
@@ -223,7 +224,9 @@ static BUNDLES: LazyLock<Bundles> = LazyLock::new(|| {
     }
     let css_gz = gzip_bytes(&css);
     let js_gz = gzip_bytes(&js);
-    Bundles { css, css_gz, js, js_gz, index_html: out_lines.join("\n") + "\n" }
+    let index_html = out_lines.join("\n") + "\n";
+    let index_html_gz = gzip_bytes(index_html.as_bytes());
+    Bundles { css, css_gz, js, js_gz, index_html, index_html_gz }
 });
 
 pub async fn ui_index(headers: HeaderMap) -> Response {
@@ -250,8 +253,8 @@ pub async fn ui_file(headers: HeaderMap, Path(file): Path<String>) -> Response {
     match UI.iter().find(|(n, _, _)| *n == file) {
         Some(("index.html", media, _)) => {
             if accepts_gzip(&headers) {
-                if let Some(gz) = gzip_bytes(BUNDLES.index_html.as_bytes()) {
-                    return static_file(media, NO_STORE_CACHE, true, true, gz);
+                if let Some(gz) = &BUNDLES.index_html_gz {
+                    return static_file(media, NO_STORE_CACHE, true, true, gz.clone());
                 }
             }
             static_file(media, NO_STORE_CACHE, false, true, BUNDLES.index_html.clone())

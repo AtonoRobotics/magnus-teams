@@ -635,9 +635,9 @@ async fn speak(State(k): K, _: Caller, Body(b): Body<req::Speak>) -> ApiResult {
     })
 }
 
-/// Weak ETag derived from the kernel's monotonic log sequence number.
-pub(crate) fn seq_etag(k: &Kernel) -> String {
-    format!("W/\"seq-{}\"", k.read(|s| s.last_seq))
+/// Weak ETag derived from the kernel's monotonic log sequence number, scoped to the signed-in person.
+pub(crate) fn seq_etag(k: &Kernel, person_id: &str) -> String {
+    format!("W/\"seq-{}-{person_id}\"", k.read(|s| s.last_seq))
 }
 
 /// If the caller's `If-None-Match` already matches `etag`, return `304 Not Modified`.
@@ -655,15 +655,17 @@ pub(crate) fn not_modified(h: &HeaderMap, etag: &str) -> Option<Response> {
         r.headers_mut().insert(axum::http::header::ETAG, v);
     }
     r.headers_mut().insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    r.headers_mut().insert(axum::http::header::VARY, HeaderValue::from_static("cookie, authorization"));
     Some(r)
 }
 
-/// Attach `ETag` and `Cache-Control: private, no-cache` to a JSON response.
+/// Attach `ETag`, `Vary: cookie, authorization`, and `Cache-Control: private, no-cache` to a JSON response.
 pub(crate) fn with_etag(mut r: Response, etag: &str) -> Response {
     if let Ok(v) = HeaderValue::from_str(etag) {
         r.headers_mut().insert(axum::http::header::ETAG, v);
     }
     r.headers_mut().insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    r.headers_mut().insert(axum::http::header::VARY, HeaderValue::from_static("cookie, authorization"));
     r
 }
 
@@ -695,15 +697,17 @@ mod same_origin_tests {
 
     #[test]
     fn etag_not_modified_matches_weak_and_list_headers() {
-        let etag = "W/\"seq-42\"";
+        let etag = "W/\"seq-42-alice\"";
         assert!(not_modified(&headers(&[]), etag).is_none());
-        assert!(not_modified(&headers(&[("if-none-match", "W/\"seq-41\"")]), etag).is_none());
-        let hit = not_modified(&headers(&[("if-none-match", "W/\"seq-42\"")]), etag).unwrap();
+        assert!(not_modified(&headers(&[("if-none-match", "W/\"seq-42-bob\"")]), etag).is_none());
+        let hit = not_modified(&headers(&[("if-none-match", "W/\"seq-42-alice\"")]), etag).unwrap();
         assert_eq!(hit.status(), StatusCode::NOT_MODIFIED);
         assert_eq!(hit.headers().get("etag").unwrap(), etag);
-        assert!(not_modified(&headers(&[("if-none-match", "\"seq-1\", W/\"seq-42\"")]), etag).is_some());
+        assert_eq!(hit.headers().get("vary").unwrap(), "cookie, authorization");
+        assert!(not_modified(&headers(&[("if-none-match", "\"seq-1\", W/\"seq-42-alice\"")]), etag).is_some());
         let resp = with_etag(StatusCode::OK.into_response(), etag);
         assert_eq!(resp.headers().get("etag").unwrap(), etag);
         assert_eq!(resp.headers().get("cache-control").unwrap(), "private, no-cache");
+        assert_eq!(resp.headers().get("vary").unwrap(), "cookie, authorization");
     }
 }

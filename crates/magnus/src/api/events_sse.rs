@@ -4,7 +4,7 @@
 //! kernel broadcasts compact `{ seq, domains }` frames whenever an event is
 //! appended. Clients re-fetch only the invalidated slice(s).
 
-use super::{who, K};
+use super::{who, work::async_stream, K};
 use crate::api_error::ApiResult;
 use crate::events::Ev;
 use crate::extract::Caller;
@@ -20,6 +20,9 @@ use std::time::Duration;
 pub(crate) const INVALIDATION_CHANNEL_CAPACITY: usize = 256;
 /// How often an open `/v1/events` stream re-verifies the caller's session and sends a keepalive.
 const EVENTS_RECHECK_SECS: Duration = Duration::from_secs(15);
+
+/// All domains invalidated on ring lag or global state changes.
+const ALL_DOMAINS: &[&str] = &["tasks", "inbox", "chat", "schedules", "connectors", "projects", "computers", "workspaces", "staged"];
 
 /// One invalidation frame pushed to signed-in UI clients.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,7 +53,11 @@ pub(crate) fn invalidation_domains(ev: &Ev) -> &'static [&'static str] {
         Ev::ThreadBranched(_) | Ev::Reacted(_) | Ev::CardDeclined(_) => &["chat"],
         Ev::ScheduleSet { .. } | Ev::SchedulePaused(_) | Ev::ScheduleResumed(_) | Ev::ScheduleChanged(_) | Ev::ScheduleEnded(_) | Ev::ScheduleRemoved(_) => &["schedules", "tasks"],
         Ev::ConnectorSettings(_) | Ev::ToolPinned(_) | Ev::ToolChanged(_) | Ev::Catalog(_) | Ev::AccountLink(_) => &["connectors"],
-        Ev::KillSwitch { .. } | Ev::Trashed { .. } | Ev::Restored { .. } | Ev::Removed { .. } => &["tasks", "inbox", "chat", "schedules"],
+        Ev::ProjectSet(_) | Ev::Moved { .. } => &["projects"],
+        Ev::Computer(_) | Ev::LocalComputer(_) => &["computers"],
+        Ev::Team(_) | Ev::TeamMission(_) => &["workspaces"],
+        Ev::Staged(_) => &["staged"],
+        Ev::KillSwitch { .. } | Ev::Trashed { .. } | Ev::Restored { .. } | Ev::Removed { .. } => &["tasks", "inbox", "chat", "schedules", "projects"],
         _ => &[],
     }
 }
@@ -90,7 +97,7 @@ pub(super) async fn events_stream(State(k): K, Caller(p): Caller, h: HeaderMap) 
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         let seq = k.read(|s| s.last_seq);
-                        let line = format!("data: {}\n\n", json!({ "seq": seq, "domains": ["tasks", "inbox", "chat", "schedules", "connectors"] }));
+                        let line = format!("data: {}\n\n", json!({ "seq": seq, "domains": ALL_DOMAINS }));
                         if tx.send(line).await.is_err() {
                             return;
                         }
@@ -107,16 +114,6 @@ pub(super) async fn events_stream(State(k): K, Caller(p): Caller, h: HeaderMap) 
     Ok(r)
 }
 
-fn async_stream<F, Fut>(f: F) -> impl futures::Stream<Item = Result<String, std::convert::Infallible>>
-where
-    F: FnOnce(tokio::sync::mpsc::Sender<String>) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send + 'static,
-{
-    let (tx, rx) = tokio::sync::mpsc::channel(64);
-    tokio::spawn(f(tx));
-    futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|s| (Ok(s), rx)) })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,7 +122,8 @@ mod tests {
     fn domains_map_key_events_and_filter_by_person() {
         assert_eq!(invalidation_domains(&Ev::Completed { run: "r1".into(), summary: "ok".into(), view: None, spoken: None }), &["tasks", "chat"]);
         assert_eq!(invalidation_domains(&Ev::ItemOpened { id: "i1".into() }), &["inbox", "tasks"]);
-        assert_eq!(invalidation_domains(&Ev::KillSwitch { engaged: true }), &["tasks", "inbox", "chat", "schedules"]);
+        assert_eq!(invalidation_domains(&Ev::KillSwitch { engaged: true }), &["tasks", "inbox", "chat", "schedules", "projects"]);
+        assert_eq!(invalidation_domains(&Ev::Moved { item: "t1".into(), project: None }), &["projects"]);
         assert!(invalidation_domains(&Ev::SecretSet { name: "k".into() }).is_empty());
 
         let mine = Invalidation { seq: 10, person: Some("alice".into()), domains: &["tasks"] };

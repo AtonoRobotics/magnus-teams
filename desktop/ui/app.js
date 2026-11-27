@@ -193,7 +193,7 @@ const Resources = (()=>{
   const summary=stale.map(([name])=>name).join(", ");
   if(summary!==announced){announced=summary;let live=$("#connection-announcement");if(!live){live=document.createElement("div");live.id="connection-announcement";live.className="sr";live.setAttribute("role","status");document.body.append(live);}live.textContent=summary ? `${summary} may be stale. Cached information remains available.` : "Connection restored.";}
  }
- function reset(){epoch++;states.clear();announced="";render();}
+ function reset(){epoch++;states.clear();announced="";if(typeof Magnus!=="undefined")Magnus.clearCache?.();render();}
  function forget(name){states.delete(name);render();}
  function good(name){const s=states.get(name)||{};states.set(name,{...s,failed:false,at:Date.now()});render();}
  function bad(name,error){if(error?.cancelled)return;const s=states.get(name)||{};states.set(name,{...s,failed:true});render();if(error?.status===401 && App.me)endSession("Your session ended. Sign in again.");}
@@ -492,41 +492,15 @@ async function refresh() {
     if (projects) App.projects = projects;
     if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
     if (health) App.health = health;
-    if (typeof UIStore !== "undefined") {
-      if (App.tasks) UIStore.setTasks(App.tasks);
-      UIStore.patch({
-        route: location.hash || "",
-        asks: typeof needsMe === "function" ? needsMe() : [],
-        connectedApps: (App.connectors || []).filter(c => c.connected).map(c => c.name || c.id).filter(Boolean),
-      });
-    }
-    lastRefreshMs = Date.now();
-    sidebar();
-    banners();
-    await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
+    await syncUiAfterRefresh(!!App.tasks);
   })();
   try { return await refreshInFlight; }
   finally { refreshInFlight = null; }
 }
 
-async function refreshDomains(domains) {
-  if (!App.me || !Array.isArray(domains) || !domains.length) return;
-  const want = new Set(domains);
-  const get = (path, k) => Resources.read(({ tasks: "Tasks", schedules: "Schedules", threads: "Conversations", connectors: "Apps" })[k], path, k);
-  const [tasks, schedules, threads, connectors] = await Promise.all([
-    want.has("tasks") ? get("/v1/tasks", "tasks") : null,
-    want.has("schedules") ? get("/v1/schedules", "schedules") : null,
-    want.has("chat") ? get("/v1/chat", "threads") : null,
-    want.has("connectors") ? get("/v1/connectors", "connectors") : null,
-    want.has("inbox") ? pollInbox() : null,
-  ]);
-  if (!App.me) return;
-  if (tasks) App.tasks = tasks.filter(t => !t.review);
-  if (schedules) App.schedules = schedules;
-  if (threads) App.threads = threads;
-  if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
+async function syncUiAfterRefresh(tasksChanged) {
   if (typeof UIStore !== "undefined") {
-    if (tasks) UIStore.setTasks(App.tasks);
+    if (tasksChanged && App.tasks) UIStore.setTasks(App.tasks);
     UIStore.patch({
       route: location.hash || "",
       asks: typeof needsMe === "function" ? needsMe() : [],
@@ -537,6 +511,37 @@ async function refreshDomains(domains) {
   sidebar();
   banners();
   await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
+}
+
+async function refreshDomains(domains) {
+  if (!App.me || !Array.isArray(domains) || !domains.length) return;
+  const want = new Set(domains);
+  const get = (path, k) => Resources.read(({ tasks: "Tasks", schedules: "Schedules", threads: "Conversations", projects: "Projects", connectors: "Apps" })[k], path, k);
+  const computers = want.has("computers") && typeof Server !== "undefined" && Server.computers?.list
+    ? Server.computers.list().then(c => { App.computers = c; }, () => {})
+    : Promise.resolve();
+  const workspaces = want.has("workspaces") && typeof Server !== "undefined" && Server.workspaces?.list
+    ? Server.workspaces.list().then(w => { App.workspaces = w.workspaces || []; }, () => {})
+    : Promise.resolve();
+  const staged = want.has("staged") && typeof Server !== "undefined" && Server.staged?.list
+    ? Server.staged.list().then(r => { App.staged = r?.items || []; }, () => {})
+    : Promise.resolve();
+  const [tasks, schedules, threads, projects, connectors] = await Promise.all([
+    want.has("tasks") ? get("/v1/tasks", "tasks") : null,
+    want.has("schedules") ? get("/v1/schedules", "schedules") : null,
+    want.has("chat") ? get("/v1/chat", "threads") : null,
+    want.has("projects") ? get("/v1/projects", "projects") : null,
+    want.has("connectors") ? get("/v1/connectors", "connectors") : null,
+    want.has("inbox") ? pollInbox() : null,
+    computers, workspaces, staged,
+  ]);
+  if (!App.me) return;
+  if (tasks) App.tasks = tasks.filter(t => !t.review);
+  if (schedules) App.schedules = schedules;
+  if (threads) App.threads = threads;
+  if (projects) App.projects = projects;
+  if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
+  await syncUiAfterRefresh(!!tasks);
 }
 
 // Above the conversation: how the agent changed since the person last
