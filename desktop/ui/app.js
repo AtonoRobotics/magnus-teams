@@ -1931,6 +1931,22 @@ async function respond(btn, root) {
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
     if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Rules.", 5000);
     else toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
+    if (decision === "approve" && scope !== "always" && typeof Server !== "undefined" && Server.rules?.suggestions) {
+      Server.rules.suggestions().then(r => {
+        const sg = (r?.suggestions || [])[0];
+        if (!sg) return;
+        const nice = String(sg.tool || "").replace(/^[^_]+__/, "").replace(/_/g, " ");
+        toast(`You've allowed “${nice}” (${sg.connector}) ${sg.count} times.`, 9000, {
+          label: "Allow automatically",
+          onClick: async () => {
+            try {
+              await Server.rules.save(null, { connector: sg.connector, tool: sg.tool, destinations: [sg.destination], effect: "allow", words: sg.words });
+              toast("Standing rule saved.");
+            } catch (err) { toast(err.message); }
+          },
+        });
+      }).catch(() => {});
+    }
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }

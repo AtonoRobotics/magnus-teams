@@ -18,6 +18,19 @@ function ruleMatchText(m) {
   return `${what} in ${m.connector}${where}${m.once ? ", once" : ""}`;
 }
 
+const RULE_ACTION_PRESETS = [
+  ["gmail__send", "Send email (Gmail)"],
+  ["gmail__draft", "Draft email (Gmail)"],
+  ["outlook__send", "Send email (Outlook)"],
+  ["slack__post_message", "Post message (Slack)"],
+  ["calendar__create_event", "Create event (Calendar)"],
+  ["calendar__update_event", "Update event (Calendar)"],
+  ["github__create_issue", "Create issue (GitHub)"],
+  ["github__comment", "Comment on PR/issue (GitHub)"],
+  ["notion__create_page", "Create page (Notion)"],
+  ["linear__create_issue", "Create issue (Linear)"],
+];
+
 /** @param {?PersonRule} r */
 function ruleForm(r) {
   const m = r?.compiled;
@@ -28,16 +41,17 @@ function ruleForm(r) {
   const datalist = apps.length
     ? `<datalist id="rule-apps-list">${apps.map(a => `<option value="${esc(a.name)}">${esc(a.title || a.name)}</option>`).join("")}</datalist>`
     : "";
+  const actionList = `<datalist id="rule-actions-list">${RULE_ACTION_PRESETS.map(([id, lbl]) => `<option value="${esc(id)}">${esc(lbl)}</option>`).join("")}</datalist>`;
   return `<form data-rule-form="${esc(r?.id || "")}" class="stack">
     <label>In your words <textarea name="words" rows="2" maxlength="2000" placeholder="Ask me before anything is posted in Slack">${esc(r?.words || "")}</textarea></label>
     <div class="row">${RULE_EFFECTS.map(([v, label]) => `<label class="row"><input type="radio" name="effect" value="${v}"${v === effect ? " checked" : ""}> ${esc(label)}</label>`).join("")}</div>
     <details class="rule-advanced" open><summary class="small muted">Specific app, action, or destination</summary>
-      <div class="row" style="margin-top:8px"><label>App <input name="connector" list="rule-apps-list" value="${esc(m?.connector || "")}" placeholder="e.g. gmail, slack"></label>
-      <label>Action <input name="tool" value="${esc(m?.tool || "")}" placeholder="e.g. gmail__send (or any)"></label></div>
+      <div class="row" style="margin-top:8px"><label>App <input name="connector" list="rule-apps-list" value="${esc(m?.connector || "")}" placeholder="Pick an app (e.g. gmail, slack)"></label>
+      <label>Action <input name="tool" list="rule-actions-list" value="${esc(m?.tool || "")}" placeholder="Pick an action or leave blank for any"></label></div>
       <label style="margin-top:8px">To or where, comma separated <input name="destinations" value="${esc((m?.destinations || []).join(", "))}" placeholder="e.g. bob@acme.com, @acme.com, #updates"></label>
       <p class="small muted">Supports exact emails, domain wildcards (<span class="mono">@acme.com</span>), and channels (<span class="mono">#general</span>). Allowing needs an app, action, and destination; spending money always asks.</p>
     </details>
-    ${datalist}
+    ${datalist}${actionList}
     <div class="row"><button class="primary" type="submit">${r ? "Save" : "Add rule"}</button>${r ? `<button type="button" data-rule="cancel">Cancel</button>` : ""}</div>
   </form>`;
 }
