@@ -27,9 +27,11 @@ await page.goto(base);
 await page.getByLabel("Username").fill(person);
 await page.getByLabel("Password").fill(password);
 await page.getByRole("button", { name: "Sign in" }).click();
-await page.getByRole("link", { name: /^Needs you/ }).waitFor({ timeout: T });
+// Signed in: the composer is there in every style (Nova's rail has no
+// "Needs you" link to wait for).
+await page.locator("#msg").waitFor({ timeout: T });
 // The conversation the trip was asked for in.
-await page.locator(`nav.side a[href="#/chat/${thread}"]`).first().click();
+await page.evaluate(t => { location.hash = `#/chat/${encodeURIComponent(t)}`; }, thread);
 const result = page.locator(`#thread [data-result="${task}"]`);
 try { await result.waitFor({ timeout: T }); } catch { await fail("the trip's result is not in the conversation"); }
 

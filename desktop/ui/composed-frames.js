@@ -64,6 +64,24 @@ function wireFrameExports(frame, docId) {
     toast("Exported table.csv.");
   }));
 }
+// HTML Magnus wrote runs as the page it is, in a sandbox with an opaque
+// origin and scripts on, under the HTML_CSP policy (nothing loads from the
+// network). `extra` is markup for more buttons beside Fullscreen.
+function drawLiveHtml(block, html, title, extra = "", page = false) {
+  block.innerHTML = `<div class="row small" style="justify-content:flex-end;margin-bottom:4px">${extra}<button type="button" class="link small" data-html-fullscreen>Fullscreen</button></div><iframe class="composed ui-html" data-auto-size="1"${page ? ' data-page="1"' : ""} sandbox="allow-scripts" title="${esc(title)}"></iframe>`;
+  const frame = block.querySelector("iframe");
+  block.querySelector("[data-html-fullscreen]")?.addEventListener("click", () => frame?.requestFullscreen?.().catch(() => {}));
+  Magnus.sandboxUrl(HtmlFrame.wrap(html, ...look())).then(url => { if (frame?.isConnected) frame.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
+}
+// A delivered HTML file is a page, not text: shown as its source it was
+// code in a scrolling frame (owner, 2026-11-26).
+const isHtmlFile = (name, f) => typeof f?.text === "string" && (/\.html?$/i.test(name || "") || /^text\/html\b/i.test(f.media_type || ""));
+function livePage(name, html) {
+  const block = document.createElement("div");
+  block.className = "live-page";
+  drawLiveHtml(block, html, name, "", true);
+  return block;
+}
 // A spec block in the agent's words is drawn in a frame of its own: Compose
 // makes the document, and the frame's scripts stay off. HTML the agent wrote
 // runs in a sandbox with an opaque origin, under a policy set before it.
@@ -76,14 +94,11 @@ function drawUiBlocks(root) {
     if (kind === "html") {
       if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
       const editBtn = docId ? `<button type="button" class="link small" data-ui-edit-block="${esc(docId)}">Edit with Magnus</button>` : "";
-      block.innerHTML = `<div class="row small" style="justify-content:flex-end;margin-bottom:4px">${editBtn}<button type="button" class="link small" data-html-fullscreen>Fullscreen</button></div><iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
-      const frame = block.querySelector("iframe");
-      block.querySelector("[data-html-fullscreen]")?.addEventListener("click", () => frame?.requestFullscreen?.().catch(() => {}));
+      drawLiveHtml(block, body, "Made by Magnus", editBtn);
       block.querySelector("[data-ui-edit-block]")?.addEventListener("click", () => {
         const box = $("#msg");
         if (box) { box.value = `Update block ${docId}: `; box.dispatchEvent(new Event("input", { bubbles: true })); box.focus(); }
       });
-      Magnus.sandboxUrl(HtmlFrame.wrap(body, ...look())).then(url => { if (frame?.isConnected) frame.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
       return;
     }
     let view;
@@ -352,7 +367,13 @@ async function fill(frame, view, taskId, task) {
   frame._drawn = true;
   const t = task || (view?.some(c => c.type === "image" || c.type === "file") ? await Server.tasks.get(taskId) : null);
   frame.removeAttribute("data-sized");
-  frame.srcdoc = Compose.documentFor(view, await fileData(view, t), fontCss(), t?.preview, ...look());
+  const data = await fileData(view, t);
+  // Each delivered page runs live ahead of the rest of what was delivered.
+  const pages = (view || []).filter(c => c.type === "file" && isHtmlFile(c.file, data[c.file]));
+  for (const c of pages) frame.before(livePage(c.file, data[c.file].text));
+  const rest = pages.length ? view.filter(c => !pages.includes(c)) : view;
+  if (!rest.length) { frame.hidden = true; return; }
+  frame.srcdoc = Compose.documentFor(rest, data, fontCss(), t?.preview, ...look());
   frame.onload=()=>{wireMarkdown(frame.contentDocument);wireFrameExports(frame,"");wireActions(frame,view,taskId);sizeComposedFrame(frame);};
 }
 

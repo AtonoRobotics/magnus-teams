@@ -1105,8 +1105,10 @@ function attachButton(label = "Add files", iconOnly = false) {
 const GLIMPSE_IMAGE = /^image\/(png|jpeg|gif|webp)$/;
 const glimpses = {};
 function filePreview(f) {
-  const can = (GLIMPSE_IMAGE.test(f.media_type) && f.size <= 4 << 20) || (Compose.TEXT.test(f.media_type) && f.size <= 256 << 10);
-  const g = !can ? `<span class="small faint">${esc(f.media_type)}</span>` : glimpses[f.id] ?? `<span class="small faint">Loading a preview…</span>`;
+  // A page's preview is no glimpse of its source: it opens live.
+  const page = /^text\/html\b/i.test(f.media_type) || /\.html?$/i.test(f.name || "");
+  const can = !page && ((GLIMPSE_IMAGE.test(f.media_type) && f.size <= 4 << 20) || (Compose.TEXT.test(f.media_type) && f.size <= 256 << 10));
+  const g = page ? `<span class="small faint">Interactive page · open to use it</span>` : !can ? `<span class="small faint">${esc(f.media_type)}</span>` : glimpses[f.id] ?? `<span class="small faint">Loading a preview…</span>`;
   return `<div class="fprev" data-preview="${esc(f.id)}"${can && !(f.id in glimpses) ? ` data-glimpse="${esc(f.media_type)}"` : ""}>
     <a class="glimpse" href="#/file/${enc(f.id)}" data-open="file:${esc(f.id)}" aria-hidden="true" tabindex="-1">${g}</a>${fileChip(f)}</div>`;
 }
@@ -2495,6 +2497,7 @@ async function fileView(id) {
         else if (Compose.TEXT.test(f.media_type)) files[f.name] = { text: decodeText(await Magnus.dataUrl(path, f.media_type)), media_type: f.media_type };
       } catch (e) { toast(e.message); }
       const frame = $("#fview", el);
+      if (isHtmlFile(f.name, files[f.name])) { frame.replaceWith(livePage(f.name, files[f.name].text)); return; }
       frame.removeAttribute("data-sized");
   frame.srcdoc = Compose.documentFor([{ type: "file", file: f.name }], files, fontCss(), f.preview, ...look());
       frame.onload = () => { try { frame.style.height = frame.contentDocument.documentElement.scrollHeight + 4 + "px"; } catch { /* sized by CSS */ } };

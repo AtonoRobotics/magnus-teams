@@ -6,6 +6,8 @@
 const HtmlFrame = (() => {
   const MIN_FRAME_HEIGHT_PX = 48;
   const MAX_INLINE_HEIGHT_PX = 640;
+  // A delivered page shows whole, up to this, before it scrolls inside.
+  const MAX_PAGE_HEIGHT_PX = 2400;
   const RESIZE_BUFFER_PX = 2;
 
   const CHART_PALETTE = {
@@ -107,19 +109,19 @@ const HtmlFrame = (() => {
     return `<!doctype html><html class="${m}" style="color-scheme:${m}"><head><meta charset="utf-8">${injected}</head><body>${raw}</body></html>`;
   }
 
-  function clampHeight(height) {
+  function clampHeight(height, max = MAX_INLINE_HEIGHT_PX) {
     if (!Number.isFinite(height)) return null;
-    return Math.max(MIN_FRAME_HEIGHT_PX, Math.min(MAX_INLINE_HEIGHT_PX, Math.ceil(height)));
+    return Math.max(MIN_FRAME_HEIGHT_PX, Math.min(max, Math.ceil(height)));
   }
 
   if (typeof window !== "undefined" && typeof document !== "undefined") {
     window.addEventListener("message", e => {
       const d = e.data;
       if (!d || d.type !== "magnus:resize") return;
-      const h = clampHeight(d.height);
-      if (h === null) return;
       for (const frame of document.querySelectorAll("iframe.ui-html[data-auto-size]")) {
         if (frame.contentWindow === e.source) {
+          const h = clampHeight(d.height, frame.dataset.page ? MAX_PAGE_HEIGHT_PX : MAX_INLINE_HEIGHT_PX);
+          if (h === null) return;
           if (frame.style.height !== `${h}px`) frame.style.height = `${h}px`;
           break;
         }
@@ -136,6 +138,6 @@ const HtmlFrame = (() => {
     });
   }
 
-  return { MIN_FRAME_HEIGHT_PX, MAX_INLINE_HEIGHT_PX, themeVars, wrap, clampHeight };
+  return { MIN_FRAME_HEIGHT_PX, MAX_INLINE_HEIGHT_PX, MAX_PAGE_HEIGHT_PX, themeVars, wrap, clampHeight };
 })();
 if (typeof module !== "undefined") module.exports = HtmlFrame;
