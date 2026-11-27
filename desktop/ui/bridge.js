@@ -57,14 +57,28 @@ const appBridge = tauri && {
   live(task, onText) {
     const listener = crypto.randomUUID();
     let stop = false, unlisten = null;
+    if (typeof UIStore !== "undefined") UIStore.setLiveWriting(task, true);
     const mine = p => p.task === task && (!p.listener || p.listener === listener);
     // Listening first, so the catch-up sent on joining is not missed.
-    tauri.event.listen("live", e => { if (!stop && mine(e.payload)) onText(e.payload.text); }).then(u => {
+    tauri.event.listen("live", e => {
+      if (stop || !mine(e.payload)) return;
+      if (typeof UIStore !== "undefined") {
+        if (e.payload.status || e.payload.status_line || e.payload.plan) {
+          UIStore.setTask({ ...(UIStore.getTask(task) || { task_id: task }), ...e.payload, task_id: task });
+        }
+      }
+      if (e.payload.text !== undefined) onText(e.payload.text);
+    }).then(u => {
       unlisten = u;
       if (stop) return u();
       this.invoke("live_start", { task, listener }).catch(() => {});
     });
-    return () => { stop = true; if (unlisten) unlisten(); this.invoke("live_stop", { task, listener }).catch(() => {}); };
+    return () => {
+      stop = true;
+      if (typeof UIStore !== "undefined") UIStore.setLiveWriting(task, false);
+      if (unlisten) unlisten();
+      this.invoke("live_stop", { task, listener }).catch(() => {});
+    };
   },
   // The system's own notifications. The desktop app may always show them;
   // a click on one is the system's to handle.

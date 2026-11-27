@@ -136,14 +136,31 @@ const PlanSurface = (() => {
     });
   }
 
+  const LIVE_PLANS_KEY = "magnus.livePlans.v1";
   /** @type {Map<string, string[]>} */
   const livePlans = new Map();
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      const saved = JSON.parse(sessionStorage.getItem(LIVE_PLANS_KEY) || "null");
+      if (saved && typeof saved === "object") {
+        for (const [k, v] of Object.entries(saved)) if (Array.isArray(v) && v.length) livePlans.set(k, v);
+      }
+    }
+  } catch { /* private mode */ }
+  function persistLivePlans() {
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(LIVE_PLANS_KEY, JSON.stringify(Object.fromEntries(livePlans)));
+      }
+    } catch { /* private mode */ }
+  }
 
   /** Register approved plan steps for a started task so its live card tracks progress.
    * @param {string} taskId @param {string[]} steps */
   function trackTask(taskId, steps) {
     if (!taskId || !Array.isArray(steps) || !steps.length) return;
     livePlans.set(taskId, steps.map(s => String(s || "").trim()).filter(Boolean));
+    persistLivePlans();
     syncLiveCards();
   }
 
@@ -169,14 +186,20 @@ const PlanSurface = (() => {
 
   function syncLiveCards() {
     if (typeof document === "undefined") return;
-    for (const [taskId] of livePlans) {
+    let pruned = false;
+    for (const [taskId] of [...livePlans]) {
+      const task = typeof UIStore !== "undefined" ? UIStore.getTask(taskId) : null;
       const host = document.querySelector(`[data-live-plan="${CSS.escape(taskId)}"]`);
       if (host && host.parentElement) {
         const tmp = document.createElement("div");
         tmp.innerHTML = renderLiveCard(taskId);
         if (tmp.firstElementChild) host.replaceWith(tmp.firstElementChild);
+      } else if (task && ["completed", "failed", "cancelled"].includes(task.status)) {
+        livePlans.delete(taskId);
+        pruned = true;
       }
     }
+    if (pruned) persistLivePlans();
   }
 
   if (typeof UIStore !== "undefined") UIStore.subscribe("tasksById", syncLiveCards);

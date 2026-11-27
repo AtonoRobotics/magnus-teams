@@ -58,57 +58,65 @@ const MobileApprove = (() => {
       return [];
     };
 
-    const draw = async () => {
-      const all = await loadAsks();
-      const ordered = focusId
-        ? [...all.filter(a => a.id === focusId), ...all.filter(a => a.id !== focusId)]
-        : all;
-      const reversible = ordered.filter(isReversibleAsk);
+    let drawing = false;
+    const drawFrom = async list => {
+      if (drawing) return;
+      drawing = true;
+      try {
+        const all = Array.isArray(list) ? list : await loadAsks();
+        const ordered = focusId
+          ? [...all.filter(a => a.id === focusId), ...all.filter(a => a.id !== focusId)]
+          : all;
+        const reversible = ordered.filter(isReversibleAsk);
 
-      const cards = ordered.length
-        ? ordered.map(a => {
-            const focused = focusId && a.id === focusId ? `<div class="small muted" style="margin-bottom:4px">Focused from notification</div>` : "";
-            const body = typeof askCard === "function"
-              ? askCard(a, a.can_respond !== false)
-              : `<div class="card ask" data-ask="${escHtml(a.id)}"><strong>${escHtml(a.summary || a.title || "Approval needed")}</strong></div>`;
-            return `<div class="mobile-approve-item" data-mobile-ask="${escHtml(a.id)}">${focused}${body}</div>`;
-          }).join("")
-        : `<div class="card" data-mobile-approve-empty>
-            <h3>All caught up</h3>
-            <p class="small muted">Magnus has no actions waiting for your approval right now.</p>
-            <div class="row" style="margin-top:10px">
-              <a class="button" href="#/briefing">Morning Briefing</a>
-              <a class="button" href="#/tasks">Open Tasks</a>
+        const cards = ordered.length
+          ? ordered.map(a => {
+              const focused = focusId && a.id === focusId ? `<div class="small muted" style="margin-bottom:4px">Focused from notification</div>` : "";
+              const body = typeof askCard === "function"
+                ? askCard(a, a.can_respond !== false)
+                : `<div class="card ask" data-ask="${escHtml(a.id)}"><strong>${escHtml(a.summary || a.title || "Approval needed")}</strong></div>`;
+              return `<div class="mobile-approve-item" data-mobile-ask="${escHtml(a.id)}">${focused}${body}</div>`;
+            }).join("")
+          : `<div class="card" data-mobile-approve-empty>
+              <h3>All caught up</h3>
+              <p class="small muted">Magnus has no actions waiting for your approval right now.</p>
+              <div class="row" style="margin-top:10px">
+                <a class="button" href="#/briefing">Morning Briefing</a>
+                <a class="button" href="#/tasks">Open Tasks</a>
+              </div>
+            </div>`;
+
+        const batchBtn = reversible.length >= 2
+          ? `<button type="button" class="primary mobile-approve-batch" data-mobile-allow-reversible>Allow all ${reversible.length} reversible</button>`
+          : "";
+        const isAdmin = typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
+        const killBtn = isAdmin
+          ? `<button type="button" class="danger small" data-mobile-admin-kill>Emergency Stop</button>`
+          : "";
+
+        const html = `<section class="mobile-approve-shell stack" data-mobile-approve aria-label="Mobile approval triage">
+          <header class="mobile-approve-head row">
+            <div>
+              <h2>Approvals${ordered.length ? ` (${ordered.length})` : ""}</h2>
+              <p class="small muted">Review destinations and risk before Magnus acts.</p>
             </div>
-          </div>`;
+            <div class="row" style="flex-wrap:wrap;gap:6px">
+              ${killBtn}
+              ${batchBtn}
+              <button type="button" class="small" data-mobile-refresh>Refresh</button>
+              <a class="button small" href="#/briefing">Briefing</a>
+            </div>
+          </header>
+          <div class="stack" data-mobile-approve-list>${cards}</div>
+        </section>`;
 
-      const batchBtn = reversible.length >= 2
-        ? `<button type="button" class="primary mobile-approve-batch" data-mobile-allow-reversible>Allow all ${reversible.length} reversible</button>`
-        : "";
-      const isAdmin = typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
-      const killBtn = isAdmin
-        ? `<button type="button" class="danger small" data-mobile-admin-kill>Emergency Stop</button>`
-        : "";
-
-      const html = `<section class="mobile-approve-shell stack" data-mobile-approve aria-label="Mobile approval triage">
-        <header class="mobile-approve-head row">
-          <div>
-            <h2>Approvals${ordered.length ? ` (${ordered.length})` : ""}</h2>
-            <p class="small muted">Review destinations and risk before Magnus acts.</p>
-          </div>
-          <div class="row" style="flex-wrap:wrap;gap:6px">
-            ${killBtn}
-            ${batchBtn}
-            <button type="button" class="small" data-mobile-refresh>Refresh</button>
-            <a class="button small" href="#/briefing">Briefing</a>
-          </div>
-        </header>
-        <div class="stack" data-mobile-approve-list>${cards}</div>
-      </section>`;
-
-      if (typeof paint === "function") paint(main, html);
-      else main.innerHTML = html;
+        if (typeof paint === "function") paint(main, html);
+        else main.innerHTML = html;
+      } finally {
+        drawing = false;
+      }
     };
+    const draw = () => drawFrom(null);
 
     main.onclick = async e => {
       const t = /** @type {HTMLElement} */ (e.target);
@@ -144,6 +152,10 @@ const MobileApprove = (() => {
       }
     };
 
+    if (typeof UIStore !== "undefined") {
+      const unsub = UIStore.subscribe("asks", list => { if (!drawing) drawFrom(list); });
+      if (typeof onLeave === "function") onLeave(unsub);
+    }
     if (typeof App !== "undefined") App.redraw = draw;
     await draw();
   }

@@ -95,4 +95,45 @@ assert.match(desktopSlice, /async pickFolder\(\)\s*\{\s*return this\.invoke\("pi
 // 5. Blocking notices deep-link to #/approve?ask=<id> on mobile viewports
 assert.match(read("desktop/ui/app-polling.js"), /#\/approve\?ask=\$\{enc\(i\.id\)\}/, "app-polling.js must deep-link blocking notices to #/approve?ask=<id> on mobile");
 
+// 6. Desktop Tauri live() feeds UIStore.setLiveWriting and UIStore.setTask
+assert.match(desktopSlice, /UIStore\.setLiveWriting\(task,\s*true\)/, "desktop live() must set liveWriting true");
+assert.match(desktopSlice, /UIStore\.setLiveWriting\(task,\s*false\)/, "desktop live() must set liveWriting false on close");
+assert.match(desktopSlice, /UIStore\.setTask\(/, "desktop live() must forward task updates into UIStore");
+
+// 7. PlanSurface livePlans survives reload via sessionStorage
+{
+  const bag = new Map();
+  const storage = { getItem: k => bag.get(k) ?? null, setItem: (k, v) => bag.set(k, String(v)) };
+  const c1 = vm.createContext({ sessionStorage: storage, Date });
+  vm.runInContext(`${read("desktop/ui/plan-surface.js")}\nthis.__P = PlanSurface;`, c1);
+  c1.__P.trackTask("t_reload_1", ["Step A", "Step B"]);
+  const c2 = vm.createContext({ sessionStorage: storage, Date });
+  vm.runInContext(`${read("desktop/ui/plan-surface.js")}\nthis.__P = PlanSurface;`, c2);
+  const reloadedHtml = c2.__P.renderLiveCard("t_reload_1");
+  assert.match(reloadedHtml, /Step A[\s\S]*Step B/, "PlanSurface livePlans must hydrate from sessionStorage across reload");
+}
+
+// 8. MobileApprove subscribes to UIStore asks updates and unsubscribes onLeave
+{
+  let leaveFn = null;
+  const main = { innerHTML: "", onclick: null };
+  const ctx = vm.createContext({
+    URLSearchParams,
+    Date,
+    location: { origin: "https://magnus.example", pathname: "/", hash: "#/approve" },
+    App: { inbox: [] },
+    onLeave: fn => { leaveFn = fn; },
+    Server: { inbox: { list: async () => ({ items: [] }) } },
+    askCard: a => `<div data-ask="${a.id}">${a.summary}</div>`,
+  });
+  vm.runInContext(`${read("desktop/ui/ui-store.js")}\n${read("desktop/ui/mobile-approve.js")}\nthis.__S = UIStore; this.__M = MobileApprove;`, ctx);
+  await ctx.__M.show(main, "");
+  assert.match(main.innerHTML, /All caught up/);
+  ctx.__S.patch({ asks: [{ id: "live_ask_1", status: "open", can_respond: true, summary: "Send live email" }] });
+  await new Promise(r => setTimeout(r, 0));
+  assert.match(main.innerHTML, /Send live email/, "MobileApprove must auto-redraw when UIStore asks updates");
+  assert.equal(typeof leaveFn, "function", "MobileApprove must register onLeave cleanup for UIStore subscription");
+  leaveFn();
+}
+
 console.log("p0-wiring-fixes-check: ok");
