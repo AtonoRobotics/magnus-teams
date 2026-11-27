@@ -84,7 +84,8 @@ const AuroraCompact = (() => {
   const start = () => {
     place();
     if (typeof AuroraCore !== "undefined") AuroraCore.onDom(records => { if (records.some(r => r.addedNodes.length)) checkBar(); });
-    else new MutationObserver(checkBar).observe(document.body, { childList: true, subtree: true });
+    if (typeof UIStore !== "undefined") UIStore.subscribe("*", checkBar);
+    window.addEventListener("magnus-render", checkBar);
   };
   if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
 

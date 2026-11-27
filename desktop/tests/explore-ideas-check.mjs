@@ -38,7 +38,7 @@ assert.ok(kinds.includes('"approval"') && !kinds.includes('"suggestion"'), "an i
 assert.match(app, /const other = App\.inbox\.filter\(i => i\.status === "open" && !needsDecision\(i\) && !ExploreIdeas\.isIdea\(i\)\);/, "the overview lists ideas");
 // Its notice links to Explore, and is the notification for them.
 assert.match(app, /if \(ExploreIdeas\.isNotice\(i\)\) \{\s*body = `<p class="small"><a href="#\/explore">Open Explore<\/a>/, "the ideas notice does not link to Explore");
-assert.match(app, /Notices\.show\(\{ key: `inbox:\$\{i\.id\}`, title: "Ideas in Explore", body: i\.summary, system: i\.summary, href: "#\/explore" \}\)/, "the ideas notice is not shown as a notification");
+assert.match(read("app-polling.js"), /Notices\.show\(\{ key: `inbox:\$\{i\.id\}`, title: "Ideas in Explore", body: i\.summary, system: i\.summary, href: "#\/explore" \}\)/, "the ideas notice is not shown as a notification");
 // An empty Tasks or Schedules offers them, linking to Explore, not to a conversation.
 assert.match(tasksSchedules, /const ideas = ExploreIdeas\.open\(App\.inbox\);[\s\S]{0,400}<a href="#\/explore">/, "the empty lists do not offer the ideas in Explore");
 assert.ok(!/t\.opener\)\.flatMap/.test(app) && !/t\.opener\)\.flatMap/.test(tasksSchedules), "the empty lists still read conversations Magnus opened");

@@ -29,7 +29,7 @@ const piece = (src, start, end = "\n}\n") => {
 assert.match(app, /data-act=sign-out\]"\)\) \{\s*MessageDrafts\.clear\(\);\s*await endSession\(\);\s*\}/, "sign-out does not end the session");
 assert.match(app, /if \(!\(await agreementsGate\(\)\)\) return endSession\(\);/, "declining the agreements does not end the session");
 assert.match(app, /error\?\.status===401 && App\.me\)endSession\("Your session ended\. Sign in again\."\)/, "a session the server ended keeps the page");
-assert.match(app, /e\.status === 401 && App\.me\) endSession\("Your session ended\. Sign in again\."\)/, "a session the server ended keeps the page");
+assert.match(read("app-polling.js"), /e\.status === 401 && App\.me\) endSession\("Your session ended\. Sign in again\."\)/, "a session the server ended keeps the page");
 const stopFn = piece(app, "function stop() {");
 assert.ok(stopFn.includes("AuroraBoxes.scope(null, null);"), "stop() keeps the last person's closed boxes");
 assert.ok(stopFn.includes("stopPanelLive();"), "stop() leaves the panel's live stream running");

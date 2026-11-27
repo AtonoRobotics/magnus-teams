@@ -84,7 +84,11 @@ const AuroraExplore = (() => {
     }
   };
   if (typeof AuroraCore !== "undefined") AuroraCore.onDom(onMutate);
-  else new MutationObserver(onMutate).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("magnus-render", () => {
+    if (!before) return;
+    const grid = document.querySelector(".explore-grid");
+    if (grid) play(grid);
+  });
 
   return { on, grab, play };
 })();

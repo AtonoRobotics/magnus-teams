@@ -47,7 +47,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   ctx.__N.show({ key: "nb:1", title: "FYI", body: "Low priority", system: "FYI", href: "#/tasks", blocking: false });
   ctx.__N.show({ key: "blk:1", title: "A task needs you", body: "Approve payment", system: "Approve", href: "#/inbox", blocking: true });
   assert.deepEqual(popped, ["blk:1"], "DND must silence non-blocking notices while still surfacing blocking approvals");
-  assert.match(ui("app.js"), /Notices\.show\(\{[\s\S]*?blocking:\s*!!i\.blocking/, "app.js must forward i.blocking to Notices.show");
+  assert.match(ui("app-polling.js"), /Notices\.show\(\{[\s\S]*?blocking:\s*!!i\.blocking/, "app-polling.js must forward i.blocking to Notices.show");
 }
 
 // 2. Admin kill switch syncs both #detail and persistent top-bar slots.

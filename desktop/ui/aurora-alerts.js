@@ -258,9 +258,11 @@ const AuroraAlerts = (() => {
     if (records.some(r => r.addedNodes.length || r.removedNodes.length)) { threadLines(); soon(); }
   }
   function init() {
+    const sync = () => { if (on()) { threadLines(); soon(); } else if (lines.size) off(); };
     if (typeof AuroraCore !== "undefined") AuroraCore.onDom(handleDom);
-    else new MutationObserver(handleDom).observe(document.body, { childList: true, subtree: true });
-    new MutationObserver(() => { if (on()) threadLines(); else off(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-style"] });
+    if (typeof UIStore !== "undefined") UIStore.subscribe("*", sync);
+    window.addEventListener("magnus-render", sync);
+    window.addEventListener("magnus-theme", sync);
     soon();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

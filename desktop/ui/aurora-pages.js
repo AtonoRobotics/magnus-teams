@@ -66,9 +66,10 @@ const AuroraPages = (() => {
   window.addEventListener("magnus-theme", soon);
   // The app puts a new #main in place for each page (app.js), and draws
   // some pages into it after their data comes: what is drawn is watched.
+  window.addEventListener("magnus-render", soon);
+  if (typeof UIStore !== "undefined") UIStore.subscribe("*", soon);
   const start = () => {
     if (typeof AuroraCore !== "undefined") AuroraCore.onMain(soon);
-    else new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
     place();
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
