@@ -9,7 +9,11 @@ const SOLID_DARK: Color = Color(0x09, 0x0A, 0x0D, 0xFF);
 
 /// What the webview draws under the page: solid in the page's mode.
 pub fn webview_background(dark: bool) -> Color {
-    if dark { SOLID_DARK } else { SOLID_LIGHT }
+    if dark {
+        SOLID_DARK
+    } else {
+        SOLID_LIGHT
+    }
 }
 
 /// Start the main window solid, in the system's mode, before the page runs.

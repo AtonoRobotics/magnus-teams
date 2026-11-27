@@ -32,7 +32,16 @@ pub struct Displays(Mutex<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>);
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn display_open(events: AppHandle, app: State<'_, App>, displays: State<'_, Displays>, handle: String, computer: String, ticket: String, prefix: String, deflate: Option<bool>) -> Res<()> {
+pub async fn display_open(
+    events: AppHandle,
+    app: State<'_, App>,
+    displays: State<'_, Displays>,
+    handle: String,
+    computer: String,
+    ticket: String,
+    prefix: String,
+    deflate: Option<bool>,
+) -> Res<()> {
     if computer.is_empty() || !computer.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err("not a computer id".into());
     }

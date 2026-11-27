@@ -74,12 +74,7 @@ fn build(want: Option<String>) -> Result<(reqwest::Client, Arc<Mutex<Option<Stri
     if let Ok(v) = reqwest::header::HeaderValue::from_str(&crate::app_version()) {
         headers.insert("x-magnus-app", v);
     }
-    let client = reqwest::Client::builder()
-        .default_headers(headers)
-        .use_preconfigured_tls(tls)
-        .connect_timeout(CONNECT_TIMEOUT_S)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().default_headers(headers).use_preconfigured_tls(tls).connect_timeout(CONNECT_TIMEOUT_S).build().map_err(|e| e.to_string())?;
     Ok((client, seen))
 }
 

@@ -10,6 +10,11 @@
 # Heavy suites run as acceptance against a release candidate, not here (see
 # AGENTS.md, "How work lands").
 #
+# The desktop app is a Cargo workspace of its own, which the workspace checks
+# never compile; the `desktop` job compiles and tests it, beside the other
+# checks rather than after them, so the run takes no longer
+# (decisions/2026-11-27-fast-tier-compiles-the-desktop-app.md).
+#
 # A push to main is released only after this run passes for that commit:
 # release.yml starts on this workflow's completion, not on the push
 # (decisions/2026-11-20-release-waits-for-fast.md). The workflow's name,
@@ -58,12 +63,25 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@v2
       # Every check is in ci/fast.sh, which a manual release runs too.
-      - run: sh ci/fast.sh
+      - run: sh ci/fast.sh checks
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tauri's Linux libraries
+        run: sh ci/desktop-libs.sh
+      - name: Install the pinned toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+      - run: sh ci/fast.sh desktop
   in-order:
     # Waits, whatever this run's verdict, for the previous push's run to
     # complete, so runs complete in push order. The run's verdict stays the
-    # fast job's.
-    needs: fast
+    # checks' (the fast and desktop jobs).
+    needs: [fast, desktop]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 35

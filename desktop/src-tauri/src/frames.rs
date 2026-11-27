@@ -24,7 +24,9 @@ pub fn sandbox_frame(frames: State<'_, Frames>, html: String, csp: Option<String
 pub fn serve(frames: &Frames, path: &str) -> Response<Vec<u8>> {
     let found = frames.0.lock().ok().and_then(|mut f| f.remove(path.trim_start_matches('/')));
     let built = match found {
-        Some((policy, html)) => Response::builder().header(header::CONTENT_TYPE, "text/html; charset=utf-8").header(header::CONTENT_SECURITY_POLICY, policy).body(html.into_bytes()),
+        Some((policy, html)) => {
+            Response::builder().header(header::CONTENT_TYPE, "text/html; charset=utf-8").header(header::CONTENT_SECURITY_POLICY, policy).body(html.into_bytes())
+        }
         None => Response::builder().status(StatusCode::NOT_FOUND).body(Vec::new()),
     };
     built.unwrap_or_else(|_| Response::new(Vec::new()))

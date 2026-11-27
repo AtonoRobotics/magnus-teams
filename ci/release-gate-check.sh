@@ -7,6 +7,8 @@
 #   - fast.yml runs are a FIFO queue: one per push, none cancelled or
 #     replaced, completing in push order;
 #   - fast.yml and a manual release run the same script, ci/fast.sh;
+#   - fast.yml runs both its parts, the checks and the desktop app, and the
+#     in-order job waits for both;
 #   - ci/fast.sh runs every desktop/tests/*-check.mjs and every ci/*-check.sh.
 # It reads the files only; nothing is built or run.
 set -eu
@@ -42,18 +44,20 @@ fast_conc=$(awk '/^concurrency:/ { c = 1; next } c && /^[^ #]/ { exit } c' "$fas
 case $fast_conc in *'group: fast-${{ github.ref }}-${{ github.sha }}'*) ;; *) bad "fast.yml's concurrency group is not one per commit, so a newer push can replace a waiting one" ;; esac
 case $fast_conc in *"cancel-in-progress: false"*) ;; *) bad "fast.yml lets a newer push cancel the run in progress" ;; esac
 in_order=$(awk '/^  in-order:/ { j = 1; next } j && /^  [a-z]/ { exit } j' "$fast")
-case $in_order in *"needs: fast"*) ;; *) bad "fast.yml has no in-order job after the fast job" ;; esac
+case $in_order in *"needs: [fast, desktop]"*) ;; *) bad "fast.yml has no in-order job after the fast and desktop jobs" ;; esac
 case $in_order in *"if: always()"*) ;; *) bad "fast.yml's in-order job does not run when the checks fail" ;; esac
 case $in_order in *'sh ci/fast-wait-previous.sh "$REPOSITORY" "$PREVIOUS_SHA"'*) ;; *) bad "fast.yml's in-order job does not wait for the previous push's run" ;; esac
 case $in_order in *'PREVIOUS_SHA: ${{ github.event.before }}'*) ;; *) bad "fast.yml's in-order job does not wait on the commit before the push" ;; esac
 
 # One list of checks.
 grep -qx 'name: fast' "$fast" || bad "fast.yml is not named 'fast', which release.yml waits for"
-has "$fast" 'run: sh ci/fast.sh' || bad "fast.yml does not run ci/fast.sh"
-others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' | grep -vF 'sh ci/fast-wait-previous.sh' || true)
+has "$fast" 'run: sh ci/fast.sh checks' || bad "fast.yml does not run ci/fast.sh's checks"
+has "$fast" 'run: sh ci/fast.sh desktop' || bad "fast.yml does not compile and test the desktop app (ci/fast.sh desktop)"
+others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' | grep -vF 'sh ci/desktop-libs.sh' | grep -vF 'sh ci/fast-wait-previous.sh' || true)
 [ -z "$others" ] || bad "fast.yml runs checks outside ci/fast.sh: $others"
 has "$release" 'run: sh ci/fast.sh' || bad "a manual release does not run ci/fast.sh"
 has "$script" 'for f in desktop/tests/*-check.mjs; do' || bad "ci/fast.sh does not run every desktop/tests/*-check.mjs"
+has "$script" 'check cargo test --locked --manifest-path "$m" --lib --bins' || bad "ci/fast.sh does not compile and test the desktop app"
 # The lock file is checked as committed before any cargo command could
 # rewrite it, as the release build's `cargo fetch --locked` reads it.
 first_cargo=$(grep -E '^check cargo ' "$script" | grep -v 'cargo fmt' | head -1)

@@ -120,13 +120,21 @@ impl Mcp {
     pub async fn tools(&self, addr: SocketAddr) -> Res<Vec<Value>> {
         let session = self.open(addr, PROBE_TIMEOUT).await?;
         let (v, _) = self.rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), PROBE_TIMEOUT).await?;
-        Ok(v["tools"].as_array().cloned().unwrap_or_default().into_iter().map(|t| json!({ "name": t["name"], "description": t["description"], "input_schema": t["inputSchema"] })).collect())
+        Ok(v["tools"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| json!({ "name": t["name"], "description": t["description"], "input_schema": t["inputSchema"] }))
+            .collect())
     }
 
     /// One call: whether it worked, and its text.
     pub async fn call(&self, addr: SocketAddr, tool: &str, arguments: &Value) -> Res<(bool, String)> {
         let session = self.open(addr, CALL_TIMEOUT).await?;
-        let (v, _) = self.rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": arguments } }), CALL_TIMEOUT).await?;
+        let (v, _) = self
+            .rpc(addr, session.as_deref(), json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": tool, "arguments": arguments } }), CALL_TIMEOUT)
+            .await?;
         let text: String = v["content"].as_array().map(|c| c.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n")).unwrap_or_default();
         Ok((v["isError"] != true, text.chars().take(MAX_TEXT_CHARS).collect()))
     }
@@ -345,7 +353,13 @@ async fn run(handle: AppHandle) {
         };
         if let Some(job) = job {
             let (ok, text) = carry_out(&job, &ports, &enabled, &mcp).await;
-            let _ = client.post(format!("{url}/v1/desktop/devices/{id}/result")).bearer_auth(&token).timeout(REPORT_TIMEOUT).json(&json!({ "job": job["id"], "ok": ok, "text": text })).send().await;
+            let _ = client
+                .post(format!("{url}/v1/desktop/devices/{id}/result"))
+                .bearer_auth(&token)
+                .timeout(REPORT_TIMEOUT)
+                .json(&json!({ "job": job["id"], "ok": ok, "text": text }))
+                .send()
+                .await;
         }
     }
 }

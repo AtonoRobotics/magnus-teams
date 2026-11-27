@@ -139,7 +139,11 @@ impl Store {
         let v: serde_json::Value = serde_json::from_slice(&b).ok()?;
         let certificate = v["certificate"].as_str()?.to_string();
         let private_key = v["private_key"].as_str()?.to_string();
-        if certificate.is_empty() || private_key.is_empty() { None } else { Some((certificate, private_key)) }
+        if certificate.is_empty() || private_key.is_empty() {
+            None
+        } else {
+            Some((certificate, private_key))
+        }
     }
 
     pub fn set_device(&self, url: &str, certificate: &str, private_key: &str) -> Result<(), String> {

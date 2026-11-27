@@ -8,13 +8,13 @@ mod address;
 mod bridge;
 mod detect;
 mod display;
+mod events_sse;
 mod files;
 mod frames;
-mod events_sse;
 mod live;
 mod local;
-mod loopback;
 mod look;
+mod loopback;
 mod methods;
 mod pin;
 mod programs;
@@ -23,11 +23,11 @@ mod speech;
 mod store;
 mod update;
 
-use base64::Engine;
 use address::normalize;
+use base64::Engine;
 use files::file_path;
-use loopback::redirected;
 use futures_util::StreamExt;
+use loopback::redirected;
 use serde_json::{json, Value};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
@@ -373,7 +373,10 @@ async fn bytes(app: &App, path: &str) -> Res<Vec<u8>> {
     file_response(app, path).await?.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())
 }
 #[derive(serde::Serialize)]
-struct FileBytes { data_b64: String, media_type: String }
+struct FileBytes {
+    data_b64: String,
+    media_type: String,
+}
 #[tauri::command]
 async fn put_bytes(app: State<'_, App>, path: String, data_b64: String) -> Res<()> {
     use base64::Engine;
@@ -391,8 +394,7 @@ async fn put_bytes(app: State<'_, App>, path: String, data_b64: String) -> Res<(
 #[tauri::command]
 async fn fetch_bytes(app: State<'_, App>, path: String) -> Res<FileBytes> {
     let response = file_response(&app, &path).await?;
-    let media_type = response.headers().get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_owned();
+    let media_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_owned();
     let data = response.bytes().await.map_err(|e| e.to_string())?;
     Ok(FileBytes { data_b64: base64::engine::general_purpose::STANDARD.encode(data), media_type })
 }
@@ -567,7 +569,13 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("cannot listen on this computer: {e}"))?;
     let port = l.local_addr().map_err(|e| e.to_string())?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-    let begin = async { c.post(format!("{url}/v1/sign-in/browser")).json(&json!({ "redirect_uri": redirect_uri, "login_hint": login_hint, "client": "app" })).send().await.map_err(|e| format!("Cannot reach {url}: {}", pin::describe(&e))) };
+    let begin = async {
+        c.post(format!("{url}/v1/sign-in/browser"))
+            .json(&json!({ "redirect_uri": redirect_uri, "login_hint": login_hint, "client": "app" }))
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach {url}: {}", pin::describe(&e)))
+    };
     let r = unless_cancelled(begin, &mut cancel).await?;
     let (status, begun) = body_of(r).await;
     if status >= 400 {
@@ -682,99 +690,68 @@ pub fn run() {
             bridge::start(app.handle().clone());
             Ok(())
         })
-        .manage(App { store: store::Store::open(), client: Mutex::new(None), person: session::Session::default(), speech: speech::Speech::default(), loopback: Mutex::new(None), browser_sign_in: Mutex::new(BrowserSignIn::default()) })
+        .manage(App {
+            store: store::Store::open(),
+            client: Mutex::new(None),
+            person: session::Session::default(),
+            speech: speech::Speech::default(),
+            loopback: Mutex::new(None),
+            browser_sign_in: Mutex::new(BrowserSignIn::default()),
+        })
         .manage(display::Displays::default())
         .manage(frames::Frames::default())
         .register_uri_scheme_protocol(frames::SCHEME, |ctx, request| {
             use tauri::Manager;
             frames::serve(&ctx.app_handle().state::<frames::Frames>(), request.uri().path())
         })
-        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, bridge::desktop_device, bridge::desktop_refresh, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, events_sse::events_start, events_sse::events_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::page_works, update::whats_new, look::set_background, look::system_look])
+        .invoke_handler(tauri::generate_handler![
+            put_bytes,
+            display::display_open,
+            display::display_send,
+            display::display_close,
+            frames::sandbox_frame,
+            local::local_state,
+            local::local_start,
+            local::local_pause,
+            local::local_stop,
+            bridge::desktop_device,
+            bridge::desktop_refresh,
+            restore,
+            connect,
+            trust,
+            sign_in_method,
+            sign_in,
+            account::forgot_password,
+            pair_device,
+            provider_sign_in,
+            provider_sign_in_cancel,
+            sign_out,
+            api,
+            fetch_bytes,
+            download,
+            live_start,
+            live_stop,
+            events_sse::events_start,
+            events_sse::events_stop,
+            notify,
+            speak,
+            stop_speaking,
+            open_url,
+            loopback_open,
+            loopback_wait,
+            app_info,
+            update::update_state,
+            update::update_look,
+            update::update_install,
+            update::page_works,
+            update::whats_new,
+            look::set_background,
+            look::system_look
+        ])
         .run(tauri::generate_context!())
         .expect("start the Magnus app");
 }
 
 #[cfg(test)]
-mod tests {
-    /// A cancelled provider sign-in stops waiting at once, so the browser
-    /// finishing it later brings back nothing that is kept.
-    #[tokio::test]
-    async fn a_cancelled_browser_sign_in_stops_waiting() {
-        let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
-        let forever = async { tokio::time::sleep(std::time::Duration::from_secs(3600)).await; Ok::<_, String>(()) };
-        drop(tx);
-        let r = tokio::time::timeout(std::time::Duration::from_secs(5), super::unless_cancelled(forever, &mut rx)).await;
-        assert_eq!(r, Ok(Err(super::CANCELLED.to_string())), "the sign-in kept waiting after it was cancelled");
-    }
-
-    /// Only the latest sign-in, not cancelled, finishes: a Cancel at any
-    /// point, even before the appliance answered the first request, stops it,
-    /// and an older one never takes a newer one's place (review of #160).
-    #[test]
-    fn only_the_latest_uncancelled_sign_in_finishes() {
-        let mut s = super::BrowserSignIn::default();
-        let (first, mut rx1) = s.begin();
-        s.cancel();
-        assert!(rx1.try_recv().is_err_and(|e| e == tokio::sync::oneshot::error::TryRecvError::Closed), "a Cancel before the first answer did not reach the sign-in");
-        assert!(!s.finish(first), "a cancelled sign-in finished");
-
-        let (older, mut rx2) = s.begin();
-        let (newer, mut rx3) = s.begin();
-        assert!(rx2.try_recv().is_err_and(|e| e == tokio::sync::oneshot::error::TryRecvError::Closed), "a newer sign-in did not end the older one");
-        assert!(!s.finish(older), "an older sign-in finished in a newer one's place");
-        assert_eq!(rx3.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty), "the older one's finish ended the newer one");
-        assert!(s.finish(newer));
-        s.cancel();
-        assert!(!s.finish(newer), "a sign-in finished twice");
-    }
-
-    use super::*;
-
-    #[test]
-    fn the_page_cannot_reach_beyond_the_api_or_take_a_session() {
-        for bad in ["/v1/sign-in", "/v1/sign-in/device", "/v1/sign-in/device/signin_1", "/v1/sign-out", "/v1/devices", "/v1/devices/dev_1", "/v1/../etc", "https://evil.example/v1/x", "/other", "/v1/x#y"] {
-            assert!(allowed(bad).is_err(), "{bad} was allowed");
-        }
-        // The request URL is normalised before it is sent: a dot segment or
-        // an encoded dot or slash must not hide a sign-in call.
-        for bad in ["/v1/./sign-in/device", "/v1/%2e/sign-in", "/v1/%2E/sign-out", "/v1/x/%2e%2e/devices", "/v1/x/.%2E/sign-in", "/v1/%2fsign-in", "/v1\\sign-in", "/v1/x?y#z"] {
-            assert!(allowed(bad).is_err(), "{bad} was allowed");
-        }
-        assert!(allowed("/v1/inbox").is_ok());
-        assert!(allowed("/v1/tasks?status=open").is_ok());
-    }
-
-    #[test]
-    fn a_registered_sign_in_address_is_listened_on_exactly() {
-        assert_eq!(sign_in_listen(None).unwrap(), "127.0.0.1:0");
-        assert_eq!(sign_in_listen(Some("")).unwrap(), "127.0.0.1:0");
-        assert_eq!(sign_in_listen(Some("http://127.0.0.1:17321/callback")).unwrap(), "127.0.0.1:17321");
-        assert!(sign_in_listen(Some("http://localhost:17321/callback")).is_err());
-        assert!(sign_in_listen(Some("https://magnus.pyrallon.ai/oauth/slack/callback")).is_err());
-    }
-
-    #[test]
-    fn an_address_is_reduced_to_its_origin() {
-        assert_eq!(normalize("magnus.local:7443").unwrap(), "https://magnus.local:7443");
-        assert_eq!(normalize("https://10.0.0.5:7443/some/path").unwrap(), "https://10.0.0.5:7443");
-        assert_eq!(normalize("http://127.0.0.1:7700/").unwrap(), "http://127.0.0.1:7700");
-        assert!(normalize("http://evil.example").is_err(), "plain http to another host would send the password in the clear");
-        assert!(normalize("http://192.168.0.5:7700").is_err());
-        assert_eq!(normalize("http://localhost:7700").unwrap(), "http://localhost:7700");
-        assert!(normalize("file:///etc/passwd").is_err());
-    }
-
-    #[test]
-    fn the_public_name_is_not_pinned_and_the_device_key_stays_here() {
-        assert!(pin::is_public_appliance("https://magnus.pyrallon.ai"));
-        assert!(pin::is_public_appliance("https://Magnus.Pyrallon.ai/v1/me"));
-        assert!(!pin::is_public_appliance("https://10.1.1.5:7700"));
-        assert!(!pin::is_public_appliance("https://magnus.local:7700"));
-        assert!(!pin::is_public_appliance("https://strix.tailnet.ts.net"));
-        assert!(!pin::is_public_appliance("http://magnus.pyrallon.ai"));
-        let (key, csr) = pin::begin_device().unwrap();
-        assert!(key.contains("PRIVATE KEY"));
-        assert!(csr.contains("BEGIN CERTIFICATE REQUEST"));
-        assert!(!csr.contains("PRIVATE KEY"), "the request sent to the server carried the key");
-    }
-}
+#[path = "lib_tests.rs"]
+mod tests;

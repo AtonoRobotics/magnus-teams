@@ -85,19 +85,24 @@ pub fn dpkg_versions(status: &str) -> Vec<(String, String)> {
 
 /// `flatpak list --app --columns=application,version`: one id and version per line.
 pub fn flatpak_versions(list: &str) -> Vec<(String, Option<String>)> {
-    list.lines().filter_map(|l| {
-        let mut cols = l.split('\t').map(str::trim);
-        let id = cols.next().filter(|s| !s.is_empty())?;
-        Some((id.to_string(), cols.next().filter(|s| !s.is_empty()).map(String::from)))
-    }).collect()
+    list.lines()
+        .filter_map(|l| {
+            let mut cols = l.split('\t').map(str::trim);
+            let id = cols.next().filter(|s| !s.is_empty())?;
+            Some((id.to_string(), cols.next().filter(|s| !s.is_empty()).map(String::from)))
+        })
+        .collect()
 }
 
 /// `snap list`: a header, then a name and version per line.
 pub fn snap_versions(list: &str) -> Vec<(String, String)> {
-    list.lines().skip(1).filter_map(|l| {
-        let mut cols = l.split_whitespace();
-        Some((cols.next()?.to_string(), cols.next()?.to_string()))
-    }).collect()
+    list.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let mut cols = l.split_whitespace();
+            Some((cols.next()?.to_string(), cols.next()?.to_string()))
+        })
+        .collect()
 }
 
 pub struct LinuxDetector<M: Machine> {

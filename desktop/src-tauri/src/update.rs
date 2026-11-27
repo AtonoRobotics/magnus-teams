@@ -87,19 +87,11 @@ pub async fn look<R: Runtime>(handle: &AppHandle<R>) -> Result<bool, String> {
     }
     can_update()?;
     let (endpoint, tls, token) = source(&app)?;
-    let mut builder = handle
-        .updater_builder()
-        .endpoints(vec![endpoint])
-        .map_err(|e| e.to_string())?
-        .header("x-magnus-app", crate::app_version())
-        .map_err(|e| e.to_string())?;
+    let mut builder = handle.updater_builder().endpoints(vec![endpoint]).map_err(|e| e.to_string())?.header("x-magnus-app", crate::app_version()).map_err(|e| e.to_string())?;
     if let Some(t) = token {
         builder = builder.header("authorization", format!("Bearer {t}")).map_err(|e| e.to_string())?;
     }
-    let updater = builder
-        .configure_client(move |b| b.tls_backend_preconfigured(tls.clone()))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let updater = builder.configure_client(move |b| b.tls_backend_preconfigured(tls.clone())).build().map_err(|e| e.to_string())?;
     *ups.looked.lock().unwrap() = Some(chrono_now());
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else { return Ok(false) };
     let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;

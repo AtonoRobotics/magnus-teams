@@ -28,7 +28,8 @@ pub(crate) async fn redirected(l: tokio::net::TcpListener, wait: std::time::Dura
             // The provider sends the browser here by navigating; a fetch from
             // some page in that browser (Sec-Fetch-Mode cors or no-cors) is
             // not the provider and must not end the wait.
-            let scripted = head.lines().filter_map(|l| l.split_once(':')).any(|(k, v)| k.trim().eq_ignore_ascii_case("sec-fetch-mode") && !v.trim().eq_ignore_ascii_case("navigate"));
+            let scripted =
+                head.lines().filter_map(|l| l.split_once(':')).any(|(k, v)| k.trim().eq_ignore_ascii_case("sec-fetch-mode") && !v.trim().eq_ignore_ascii_case("navigate"));
             if u.path() != "/callback" || scripted {
                 let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
                 continue;
@@ -40,7 +41,9 @@ pub(crate) async fn redirected(l: tokio::net::TcpListener, wait: std::time::Dura
                 _ => ("The sign-in did not finish. Return to Magnus.", Err("the sign-in page sent no code".to_string())),
             };
             let body = format!("<!doctype html><meta charset=utf-8><title>Magnus</title><p style=\"font:16px system-ui;margin:40px\">{title}</p>");
-            let _ = s.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+            let _ = s
+                .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes())
+                .await;
             return result;
         }
     };
