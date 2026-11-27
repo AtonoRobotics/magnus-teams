@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const uiDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui");
 const read = f => fs.readFileSync(path.join(uiDir, f), "utf8");
 
-const appSrc = read("app.js");
+const appSrc = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
 const noticesSrc = read("notices.js");
 const composerSrc = read("chat-composer.js");
 const framesSrc = read("composed-frames.js");

@@ -12,7 +12,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = f => readFileSync(join(here, "../ui", f), "utf8");
-const app = read("app.js"), spend = read("admin-spend.js"), overview = read("admin-overview.js");
+const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n"), spend = read("admin-spend.js"), overview = read("admin-overview.js");
 const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
 assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 

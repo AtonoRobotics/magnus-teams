@@ -14,7 +14,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
-const page = read("index.html"), app = read("app.js"), signin = read("signin.js"), bridge = read("bridge.js"), pw = read("password.js");
+const page = read("index.html"), app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n"), signin = read("signin.js"), bridge = read("bridge.js"), pw = read("password.js");
 const tauri = readFileSync(join(here, "../src-tauri/src/lib.rs"), "utf8");
 
 // Wiring.

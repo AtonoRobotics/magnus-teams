@@ -659,9 +659,9 @@
     if (typeof AuroraCore !== "undefined") {
       AuroraCore.onDom(handleDom);
       AuroraCore.onState((s) => { currentState = s; });
-    } else {
-      new MutationObserver(handleDom).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed", "data-phase", "data-tone"] });
     }
+    if (typeof UIStore !== "undefined") UIStore.subscribe("*", () => { if (active) enhanceDynamicDom(); });
+    window.addEventListener("magnus-render", () => { if (active) { markEntrances(); enhanceDynamicDom(); } });
     window.addEventListener("magnus-theme", reconcile);
     window.addEventListener("hashchange", () => {
       detailRect = null;

@@ -11,7 +11,7 @@ const root = join(here, "../..");
 const read = f => readFileSync(join(root, f), "utf8");
 
 const asks = read("desktop/ui/asks.js");
-const app = read("desktop/ui/app.js");
+const app = ["desktop/ui/app.js", "desktop/ui/app-library.js", "desktop/ui/app-settings.js"].map(read).join("\n");
 const rules = read("desktop/ui/rules.js");
 const ts = read("desktop/ui/tasks-schedules.js");
 const discover = read("desktop/ui/discover.js");

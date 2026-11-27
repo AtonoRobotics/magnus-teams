@@ -66,6 +66,6 @@ await sandbox.programAct("program-stop", "blender", "lap-1");
 assert.equal(JSON.stringify(calls.pop()), JSON.stringify(["PUT", "/v1/desktop/devices/lap-1/programs/blender", { allowed: false }]), "Stop did not take the consent back on that computer");
 
 assert.match(ui("index.html"), /<script src="programs\.js"><\/script>/, "the page does not load programs.js");
-assert.match(ui("app.js"), /id="lib-programs"[\s\S]*mountPrograms\(main\)/, "Apps does not draw the programs");
+assert.match(ui("app-library.js"), /id="lib-programs"[\s\S]*mountPrograms\(main\)/, "Apps does not draw the programs");
 assert.match(ui("bridge.js"), /desktopDevice\(\) \{ return this\.invoke\("desktop_device"\)/, "the app does not name this computer to the page");
 console.log("programs-check: ok");

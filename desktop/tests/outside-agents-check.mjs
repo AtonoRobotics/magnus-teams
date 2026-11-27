@@ -60,7 +60,7 @@ assert.match(reply, /Three weeks\.[\s\S]*waits for you to release it/);
 assert.match(reply, /data-decision="release"[\s\S]*data-decision="release_always"[\s\S]*data-decision="discard"/);
 
 // app.js draws these cards and mounts the section in Apps; the page loads the script.
-const app = ui("app.js");
+const app = ["app.js", "app-library.js", "app-settings.js"].map(ui).join("\n");
 assert.match(app, /case "outside_request":\s*case "outside_reply":\s*body = outsideAgentCard\(i\);/);
 assert.match(app, /outside_request: "Request from an outside agent"/);
 assert.match(app, /<div id="lib-outside-agents"><\/div>[\s\S]*mountOutsideAgents\(main\)/);

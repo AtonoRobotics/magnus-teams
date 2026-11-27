@@ -289,11 +289,9 @@ const AuroraReasoning = (() => {
     if (typeof AuroraCore !== "undefined") {
       AuroraCore.onDom(soon);
       AuroraCore.onState(() => { if (on()) say(); });
-      window.addEventListener("magnus-theme", soon);
-    } else {
-      new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
-      new MutationObserver(soon).observe(document.documentElement, { attributes: true, attributeFilter: ["data-style", "data-aurora-state", "data-aurora-avatar-state"] });
     }
+    window.addEventListener("magnus-theme", soon);
+    window.addEventListener("magnus-render", soon);
     soon();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

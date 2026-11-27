@@ -9,7 +9,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const uiDir = join(here, "../ui");
 const read = f => readFileSync(join(uiDir, f), "utf8");
-const app = read("app.js");
+const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
 const themeSrc = read("theme.js");
 
 function extractFn(src, signature) {

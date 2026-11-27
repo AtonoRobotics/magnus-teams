@@ -10,7 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
 const read = f => readFileSync(join(root, f), "utf8");
 
-const app = read("desktop/ui/app.js");
+const app = ["desktop/ui/app.js", "desktop/ui/app-library.js", "desktop/ui/app-settings.js"].map(read).join("\n");
 const ts = read("desktop/ui/tasks-schedules.js");
 const compose = read("desktop/ui/compose.js");
 const frames = read("desktop/ui/composed-frames.js");

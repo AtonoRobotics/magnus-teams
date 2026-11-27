@@ -173,7 +173,7 @@ const read = f => readFileSync(join(ui, f), "utf8");
 }
 
 // --- 2. Batch 1: Settings, unified Cmd+K, dead code & stale labels ---
-const app = read("app.js");
+const app = ["app.js", "app-library.js", "app-settings.js"].map(read).join("\n");
 const teamCmd = read("team-command.js");
 const teamsCss = read("teams.css");
 const teamPanel = read("team-panel.js");
