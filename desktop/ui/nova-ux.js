@@ -57,20 +57,41 @@ const NovaUx = (() => {
     if (onIntro && hero && !hero.querySelector(".nova-showcase")) {
       const wrap = document.createElement("div");
       wrap.className = "nova-showcase";
-      wrap.innerHTML = `<div class="nova-prism-card" role="region" aria-label="Featured capabilities">
-        <button type="button" class="nova-prism-tile nova-prism-wide" data-nova-prompt="Build an interactive summary dashboard from my recent project files and connected apps.">
-          <span class="nova-prism-badge">Live Workspace</span>
-          <strong>Interactive views built to remix &amp; share</strong>
-          <span class="small muted">Magnus composes live bento tiles, parallel sub-agents, and verified deliverables.</span>
-        </button>
-        <a class="nova-prism-tile nova-prism-accent-a" href="#/explore">
-          <strong>Editorial Playbooks</strong>
-          <span class="small">Browse visual workflows →</span>
-        </a>
-        <a class="nova-prism-tile nova-prism-accent-b" href="#/library">
-          <strong>Apps &amp; Skills</strong>
-          <span class="small">Connect Notion, Linear, Mail →</span>
-        </a>
+      wrap.innerHTML = `<div class="nova-intro-grid">
+        <div class="nova-launchpads" role="region" aria-label="Autonomous launchpads">
+          <span class="nova-launch-head">Autonomous launchpads</span>
+          <button type="button" class="nova-launch-btn" data-nova-prompt="Prepare a board update deck from my recent project files and stage follow-up emails for approval.">
+            <span aria-hidden="true">📊</span><span>Prepare board deck &amp; investor follow-ups</span>
+          </button>
+          <button type="button" class="nova-launch-btn" data-nova-prompt="Triage my unread email and messages, stage replies for my approval, and give me a morning brief.">
+            <span aria-hidden="true">✨</span><span>Triage my inbox &amp; prepare morning brief</span>
+          </button>
+          <button type="button" class="nova-launch-btn" data-nova-prompt="Run parallel sub-agents to benchmark competitor pricing and build a live comparison view.">
+            <span aria-hidden="true">🧭</span><span>Run parallel competitor pricing research</span>
+          </button>
+        </div>
+        <div class="nova-prism-card" role="region" aria-label="Featured capabilities">
+          <button type="button" class="nova-prism-tile nova-prism-wide" data-nova-prompt="Build an interactive summary dashboard from my recent project files and connected apps.">
+            <div class="nova-prism-top">
+              <div>
+                <strong>Interactive views built to remix &amp; share.</strong>
+                <span class="nova-prism-badge">Live Workspace</span>
+              </div>
+              <div class="nova-prism-mosaic" aria-hidden="true">
+                <span style="background:#6366f1"></span><span style="background:#38bdf8"></span><span style="background:#f43f5e"></span><span style="background:#fbbf24"></span>
+                <span style="background:#34d399"></span><span style="background:#a855f7"></span><span style="background:#818cf8"></span><span style="background:#0ea5e9"></span>
+              </div>
+            </div>
+          </button>
+          <a class="nova-prism-tile nova-prism-accent-a" href="#/explore">
+            <strong>Editorial Playbooks</strong>
+            <span class="small">Visual gallery →</span>
+          </a>
+          <a class="nova-prism-tile nova-prism-accent-b" href="#/library">
+            <strong>Apps &amp; Skills</strong>
+            <span class="small">Notion, Linear, Mail →</span>
+          </a>
+        </div>
       </div>`;
       hero.append(wrap);
     }
