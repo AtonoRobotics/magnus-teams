@@ -159,7 +159,7 @@ assert.match(app, /if \(Panel\.what === `schedule:\$\{id\}`\) await openPanel\("
 for (const tab of ['["activity", "Activity"', '["tasks", "Tasks"', '["schedules", "Routines"', '["needs", "Approvals"', '["files", "Files"', '["apps", "Apps"']) {
   assert.ok(app.includes(tab), `right sidebar top bar includes tab ${tab}`);
 }
-assert.match(app, /AuroraStage\.shell\(\{ kind, title, head, backBtn, tabsHtml, body \}\)/, "Aurora right sidebar receives top-bar tabsHtml");
+assert.match(app, /AuroraStage\.shell\(\{ kind, title, head, backBtn, tabsHtml, body[,} ]/, "Aurora right sidebar receives top-bar tabsHtml");
 assert.match(stage, /MAX_CONCURRENT_TASK_BOXES/, "Aurora bento surfaces concurrent autonomous tasks");
 assert.match(stage, /MAX_APPROVAL_BOXES/, "Aurora bento surfaces multiple approvals");
 assert.match(stage, /t\.receipts_count > 0 \|\| t\.has_deliverable/, "Verified badge checks server-returned receipts_count/has_deliverable");

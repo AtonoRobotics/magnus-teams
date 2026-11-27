@@ -102,4 +102,17 @@ store.set('magnus.appearance', JSON.stringify({ mode: 'dark', accent: 'amber', m
 fail = true; U.set({ mode: 'light' }); assert.equal(U.saved, false); assert.equal(U.look.mode, 'light');
 assert.equal(JSON.parse(store.get('magnus.appearance')).accent, 'amber', 'the legacy record is never rewritten');
 assert.ok(events.some(e => e.type === 'magnus-theme'));
+// A record saved before Nova became the default holds the default of then
+// (written whole by a splitter drag or a pin): it moves to Nova once, keeping
+// everything else. A style chosen after that stays.
+fail = false;
+store.set('magnus.ui.v2.appliance-c.gail', JSON.stringify({ style: 'obsidian', mode: 'light', accent: 'rose', motion: 'full', background: 'off', avatar: 'pip', navigation: 'expanded', sidebar: 'rail', panelWidthPx: 420 }));
+U.scope('appliance-c', 'gail');
+assert.equal(U.prefs().style, 'nova', 'a record from before Nova moves to Nova');
+assert.equal(U.prefs().accent, 'rose'); assert.equal(U.prefs().mode, 'light'); assert.equal(U.prefs().panelWidthPx, 420);
+assert.equal(JSON.parse(store.get('magnus.ui.v2.appliance-c.gail')).look, 2, 'the move is written once');
+U.set({ style: 'obsidian' }); U.scope('appliance-c', 'gail');
+assert.equal(U.prefs().style, 'obsidian', 'a style chosen after the move stays');
+U.set({ panelWidthPx: 400 }); U.scope('appliance-c', 'gail');
+assert.equal(U.prefs().style, 'obsidian', 'a later splitter drag keeps the chosen style');
 console.log('preferences: validation, style, migration, per-person storage and storage failure passed');

@@ -111,20 +111,25 @@ const NovaUx = (() => {
     }
     const row = document.querySelector(".conv-head > .row");
     if (!row) return;
+    const key = topBarKey();
+    const ctrls = row.querySelector(".nova-topbar-ctrls");
+    if (ctrls?.getAttribute("data-key") === key) return;
+    // convHead paints the controls with the bar (topBarHtml), so a repaint
+    // never drops them; this only follows a change of companion or mode.
+    if (ctrls) ctrls.outerHTML = topBarHtml();
+    else row.insertAdjacentHTML("afterbegin", topBarHtml());
+  }
+
+  const topBarKey = () => `${document.documentElement.dataset.avatar || "pip"}:${document.documentElement.dataset.mode || "dark"}`;
+  // Nova's quick controls in the top bar (spec §4.2): companion segmented
+  // pill and the Light / Dark toggle.
+  function topBarHtml() {
+    if (!isNova()) return "";
     const curAvatar = document.documentElement.dataset.avatar || "pip";
     const curMode = document.documentElement.dataset.mode || "dark";
-    let ctrls = row.querySelector(".nova-topbar-ctrls");
-    if (!ctrls) {
-      ctrls = document.createElement("div");
-      ctrls.className = "nova-topbar-ctrls";
-      row.prepend(ctrls);
-    }
-    const key = `${curAvatar}:${curMode}`;
-    if (ctrls.getAttribute("data-key") === key) return;
-    ctrls.setAttribute("data-key", key);
     const avatars = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Orb"], ["prism", "Prism"]];
-    ctrls.innerHTML = `<div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${curAvatar === id ? "on" : ""}" data-nova-set-avatar="${id}">${label}</button>`).join("")}</div>
-      <button type="button" class="nova-top-pill" data-nova-toggle-mode>${curMode === "dark" ? "Light" : "Dark"}</button>`;
+    return `<div class="nova-topbar-ctrls" data-key="${topBarKey()}"><div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${curAvatar === id ? "on" : ""}" data-nova-set-avatar="${id}" aria-pressed="${curAvatar === id}">${label}</button>`).join("")}</div>
+      <button type="button" class="nova-top-pill" data-nova-toggle-mode>${curMode === "dark" ? "Light" : "Dark"}</button></div>`;
   }
 
   function syncCompanionStudio() {
@@ -217,8 +222,10 @@ const NovaUx = (() => {
       document.querySelectorAll(".nova-featured").forEach(el => el.remove());
       return;
     }
-    const sections = document.getElementById("lib-sections");
-    if (!sections || sections.previousElementSibling?.classList.contains("nova-featured")) return;
+    // The spotlight leads the catalog (spec §4.8): straight under the page's
+    // header, above search, programs and outside agents.
+    const head = document.querySelector(".libpage > .lhead");
+    if (!head || head.nextElementSibling?.classList.contains("nova-featured")) return;
     const hero = document.createElement("section");
     hero.className = "nova-featured";
     hero.setAttribute("aria-label", "Featured integrations");
@@ -233,7 +240,7 @@ const NovaUx = (() => {
       <h2>Connect your daily tools</h2>
       <p class="small muted">Add Notion, Linear, Mail, and Calendar so Magnus can research, draft, and automate with Cedar guardrails.</p>
     </div>`;
-    sections.parentElement?.insertBefore(hero, sections);
+    head.insertAdjacentElement("afterend", hero);
   }
 
   function sync() {
@@ -340,5 +347,5 @@ const NovaUx = (() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", queueSync);
   else queueSync();
 
-  return { sync, WORKING_TIPS };
+  return { sync, topBarHtml, WORKING_TIPS };
 })();

@@ -283,7 +283,9 @@
     const t = { ...basePal };
     Object.assign(t, STYLE_TOKENS[style]);
     t.shell = t.bg;
-    t.panel = t.main;
+    // Nova's panel is its own matte surface (spec: --side / --panel #141517);
+    // the other styles draw the panel as the stage.
+    t.panel = style === "nova" ? basePal.panel : t.main;
     const preset = ACCENTS.find(a => a.id === look.accent);
     Object.assign(t, preset ? preset[look.mode] : isHex(look.accent) ? customAccentTokens(look.accent, look.mode, basePal) : ACCENTS[0][look.mode]);
     t.focus = t["accent-text"];
@@ -344,15 +346,26 @@
   }
   const parse = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
   Theme.prefs = () => ({ ...current });
+  // A record is written whole on any change (a splitter drag, a pin, a mode),
+  // so one saved before Nova became the default holds the style that was the
+  // default then, not a choice. Such a record (no `look`, or an older one)
+  // moves to Nova once; a style chosen after that stays
+  // (decisions/2026-11-26-saved-looks-move-to-nova-once.md).
+  const LOOK = 2;
+  const store = () => {
+    if (!key) return;
+    try { localStorage.setItem(key, JSON.stringify({ ...current, look: LOOK })); } catch { Theme.saved = false; }
+  };
   Theme.scope = (appliance, person) => {
     key = person ? `magnus.ui.v2.${appliance}.${person}` : null;
     const saved = key && parse(key), legacy = key && !saved ? parse(LEGACY_KEY) : null;
-    current = preferences(saved || legacy);
+    const before = !!saved && typeof saved === "object" && saved.look !== LOOK;
+    current = preferences(before ? { ...saved, style: DEFAULTS.style } : saved || legacy);
     Theme.saved = true;
     // Only a choice is stored, or a record being migrated: defaults stay
     // unstored, so a later change of default reaches everyone who never chose.
-    const migrate = saved ? "material" in saved || !("style" in saved) || "conversationWidthPx" in saved : !!legacy;
-    if (key && migrate) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
+    const migrate = saved ? before || "material" in saved || !("style" in saved) || "conversationWidthPx" in saved : !!legacy;
+    if (migrate) store();
     return Theme.apply();
   };
   Theme.os = () => ({ dark: !!darkQ?.matches, reduceMotion: !!motionQ?.matches, forcedColors: !!forcedQ?.matches });
@@ -373,7 +386,7 @@
   Theme.set = change => {
     current = preferences({ ...current, ...change });
     Theme.saved = true;
-    if (key) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
+    store();
     return Theme.apply();
   };
   for (const q of [darkQ, motionQ, forcedQ]) q?.addEventListener?.("change", Theme.apply);

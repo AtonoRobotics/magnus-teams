@@ -32,8 +32,11 @@ html[data-style="nova"] body[data-nova-intro="on"]::before {
   opacity: 1;
 }
 
+/* The stage is --main: pitch carbon in dark (the same as --bg), clean white in
+   light. The rail, sidebar, drawer and right panel paint --bg / --side /
+   --panel (#F4F6FA in light). */
 html[data-style="nova"] body {
-  background: var(--bg);
+  background: var(--main);
 }
 
 html[data-style="nova"] .aurora-bg-canvas,
@@ -93,6 +96,12 @@ html[data-style="nova"] nav.side .brand .logo > svg {
     box-shadow: none;
   }
 
+  /* In light the rail is the soft neutral #F4F6FA (--bg) beside the white
+     stage; in dark --bg is the stage itself, so the rail stays see-through. */
+  html[data-style="nova"][data-mode="light"] body[data-navigation=compact] .shell > nav.side {
+    background: var(--bg);
+  }
+
   html[data-style="nova"] body[data-navigation=expanded] .shell > nav.side {
     background: var(--side);
     border: 0;
@@ -103,7 +112,7 @@ html[data-style="nova"] nav.side .brand .logo > svg {
 
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
     border-left: 1px solid var(--hair);
-    background: var(--side);
+    background: var(--panel);
   }
 }
 
@@ -456,16 +465,24 @@ html[data-style="nova"] .lgrid {
   gap: 10px 24px;
 }
 
+/* A borderless catalog row (the mockup's .cat-row): tile, name and action on
+   one line, the summary and status indented under the name. */
 html[data-style="nova"] .lcard {
-  flex-direction: row;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 10px;
   border-color: transparent;
   background: transparent;
-  min-height: 88px;
+  min-height: 0;
   border-radius: var(--r-md);
 }
+
+html[data-style="nova"] .lcard .lc-head { gap: 14px; }
+html[data-style="nova"] .lcard .ctile { width: 40px; height: 40px; border-radius: var(--r-md); }
+html[data-style="nova"] .lcard .lc-main { padding-left: 54px; gap: 6px; }
+html[data-style="nova"] .lcard .lc-sum { -webkit-line-clamp: 1; }
+html[data-style="nova"] .lcard .lc-ab-row { display: none; }
+html[data-style="nova"] .lcard .lc-foot { padding: 0 0 0 54px; border-top: 0; }
 
 html[data-style="nova"] .lcard:hover {
   background: var(--surface);
@@ -499,6 +516,12 @@ html[data-style="nova"] section.conv:has(.hello-hero) > .nova-showcase {
   padding: 0 20px 24px;
 }
 
+/* Boxes on the stage never come between the title, the composer and the
+   showcase on the intro: they follow the showcase. */
+html[data-style="nova"] section.conv:has(.hello-hero) > :is(.stage-bento, .stage-bento-bottom) {
+  order: 1;
+}
+
 /* Side Bento 3-tier financial & irreversible receipt styling */
 html[data-style="nova"] .stage-tile[data-tier="financial"],
 html[data-style="nova"] .stage-tile[data-tier="irreversible"] {
@@ -528,6 +551,12 @@ html[data-style="nova"] .stage-tile[data-tier="irreversible"] .stage-tile-previe
   font-weight: 700;
   line-height: 20px;
   text-align: center;
+}
+
+/* The mockup's rail badge is amber with dark ink. */
+html[data-style="nova"] .nav-inbox-count {
+  background: var(--warn);
+  color: var(--warn-fg);
 }
 
 .conv-more {
@@ -574,7 +603,9 @@ html[data-style="nova"] .stage-tile[data-tier="irreversible"] .stage-tile-previe
 .nova-brief-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .nova-brief-head h1 { margin: 4px 0 0; font-size: clamp(24px, 3vw, 32px); letter-spacing: -0.02em; }
 .nova-brief-summary p { margin: 0; line-height: 1.55; }
-.nova-brief-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.nova-brief-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.nova-brief-head button[data-brief-dnd] { min-height: 32px; padding: 4px 14px; border-radius: var(--r-pill); border: 1px solid var(--hair); background: var(--seg-on); color: var(--fg); font-size: 13px; font-weight: 500; }
+.nova-brief-head button[data-brief-dnd]:hover { border-color: var(--line-strong); background: var(--raised); }
 .nova-brief-metrics > .card { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; }
 .nova-metric-val { font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; }
 .nova-brief-sec { display: flex; flex-direction: column; gap: 12px; }
@@ -622,6 +653,7 @@ body[data-navigation="compact"] .nav-inbox .nav-inbox-count { position: absolute
     width: 44px;
     height: 44px;
   }
+  .nova-brief-head button[data-brief-dnd] { min-height: 44px; }
 }
 
 @media (forced-colors: active) {

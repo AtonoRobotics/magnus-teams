@@ -25,6 +25,7 @@ kind of style lives, so a change goes in one place and shows.
 | Nova: pitch-carbon / clean-light greenfield theme, dissolving midnight cobalt halo, prismatic editorial showcase, working-state tip carousel, risk-tiered approvals, borderless matte catalogs, and Project Hub 2.0 | `nova.css` |
 | Nova's standalone Bento Stage, artifact canvas, and Explore card media (zero dependency on Aurora CSS) | `nova-stage.css` |
 | Nova's standalone Left Rail, slide-out drawer, and compact thread history (zero dependency on Aurora CSS) | `nova-shell.css` |
+| Nova's widgets in its matte look: the thinking disclosure, the composer's status line, a decision's line in the thread and decisions confirmed in place, a stage tile's controls and preview, entrances, the right panel's computer footer, and the conversation's ••• menu rows | `nova-widgets.css` |
 
 `index.html` loads the sheets in that order, and later wins a tie. The
 server serves each of them (`crates/magnus/src/ui/assets.rs`), and the

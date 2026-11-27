@@ -1,5 +1,24 @@
 /* Nova standalone Left Rail, Slide-out Drawer & Compact Thread History.
-   Completely independent of Aurora stylesheets. */
+   Completely independent of Aurora stylesheets: Nova's own keyframes. */
+
+@keyframes novaRailIn {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes novaVoiceRipple {
+  0% { transform: scale(0.85); opacity: 0.55; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+
+/* The compact rail is a 60px column (spec 4.1). app.js writes the shared
+   compact width (Aurora's 64px) inline on .shell, so Nova's own width has to
+   outrank that inline value. */
+@media (min-width: 761px) {
+  html[data-style="nova"] body[data-navigation=compact] .shell {
+    --nav-width: 60px !important;
+  }
+}
 
 html[data-style="nova"] nav.side [data-nav-toggle] {
   display: none;
@@ -70,7 +89,7 @@ html[data-style="nova"] body:not([data-navigation=drawer]) .navigation-drawer::b
 }
 
 html[data-style="nova"][data-motion="full"] body:not([data-navigation=drawer]) .navigation-drawer[open] {
-  animation: auroraRailIn .26s var(--ease) both;
+  animation: novaRailIn .26s var(--ease) both;
 }
 
 @media (pointer: fine) {
@@ -95,7 +114,7 @@ html[data-style="nova"][data-motion="full"] .aurora-avatar[data-state="listening
   border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--ok) 65%, transparent);
   pointer-events: none;
-  animation: auroraVoiceRipple 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation: novaVoiceRipple 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
 html[data-style="nova"][data-motion="full"] .aurora-avatar[data-state="listening"]::after {
@@ -500,7 +519,7 @@ html[data-style="nova"] .conv-more-menu {
 }
 
 html[data-style="nova"] aside.detail {
-  background: var(--side);
+  background: var(--panel);
 }
 
 html[data-style="nova"] aside.detail .detail-head {

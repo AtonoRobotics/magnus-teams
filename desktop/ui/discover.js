@@ -223,6 +223,8 @@ const Discover = (() => {
   };
 
   function firstName() {
+    // Nova's home asks where to start, as its mockup does (Nova spec §4.3).
+    if (typeof document !== "undefined" && document.documentElement?.dataset?.style === "nova") return "Where should we start?";
     const n = (typeof App !== "undefined" && App.me?.name ? App.me.name : "").trim().split(/\s+/)[0];
     return n ? `Hello, ${n}` : "Hello";
   }

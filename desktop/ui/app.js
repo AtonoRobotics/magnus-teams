@@ -401,6 +401,16 @@ const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","paymen
 // Explore's For you (explore-ideas.js).
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
+// Approvals one click may allow together (Nova spec §4.5 Tier 2): of the same
+// kind as the first that waits (the same tool), and never Tier 1 — money or
+// what cannot be undone — nor a prohibited one. Fewer than two is no batch.
+const BATCH_EXCLUDED_TIERS = new Set(["financial", "irreversible", "prohibited"]);
+const batchableApprovals = pending => {
+  const ok = pending.filter(x => x.kind === "approval" && x.can_respond && !BATCH_EXCLUDED_TIERS.has(x.tier));
+  const tool = ok[0]?.details?.tool;
+  const same = tool ? ok.filter(x => x.details?.tool === tool) : [];
+  return same.length >= 2 ? same.map(x => x.id) : [];
+};
 const isSystemSchedule = sc => !!(sc?.system || /heartbeat/i.test(sc?.title || sc?.text || ""));
 const isSystemTask = t => !!(t?.system || (t?.group?.kind === "schedule" && /heartbeat/i.test(t.group.title || "")) || /^heartbeat\b/i.test(t?.title || t?.text || ""));
 const isQuietSystemTask = t => isSystemTask(t) && !t.needs_you && t.status !== "failed";
@@ -517,8 +527,11 @@ function nav() {
   const adminNav=adminNavItem(route);
   const onApps=route.startsWith("#/library");
   const pending=typeof needsMe === "function" ? needsMe().length : 0;
+  // Nova names the rail's places as its spec does (§4.1).
+  const nova=document.documentElement.dataset.style==="nova";
+  const L=nova ? { inbox: "Inbox / Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills" } : { inbox: "Inbox", briefing: "Briefing", apps: "Apps" };
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon("need")}<span class="nav-label">Inbox</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">Briefing</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">Apps</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon("need")}<span class="nav-label">${esc(L.inbox)}</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">${esc(L.briefing)}</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">${esc(L.apps)}</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
@@ -635,10 +648,10 @@ const Workspace = (() => {
       ? commandsFor(Team.home, Team.place || { kind: "home" }, raw || "").filter(c => c.group === "Create" || c.group === "Actions").slice(0, 6).map(c => ({ label: c.label, kind: c.group, run: () => TeamCommand.run(c.run) }))
       : [];
     const pending = typeof needsMe === "function" ? needsMe() : [];
-    const batchable = pending.filter(x => x.kind === "approval" && x.can_respond && x.tier !== "financial").map(x => x.id);
+    const batchable = batchableApprovals(pending);
     const list = [
       ...workspaceActions,
-      ...(batchable.length >= 2 ? [{ label: `Approve all ${batchable.length} pending`, kind: "Approval", run: async () => { try { await Server.inbox.batch({ ids: batchable, decision: "approve", scope: "once" }); toast(`Allowed ${batchable.length} requests.`); await refresh(); } catch (err) { toast(err.message); } } }] : []),
+      ...(batchable.length >= 2 ? [{ label: `Approve all ${batchable.length} pending`, kind: "Approval", run: async () => { try { await Server.inbox.batch(batchable, { decision: "approve", scope: "once" }); toast(`Allowed ${batchable.length} requests.`); await refresh(); } catch (err) { toast(err.message); } } }] : []),
       { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
       { label: `Approvals & Inbox${pending.length ? ` (${pending.length} waiting)` : ""}`, kind: "Page", run: () => { location.hash = "#/inbox"; } },
       { label: "Morning Briefing & Routines", kind: "Page", run: () => { location.hash = "#/briefing"; } },
@@ -1350,12 +1363,18 @@ function convHead(thread, project) {
   const dnd = typeof Notices !== "undefined" && Notices.isDnd?.();
   const nCount = typeof Notices !== "undefined" && Array.isArray(Notices.history) ? Notices.history.length : 0;
   const noticeBtn = `<div class="notice-center-wrap"><button type="button" class="icon-btn stage-dock-btn${dnd ? " muted" : ""}" data-toggle-notices aria-expanded="false" aria-controls="notice-center" title="${dnd ? "Notifications snoozed (click to open)" : "Notifications & Do Not Disturb"}" aria-label="${dnd ? "Notifications snoozed" : `Notifications${nCount ? `, ${nCount} recent` : ""}`}">${icon("bell")}${!dnd && nCount ? `<span class="stage-dock-badge" aria-hidden="true">${Math.min(nCount, 99)}</span>` : ""}</button><div id="notice-center" class="notice-center card" role="region" aria-label="Notifications" hidden></div></div>`;
-  const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
+  const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what && document.documentElement.dataset.style !== "nova" ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
+  // Nova's bar is de-cluttered (spec §4.2): besides its quick controls, the
+  // bell and the sidebar toggle, everything sits in the ••• menu.
+  const nova = document.documentElement.dataset.style === "nova";
+  const chip = computerChip(App.computers);
+  const inMenu = nova ? `${chip}${shareBtn}` : "";
   const moreMenu = thread
-    ? `<details class="conv-more"><summary class="icon-btn" title="More conversation actions" aria-label="More conversation actions">&bull;&bull;&bull;</summary><div class="conv-more-menu card">${move}<button type="button" class="conv-more-del" data-trash="${esc(thread)}" data-then="#/home">${icon("trash")}<span>Delete conversation</span></button></div></details>`
-    : "";
+    ? `<details class="conv-more"><summary class="icon-btn" title="More conversation actions" aria-label="More conversation actions">&bull;&bull;&bull;</summary><div class="conv-more-menu card">${inMenu}${move}<button type="button" class="conv-more-del" data-trash="${esc(thread)}" data-then="#/home">${icon("trash")}<span>Delete conversation</span></button></div></details>`
+    : nova && chip ? `<details class="conv-more"><summary class="icon-btn" title="More actions" aria-label="More actions">&bull;&bull;&bull;</summary><div class="conv-more-menu card">${chip}</div></details>` : "";
+  const quick = nova && typeof NovaUx !== "undefined" ? NovaUx.topBarHtml() : "";
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${computerChip(App.computers)}${shareBtn}${moreMenu}${noticeBtn}${sidebarBtn}</div>`);
+    <div class="row">${quick}${nova ? "" : `${chip}${shareBtn}`}${moreMenu}${noticeBtn}${sidebarBtn}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -2285,7 +2304,7 @@ async function drawPanel() {
   // An Aurora stage (aurora-stage.js) shows what is open as a canvas beside
   // the conversation and its cards, with the same top-bar tabs.
   const stage = typeof AuroraStage !== "undefined" && AuroraStage.on();
-  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, tabsHtml, body }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
+  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, tabsHtml, body, foot: isRootCompanion && document.documentElement.dataset.style === "nova" ? companionFooter() : "" }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
   if (n !== Panel.seq || !Panel.what) return;
   const changed = paint(el, markup); liveStatusLines(el);
   if (stage) AuroraStage.settle(el, changed);

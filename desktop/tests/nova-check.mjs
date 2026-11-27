@@ -92,4 +92,50 @@ for (const sheet of ["aurora.css", "aurora-widgets.css", "aurora-stage.css", "au
 }
 assert.doesNotMatch(ui("nova-stage.css"), /\.shell::before/, "nova-stage.css must not paint an opaque .shell::before overlay over main");
 
+// 7. Nova needs nothing from an Aurora sheet: every animation a Nova sheet
+// runs is a keyframe a Nova sheet (or base.css) defines, never an Aurora one.
+const NOVA_SHEETS = ["nova.css", "nova-stage.css", "nova-shell.css", "nova-widgets.css"];
+const novaAll = NOVA_SHEETS.map(ui).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
+const frames = new Set([...(novaAll + ui("base.css")).matchAll(/@keyframes\s+([\w-]+)/g)].map(m => m[1]));
+const auroraFrames = new Set(["aurora.css", "aurora-widgets.css", "aurora-stage.css", "aurora-rail.css", "aurora-compact.css"]
+  .flatMap(s => [...ui(s).matchAll(/@keyframes\s+([\w-]+)/g)].map(m => m[1])));
+for (const m of novaAll.matchAll(/animation(?:-name)?\s*:\s*([^;}]+)/g)) {
+  const name = m[1].trim().split(/[\s,]+/)[0];
+  if (name === "none") continue;
+  assert.ok(!auroraFrames.has(name) || frames.has(name), `a Nova sheet runs Aurora's keyframes ${name}`);
+  assert.ok(frames.has(name), `a Nova sheet runs keyframes ${name} that no Nova sheet defines`);
+}
+for (const f of frames) assert.ok(!auroraFrames.has(f), `Nova's keyframes ${f} share a name with Aurora's`);
+
+// 8. The widgets the shared stage engines draw under Nova have Nova rules.
+for (const c of ["aurora-reason", "aurora-reason-toggle", "aurora-reason-steps", "aurora-reason-chev", "aurora-reason-spark",
+  "aurora-say-state", "aurora-say-text", "aurora-say-told", "aurora-state-dot", "stage-tile-acts", "stage-tile-stop",
+  "stage-tile-link", "stage-tile-bar", "stage-preview-row", "stage-preview-key", "stage-preview-val", "stage-preview-body",
+  "stage-bento-overflow", "aurora-confirmed-pill", "aurora-decision-line", "aurora-decision-dot", "aurora-decision-said",
+  "aurora-decision-what", "aurora-decision-meta", "aurora-decision-open", "aurora-detail-ghost", "stage-step-dot"]) {
+  assert.match(novaAll, new RegExp(`html\\[data-style="nova"\\][^{]*\\.${c}(?![\\w-])`), `Nova has no rule for .${c}`);
+}
+
+// 9. Light mode: the stage is --main (white), not the rail's grey.
+assert.match(ui("theme.js"), /NOVA_LIGHT = \{[\s\S]*?main: "#FFFFFF"/, "Nova light --main is the white stage");
+assert.match(ui("nova.css"), /html\[data-style="nova"\] body \{\s*background: var\(--main\);/, "Nova paints the stage with --main");
+
+// 10. New Chat: the composed two-column grid never applies to the intro.
+const stageCss = ui("nova-stage.css");
+const composed = [...stageCss.matchAll(/section\.conv\[data-stage-mode="composed"\][^{,]*/g)].map(m => m[0]);
+assert.ok(composed.length > 0, "nova-stage.css composes the conversation with its boxes");
+for (const sel of composed) assert.match(sel, /:not\(:has\(\.hello-hero\)\)/, `the composed grid must not apply to the New Chat intro: ${sel}`);
+
+// 11. The right panel has one hairline: the aside's, not the artifact's too.
+const artifactRule = stageCss.match(/html\[data-style="nova"\] \.stage-artifact \{[^}]*\}/)?.[0] || "";
+assert.ok(artifactRule && !/border-left/.test(artifactRule), ".stage-artifact must not draw a second left border");
+
+// 12. The rail is 60px and its inbox badge is amber, as in the mockup.
+assert.match(ui("nova-shell.css"), /--nav-width: 60px/, "Nova's compact rail is a 60px column");
+assert.doesNotMatch(novaAll, /(?:width|--nav-width)\s*:\s*64px/, "no Nova sheet hard-codes the shared 64px rail width");
+assert.match(ui("nova.css"), /html\[data-style="nova"\] \.nav-inbox-count \{\s*background: var\(--warn\);/, "Nova's inbox badge is amber");
+
+// 13. Apps & Skills cards stack their head, text and foot.
+assert.match(ui("nova.css"), /html\[data-style="nova"\] \.lcard \{\s*flex-direction: column;/, "Nova's app cards stack head, text and foot");
+
 console.log("nova theme & overhaul check ok");

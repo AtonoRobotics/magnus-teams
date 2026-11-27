@@ -117,7 +117,10 @@ const AuroraRail = (() => {
     const waiting = typeof needsMe === "function" ? needsMe().length : 0;
     const active = typeof App !== "undefined" && Array.isArray(App.tasks) && typeof ENDED !== "undefined"
       ? App.tasks.filter(t => !ENDED.includes(t.status) && !t.routine && !t.system).length : 0;
-    const count = waiting || active;
+    // Nova shows the waiting count once, on Inbox (spec §4.1): here only work
+    // that runs.
+    const nova = document.documentElement.dataset.style === "nova";
+    const count = nova ? active : waiting || active;
     let badge = btn.querySelector(".aurora-rail-badge");
     if (!count) { badge?.remove(); return; }
     if (!badge) {
@@ -126,7 +129,7 @@ const AuroraRail = (() => {
       badge.setAttribute("aria-hidden", "true");
       btn.append(badge);
     }
-    badge.dataset.tone = waiting ? "warn" : "run";
+    badge.dataset.tone = waiting && !nova ? "warn" : "run";
     badge.textContent = count > 9 ? "9+" : String(count);
   }
 

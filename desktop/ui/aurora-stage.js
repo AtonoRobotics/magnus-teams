@@ -255,7 +255,7 @@ const AuroraStage = (() => {
         updatedAt: tsOf(i.created_at),
       };
     };
-    const batchIds = pending.filter(x => x.kind === "approval" && x.can_respond && x.tier !== "financial").map(x => x.id);
+    const batchIds = typeof batchableApprovals === "function" ? batchableApprovals(pending) : [];
     let shownApprovals = 0;
     for (const i of pending) {
       if (shownApprovals >= MAX_APPROVAL_BOXES) break;
@@ -539,7 +539,8 @@ const AuroraStage = (() => {
     }
   });
 
-  // 1-click batch approval on the Side Bento when multiple non-financial asks wait.
+  // 1-click batch approval on the Side Bento when 2+ approvals of one kind
+  // wait, none of them money or irreversible (batchableApprovals, app.js).
   document.addEventListener("click", async e => {
     const btn = /** @type {?HTMLButtonElement} */ (/** @type {HTMLElement} */ (e.target).closest?.("[data-stage-batch-approve]"));
     if (!btn || typeof Server === "undefined" || !Server.inbox?.batch) return;
@@ -816,7 +817,7 @@ const AuroraStage = (() => {
 
   /**
    * The column beside the conversation: the canvas for what is open.
-   * @param {{ kind: string, title: string, head?: string|null, backBtn: string, tabsHtml?: string, body: string }} v
+   * @param {{ kind: string, title: string, head?: string|null, backBtn: string, tabsHtml?: string, body: string, foot?: string }} v
    */
   function shell(v) {
     const size = WIDE_CANVAS.has(v.kind) ? "wide" : "compact";
@@ -833,6 +834,7 @@ const AuroraStage = (() => {
       <div class="artifact-top">${v.backBtn}<div class="artifact-title">${v.head || `<h2>${html(v.title)}</h2>`}</div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
       ${tabs}
       <div class="artifact-content detail-body" data-panel="${html(v.kind)}">${v.body}</div>
+      ${v.foot || ""}
     </section>`;
   }
 
