@@ -456,8 +456,39 @@ html[data-style="nova"] nav.side a.primary-nav:hover {
   color: var(--fg);
 }
 
+html[data-style="nova"] nav.side a.on::before {
+  display: none;
+}
+
+html[data-style="nova"] nav.side a.conv.on {
+  background: var(--seg-on);
+  color: var(--fg);
+}
+
+html[data-style="nova"] nav.side .nav-tree {
+  border-top: 1px solid var(--hair);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+
+html[data-style="nova"] nav.side .nav-project > summary {
+  list-style: none;
+  padding: 4px 6px;
+}
+
+html[data-style="nova"] nav.side .nav-project > summary::-webkit-details-marker {
+  display: none;
+}
+
+html[data-style="nova"] nav.side .nav-project a.conv {
+  padding-left: 24px;
+}
+
 html[data-style="nova"] nav.side .who {
-  border-top-color: var(--hair);
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--hair);
 }
 
 html[data-style="nova"] .notice-center,

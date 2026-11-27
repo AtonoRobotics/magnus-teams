@@ -54,7 +54,12 @@ const NovaUx = (() => {
     const onIntro = Boolean(hero) && !hasMsgs;
     document.body.dataset.novaIntro = onIntro ? "on" : "off";
 
-    if (onIntro && hero && !hero.querySelector(".nova-showcase")) {
+    const conv = thread?.closest("section.conv");
+    const slot = conv?.querySelector(":scope > .composer-slot");
+    const existing = conv?.querySelector(":scope > .nova-showcase");
+    if (!onIntro) {
+      existing?.remove();
+    } else if (conv && slot && !existing) {
       const wrap = document.createElement("div");
       wrap.className = "nova-showcase";
       wrap.innerHTML = `<div class="nova-intro-grid">
@@ -93,8 +98,33 @@ const NovaUx = (() => {
           </a>
         </div>
       </div>`;
-      hero.append(wrap);
+      slot.insertAdjacentElement("afterend", wrap);
     }
+
+    syncTopBar();
+  }
+
+  function syncTopBar() {
+    if (!isNova() || typeof Theme === "undefined") {
+      document.querySelectorAll(".nova-topbar-ctrls").forEach(el => el.remove());
+      return;
+    }
+    const row = document.querySelector(".conv-head > .row");
+    if (!row) return;
+    const curAvatar = document.documentElement.dataset.avatar || "pip";
+    const curMode = document.documentElement.dataset.mode || "dark";
+    let ctrls = row.querySelector(".nova-topbar-ctrls");
+    if (!ctrls) {
+      ctrls = document.createElement("div");
+      ctrls.className = "nova-topbar-ctrls";
+      row.prepend(ctrls);
+    }
+    const key = `${curAvatar}:${curMode}`;
+    if (ctrls.getAttribute("data-key") === key) return;
+    ctrls.setAttribute("data-key", key);
+    const avatars = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Orb"], ["prism", "Prism"]];
+    ctrls.innerHTML = `<div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${curAvatar === id ? "on" : ""}" data-nova-set-avatar="${id}">${label}</button>`).join("")}</div>
+      <button type="button" class="nova-top-pill" data-nova-toggle-mode>${curMode === "dark" ? "Light" : "Dark"}</button>`;
   }
 
   function syncCompanionStudio() {
@@ -250,6 +280,18 @@ const NovaUx = (() => {
       const copyEl = document.querySelector(".nova-wait-copy");
       if (titleEl) titleEl.textContent = tip.title;
       if (copyEl) copyEl.textContent = tip.body;
+      return;
+    }
+    const avBtn = t.closest?.("[data-nova-set-avatar]");
+    if (avBtn && typeof Theme !== "undefined") {
+      Theme.set({ avatar: avBtn.getAttribute("data-nova-set-avatar") || "pip" });
+      syncTopBar();
+      return;
+    }
+    if (t.closest?.("[data-nova-toggle-mode]") && typeof Theme !== "undefined") {
+      const cur = Theme.effective(Theme.prefs(), Theme.os()).mode;
+      Theme.set({ mode: cur === "dark" ? "light" : "dark" });
+      syncTopBar();
       return;
     }
     if (t.closest?.("[data-nova-tip-close]")) {
