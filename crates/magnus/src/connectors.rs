@@ -121,8 +121,8 @@ pub fn allows(c: &Connector) -> (String, Vec<String>) {
 
 /// A sign-in left unfinished this long is dropped.
 pub(crate) const PENDING_FOR: Duration = Duration::from_secs(15 * 60);
-pub(crate) const CONNECT_WAIT: Duration = Duration::from_secs(10); // a call to a provider: the connection, then the whole call
-pub(crate) const CALL_WAIT: Duration = Duration::from_secs(30);
+pub(crate) const CONNECT_WAIT_SECS: Duration = Duration::from_secs(10); // a call to a provider: the connection, then the whole call
+pub(crate) const CALL_WAIT_SECS: Duration = Duration::from_secs(30);
 pub(crate) const RETRY_AFTER_MOST: Duration = Duration::from_secs(10); // the most of a registration's `Retry-After` that is waited
                                                                        // `until_client_known`: how often the sign-in is asked, how long in all, and each ask's limit.
 pub(crate) const KNOWN_POLL: Duration = Duration::from_millis(250);
@@ -148,7 +148,7 @@ impl Kernel {
     /// reached: each checked public and pinned, unless the server allows
     /// private networks (`egress_client`). The app chooses them all.
     pub(crate) fn app_egress(&self) -> crate::egress_client::Egress {
-        crate::egress_client::Egress::new(self.cfg.web.allow_private_networks, CONNECT_WAIT, CALL_WAIT)
+        crate::egress_client::Egress::new(self.cfg.web.allow_private_networks, CONNECT_WAIT_SECS, CALL_WAIT_SECS)
     }
 
     /// The organisation's apps that are on: the config file's, those the

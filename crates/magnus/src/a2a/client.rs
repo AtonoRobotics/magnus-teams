@@ -62,7 +62,7 @@ fn scrub(text: &str, secret: Option<&str>) -> String {
 
 impl Kernel {
     fn outside_egress(&self, wait: Duration) -> Egress {
-        Egress::new(self.cfg.web.allow_private_networks, super::CONNECT_WAIT, wait)
+        Egress::new(self.cfg.web.allow_private_networks, super::CONNECT_WAIT_SECS, wait)
     }
 
     /// An access token from the agent's token URL, by OAuth 2's client
@@ -78,8 +78,9 @@ impl Kernel {
             form.push(("scope", scopes.join(" ")));
         }
         let url = super::card::checked_url(token_url, self.cfg.web.allow_private_networks).map_err(|e| RpcError::NotSent(format!("{e:#}")))?;
-        let resp =
-            crate::token_endpoint::post(&self.outside_egress(super::CONNECT_WAIT), url.as_str(), &form).await.map_err(|e| RpcError::NotSent(format!("its token URL: {e:#}")))?;
+        let resp = crate::token_endpoint::post(&self.outside_egress(super::CONNECT_WAIT_SECS), url.as_str(), &form)
+            .await
+            .map_err(|e| RpcError::NotSent(format!("its token URL: {e:#}")))?;
         let body = read_capped(resp, super::MAX_TOKEN_ANSWER_BYTES).await.map_err(|e| RpcError::NotSent(format!("its token URL: {e}")))?;
         let v: Value = serde_json::from_slice(&body).map_err(|e| RpcError::NotSent(format!("its token URL: {e}")))?;
         v["access_token"].as_str().map(String::from).ok_or_else(|| RpcError::NotSent("its token URL gave no access token".into()))

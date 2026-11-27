@@ -62,7 +62,7 @@ impl Kernel {
     /// Answers its view and, once, the key it presents to this server.
     pub(crate) async fn connect_outside_agent(&self, person: &str, b: Connect) -> Result<Value, Refusal> {
         let allow_http = self.cfg.web.allow_private_networks;
-        let egress = crate::egress_client::Egress::new(allow_http, super::CONNECT_WAIT, super::CALL_WAIT);
+        let egress = crate::egress_client::Egress::new(allow_http, super::CONNECT_WAIT_SECS, super::CALL_WAIT_SECS);
         let v = super::card::fetch(&egress, &b.card_url, allow_http).await.map_err(|e| refusal(StatusCode::BAD_REQUEST, format!("{e:#}")))?;
         let given = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
         let secret = match &v.scheme {

@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Longer than a run's work on its files takes; a run's end lets go first.
-const HELD_FOR: Duration = Duration::from_secs(60 * 60);
+const HELD_FOR_SECS: Duration = Duration::from_secs(60 * 60);
 /// Over this, the oldest go first.
 const MAX_HELD_BYTES: usize = 1 << 30;
 /// Of the SHA-256 in an attachment's reference: enough to tell apart the
@@ -34,7 +34,7 @@ fn with<T>(f: impl FnOnce(&mut Vec<Held>) -> T) -> T {
 }
 
 fn prune(held: &mut Vec<Held>, now: Instant) {
-    held.retain(|h| now.saturating_duration_since(h.at) < HELD_FOR);
+    held.retain(|h| now.saturating_duration_since(h.at) < HELD_FOR_SECS);
     let mut total: usize = held.iter().map(|h| h.data_b64.len()).sum();
     while total > MAX_HELD_BYTES && !held.is_empty() {
         total -= held.remove(0).data_b64.len();
@@ -82,7 +82,7 @@ pub fn held(run: &str, sha256: &str) -> Option<String> {
 /// A read drops nothing: bytes past their hour read as gone, and the next
 /// hold prunes them. So no read can take another run's bytes with it.
 fn held_at(run: &str, sha256: &str, now: Instant) -> Option<String> {
-    with(|held| held.iter().rev().find(|h| h.run == run && h.sha256 == sha256 && now.saturating_duration_since(h.at) < HELD_FOR).map(|h| h.data_b64.clone()))
+    with(|held| held.iter().rev().find(|h| h.run == run && h.sha256 == sha256 && now.saturating_duration_since(h.at) < HELD_FOR_SECS).map(|h| h.data_b64.clone()))
 }
 
 /// A run has ended: what it fetched goes with it.
@@ -134,8 +134,8 @@ mod tests {
     fn the_bytes_go_after_an_hour() {
         let then = Instant::now();
         let kept = hold_at("run-hold-2", vec![photo("a.jpeg")], then);
-        assert!(held_at("run-hold-2", &sha(&kept[0]), then + HELD_FOR / 2).is_some());
-        assert_eq!(held_at("run-hold-2", &sha(&kept[0]), then + HELD_FOR), None, "it outlived its hour");
+        assert!(held_at("run-hold-2", &sha(&kept[0]), then + HELD_FOR_SECS / 2).is_some());
+        assert_eq!(held_at("run-hold-2", &sha(&kept[0]), then + HELD_FOR_SECS), None, "it outlived its hour");
     }
 
     /// A read with a later clock answers for its own run only: it took the
@@ -144,7 +144,7 @@ mod tests {
     fn a_late_read_leaves_another_runs_bytes() {
         let now = Instant::now();
         let kept = hold_at("run-hold-3", vec![photo("b.jpeg")], now);
-        assert_eq!(held_at("run-hold-4", &sha(&kept[0]), now + HELD_FOR * 2), None);
+        assert_eq!(held_at("run-hold-4", &sha(&kept[0]), now + HELD_FOR_SECS * 2), None);
         assert_eq!(held("run-hold-3", &sha(&kept[0])).as_deref(), Some("SEVMTE8="), "a read of another run dropped these bytes");
         release("run-hold-3");
     }

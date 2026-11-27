@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// How long one poll waits for a call before the app polls again.
-const NEXT_WAIT: Duration = Duration::from_secs(20);
+const NEXT_WAIT_SECS: Duration = Duration::from_secs(20);
 const MAX_NAME_CHARS: usize = 80;
 const MIN_ID_CHARS: usize = 8;
 const MAX_ID_CHARS: usize = 64;
@@ -121,7 +121,7 @@ async fn next(State(k): K, AppSession(p): AppSession, Path(id): Path<String>) ->
         return refuse(StatusCode::NOT_FOUND, "no such computer");
     }
     let _polling = desktop::Polling::start(&id);
-    Ok(match desktop::next_job(&id, NEXT_WAIT).await {
+    Ok(match desktop::next_job(&id, NEXT_WAIT_SECS).await {
         Some(job) => Json(job).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
     })

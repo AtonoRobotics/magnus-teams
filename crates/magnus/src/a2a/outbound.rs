@@ -96,7 +96,7 @@ impl Kernel {
             "message": { "messageId": message_id, "role": "ROLE_USER", "parts": [{ "text": text }] },
             "configuration": { "acceptedOutputModes": ["text/plain", "application/json"] }
         });
-        match self.outside_rpc(&agent, "SendMessage", params, super::CALL_WAIT).await {
+        match self.outside_rpc(&agent, "SendMessage", params, super::CALL_WAIT_SECS).await {
             Ok(result) => {
                 let (task, state, said) = read_task(&result, &message_id);
                 let started = Change::TaskStarted { key: key.into(), task: task.clone(), state: state.clone() };
@@ -120,7 +120,7 @@ impl Kernel {
         let task = a.input["task"].as_str().unwrap_or_default();
         let found = self.read(|s| s.outside_agents.sent_as(&agent.id, task));
         let Some((key, before)) = found else { return Err(stopped(format!("{} has no task {task} from this person's work", agent.name))) };
-        let result = self.outside_rpc(agent, "GetTask", json!({ "id": task }), super::CALL_WAIT).await.map_err(|e| stopped(format!("{} {}", agent.name, e.said())))?;
+        let result = self.outside_rpc(agent, "GetTask", json!({ "id": task }), super::CALL_WAIT_SECS).await.map_err(|e| stopped(format!("{} {}", agent.name, e.said())))?;
         let (_, state, said) = read_task(&result, task);
         let _ = self.emit("kernel", Ev::OutsideAgent(Change::TaskMoved { key: key.clone(), state: state.clone() })).await;
         let mut text = answer(agent, task, &state, &said);
@@ -186,7 +186,7 @@ impl Kernel {
     pub(crate) async fn resume_outside_task(&self, a: &Action, key: &str) -> Resumed {
         let Some(o) = self.read(|s| s.outside_agents.outbound(key).cloned()) else { return Resumed::NotSent };
         let (Some(task), Some(agent)) = (o.task.clone(), self.read(|s| s.outside_agents.agent(&o.agent).cloned())) else { return Resumed::Unknown };
-        match self.outside_rpc(&agent, "GetTask", json!({ "id": task }), super::CALL_WAIT).await {
+        match self.outside_rpc(&agent, "GetTask", json!({ "id": task }), super::CALL_WAIT_SECS).await {
             Ok(result) => {
                 let (_, state, said) = read_task(&result, &task);
                 let _ = self.emit("kernel", Ev::OutsideAgent(Change::TaskMoved { key: key.into(), state: state.clone() })).await;

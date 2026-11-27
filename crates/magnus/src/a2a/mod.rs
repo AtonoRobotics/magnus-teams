@@ -96,9 +96,9 @@ pub const MAX_AGENT_NAME_CHARS: usize = 80;
 /// The longest id a request may name whom it asks with, in characters.
 pub const MAX_TARGET_ID_CHARS: usize = 128;
 /// How long connecting to an outside agent may take.
-pub const CONNECT_WAIT: Duration = Duration::from_secs(10);
+pub const CONNECT_WAIT_SECS: Duration = Duration::from_secs(10);
 /// How long one call to an outside agent may take.
-pub const CALL_WAIT: Duration = Duration::from_secs(60);
+pub const CALL_WAIT_SECS: Duration = Duration::from_secs(60);
 /// How long a cancel may take: a stopped run waits for it.
 pub const CANCEL_WAIT: Duration = Duration::from_secs(10);
 

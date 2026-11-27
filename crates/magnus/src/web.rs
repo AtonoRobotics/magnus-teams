@@ -9,8 +9,8 @@ use std::time::Duration;
 const MAX_BYTES: usize = 5 * 1024 * 1024;
 const MAX_TEXT: usize = 60_000;
 /// A fetch: the connection, then the whole request.
-const CONNECT_WAIT: Duration = Duration::from_secs(10);
-const FETCH_WAIT: Duration = Duration::from_secs(45);
+const CONNECT_WAIT_SECS: Duration = Duration::from_secs(10);
+const FETCH_WAIT_SECS: Duration = Duration::from_secs(45);
 
 pub struct Web {
     /// For the pages the agent asks for: every hop checked (`egress_client`).
@@ -29,8 +29,8 @@ pub(crate) fn private_ip(ip: IpAddr) -> bool {
 impl Web {
     pub fn new(cfg: &crate::config::Web) -> Result<Web> {
         Ok(Web {
-            egress: Egress::new(cfg.allow_private_networks, CONNECT_WAIT, FETCH_WAIT),
-            search: crate::egress_client::configured(CONNECT_WAIT, FETCH_WAIT)?,
+            egress: Egress::new(cfg.allow_private_networks, CONNECT_WAIT_SECS, FETCH_WAIT_SECS),
+            search: crate::egress_client::configured(CONNECT_WAIT_SECS, FETCH_WAIT_SECS)?,
             search_url: cfg.search_url.clone(),
         })
     }

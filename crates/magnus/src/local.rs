@@ -23,19 +23,19 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, Notify};
 
-const NEXT_WAIT: Duration = Duration::from_secs(20);
+const NEXT_WAIT_SECS: Duration = Duration::from_secs(20);
 /// While the person is at the machine it checks in often, to hand back soon.
-const ACTIVE_POLL_WAIT: Duration = Duration::from_secs(2);
+const ACTIVE_POLL_WAIT_SECS: Duration = Duration::from_secs(2);
 /// A job held for someone at their machine waits this long before giving up.
-const YIELD_WAIT: Duration = Duration::from_secs(15 * 60);
+const YIELD_WAIT_SECS: Duration = Duration::from_secs(15 * 60);
 /// After "go ahead", the agent ignores the person being at the machine for this long.
-const RESUME_WINDOW: Duration = Duration::from_secs(10 * 60);
+const RESUME_WINDOW_SECS: Duration = Duration::from_secs(10 * 60);
 /// What the machine prefixes to an image.
 const IMAGE: &str = "IMAGE:";
 /// A job is given up on after this; the machine limits a command to less.
-const JOB_WAIT: Duration = Duration::from_secs(150);
+const JOB_WAIT_SECS: Duration = Duration::from_secs(150);
 /// The gap between two polls, within which a computer still counts as online.
-const ONLINE_GRACE: Duration = Duration::from_secs(5);
+const ONLINE_GRACE_SECS: Duration = Duration::from_secs(5);
 const MAX_RESULT_BYTES: usize = 512 * 1024;
 const MAX_NAME_CHARS: usize = 80;
 const MAX_FOLDERS: usize = 32;
@@ -171,7 +171,7 @@ fn line<T>(id: &str, f: impl FnOnce(&mut Line) -> T) -> T {
 }
 
 pub(crate) fn online(id: &str) -> bool {
-    line(id, |l| l.polls > 0 || !l.waiting.is_empty() || l.seen.is_some_and(|t| t.elapsed() < ONLINE_GRACE))
+    line(id, |l| l.polls > 0 || !l.waiting.is_empty() || l.seen.is_some_and(|t| t.elapsed() < ONLINE_GRACE_SECS))
 }
 
 /// Counts a poll in progress. Dropped when the machine's connection closes.
@@ -227,9 +227,9 @@ pub(crate) async fn run_on(computer: &str, mut job: Value) -> (Option<(bool, Str
     wake.notify_one();
     let started = Instant::now();
     let result = loop {
-        match tokio::time::timeout(JOB_WAIT, &mut answer).await {
+        match tokio::time::timeout(JOB_WAIT_SECS, &mut answer).await {
             Ok(r) => break r.ok(),
-            Err(_) if started.elapsed() < YIELD_WAIT && line(computer, |l| l.active && l.holds(&id)) => continue,
+            Err(_) if started.elapsed() < YIELD_WAIT_SECS && line(computer, |l| l.active && l.holds(&id)) => continue,
             Err(_) => break None,
         }
     };
@@ -431,7 +431,7 @@ async fn next(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): 
         l.active = q.active;
     });
     let _polling = Polling(id.clone());
-    let until = Instant::now() + if q.active { ACTIVE_POLL_WAIT } else { NEXT_WAIT };
+    let until = Instant::now() + if q.active { ACTIVE_POLL_WAIT_SECS } else { NEXT_WAIT_SECS };
     loop {
         let (job, wake) = line(&id, |l| {
             let resumed = l.resume_until.is_some_and(|t| t > Instant::now());
@@ -485,7 +485,7 @@ async fn resume(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Respo
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
     let wake = line(&id, |l| {
-        l.resume_until = Some(Instant::now() + RESUME_WINDOW);
+        l.resume_until = Some(Instant::now() + RESUME_WINDOW_SECS);
         l.wake.clone()
     });
     wake.notify_one();

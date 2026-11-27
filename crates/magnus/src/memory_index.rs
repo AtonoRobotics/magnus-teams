@@ -115,7 +115,7 @@ impl MemoryConfig {
 }
 
 /// Named constants with explicit units (AGENTS.md Code Standard).
-pub const EMBED_TIMEOUT: Duration = Duration::from_millis(500);
+pub const EMBED_TIMEOUT_MS: Duration = Duration::from_millis(500);
 pub const MAX_MEMORY_WRITES_PER_RUN: usize = 12;
 /// A memory is one short sentence about the person. The longest the
 /// person-taught facts in production ran was under 400 characters; the

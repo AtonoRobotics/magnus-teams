@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 /// Long enough for any refusal here; far less than the waits an endless
-/// body would run into (`CALL_WAIT`), so reading one whole fails the test.
+/// body would run into (`CALL_WAIT_SECS`), so reading one whole fails the test.
 const PROMPT_WAIT: Duration = Duration::from_secs(20);
 
 /// A card that never ends is refused once it passes the cap, not read
@@ -60,7 +60,7 @@ fn an_answer_that_never_ends_is_cut_off_at_its_cap() {
         assert_eq!(st, 201, "{got}");
         let id = got["agent"]["id"].as_str().unwrap().to_string();
         let agent = s.k.read(|st| st.outside_agents.agent(&id).cloned()).unwrap();
-        let answer = tokio::time::timeout(PROMPT_WAIT, s.k.outside_rpc(&agent, "GetTask", json!({ "id": "t-1" }), super::CALL_WAIT))
+        let answer = tokio::time::timeout(PROMPT_WAIT, s.k.outside_rpc(&agent, "GetTask", json!({ "id": "t-1" }), super::CALL_WAIT_SECS))
             .await
             .expect("the endless token answer was read on and on");
         let Err(e) = answer else { panic!("an endless token answer gave a token") };

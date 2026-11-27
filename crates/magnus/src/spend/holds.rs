@@ -22,7 +22,7 @@ use std::time::Duration;
 
 /// How long a call that does not fit waits for calls in flight to finish
 /// and free what they hold, before it is refused or its run stopped.
-pub const HELD_CALL_WAIT: Duration = Duration::from_secs(300);
+pub const HELD_CALL_WAIT_SECS: Duration = Duration::from_secs(300);
 
 /// What a call in flight holds, and against which limits: the runs whose
 /// budget it spends (the run and those above it), the grant it acts under,
@@ -75,10 +75,10 @@ impl Holds {
     /// Admit a call: `fit` reads what is left given the holds of the calls
     /// in flight, and says what the call may do and the dollars to hold,
     /// or why it may not. A call that does not fit only because of what
-    /// others hold waits for them to finish, up to [`HELD_CALL_WAIT`], and
+    /// others hold waits for them to finish, up to [`HELD_CALL_WAIT_SECS`], and
     /// is fitted again; one that would not fit anyway is refused at once.
     pub async fn admit<T, E>(&self, scope: Hold, mut fit: impl FnMut(&[Hold]) -> Result<(T, f64), E>) -> Result<(T, Held<'_>), E> {
-        let deadline = tokio::time::Instant::now() + HELD_CALL_WAIT;
+        let deadline = tokio::time::Instant::now() + HELD_CALL_WAIT_SECS;
         loop {
             let released = self.released.notified();
             {

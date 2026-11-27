@@ -37,9 +37,9 @@ const BOOT_WAIT: Duration = Duration::from_secs(30);
 /// How often a booting instance is looked at.
 const BOOT_POLL: Duration = Duration::from_millis(50);
 /// As long as a remote app's call may take (`apps::Mcp`).
-const CALL_WAIT: Duration = Duration::from_secs(120);
+const CALL_WAIT_SECS: Duration = Duration::from_secs(120);
 /// How long the proxy waits to reach a provider host.
-const CONNECT_WAIT: Duration = Duration::from_secs(10);
+const CONNECT_WAIT_SECS: Duration = Duration::from_secs(10);
 /// The most a CONNECT request's head may be.
 const HEAD_MAX: usize = 8192;
 /// The most one line of a connector's answers may hold.
@@ -230,7 +230,7 @@ impl Brokered {
             return Ok(l.clone());
         }
         let inst = self.launch(c, None).await?;
-        let r = tokio::time::timeout(CALL_WAIT, async {
+        let r = tokio::time::timeout(CALL_WAIT_SECS, async {
             let mut s = Session::open(&inst.vsock).await?;
             s.rpc("tools/list", json!({})).await
         })
@@ -324,13 +324,13 @@ impl Brokered {
         }
         let inst = self.instance(c, person, fence).await.map_err(|e| CallError::NotSent(format!("{e:#}")))?;
         inst.busy.fetch_add(1, Ordering::SeqCst);
-        let out = tokio::time::timeout(CALL_WAIT, async {
+        let out = tokio::time::timeout(CALL_WAIT_SECS, async {
             let mut s = Session::open(&inst.vsock).await?;
             fence().map_err(CallError::NotSent)?;
             s.rpc("tools/call", json!({ "name": tool, "arguments": args, "_meta": { TOKEN_META: token } })).await
         })
         .await
-        .unwrap_or_else(|_| Err(CallError::Unknown(format!("{} did not answer within {}s", c.name, CALL_WAIT.as_secs()))));
+        .unwrap_or_else(|_| Err(CallError::Unknown(format!("{} did not answer within {}s", c.name, CALL_WAIT_SECS.as_secs()))));
         *inst.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
         inst.busy.fetch_sub(1, Ordering::SeqCst);
         let r = out.map_err(|e| Mcp::clean_err(e, Some(token)))?;
@@ -489,7 +489,7 @@ async fn tunnel(mut s: UnixStream, hosts: Vec<String>, app: String, resolve: Arc
         return;
     }
     let to = if target.contains(':') { target.to_ascii_lowercase() } else { format!("{}:443", target.to_ascii_lowercase()) };
-    let mut up = match tokio::time::timeout(CONNECT_WAIT, dial(&to, &resolve)).await {
+    let mut up = match tokio::time::timeout(CONNECT_WAIT_SECS, dial(&to, &resolve)).await {
         Ok(Ok(u)) => u,
         failed => {
             if let Ok(Err(e)) = failed {

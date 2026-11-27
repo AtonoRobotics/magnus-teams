@@ -118,7 +118,7 @@ fn a_crash_after_sending_resumes_with_get_task_and_the_agent_receives_one_task()
                 &g,
                 "SendMessage",
                 json!({ "message": { "messageId": format!("magnus-{key}"), "role": "ROLE_USER", "parts": [{ "text": "Reserve 40 units of part 7." }] } }),
-                super::CALL_WAIT,
+                super::CALL_WAIT_SECS,
             )
             .await
             .unwrap();

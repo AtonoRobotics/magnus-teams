@@ -31,9 +31,9 @@ pub const APP_PREFIX: &str = "desktop_";
 /// the four asks.
 pub const ASK_RULE: &str = "kernel:local_program";
 /// How long a call waits for the computer to answer.
-pub(crate) const JOB_WAIT: Duration = Duration::from_secs(120);
+pub(crate) const JOB_WAIT_SECS: Duration = Duration::from_secs(120);
 /// Within this of its last poll or report, a computer counts as online.
-pub(crate) const ONLINE_GRACE: Duration = Duration::from_secs(30);
+pub(crate) const ONLINE_GRACE_SECS: Duration = Duration::from_secs(30);
 pub(crate) const MAX_RESULT_CHARS: usize = 512 * 1024;
 pub(crate) const MAX_TOOLS_PER_PROGRAM: usize = 128;
 pub(crate) const MAX_TOOL_NAME_CHARS: usize = 48;
@@ -259,7 +259,7 @@ pub(crate) fn line<T>(id: &str, f: impl FnOnce(&mut Line) -> T) -> T {
 }
 
 pub(crate) fn online(id: &str) -> bool {
-    line(id, |l| l.polls > 0 || l.seen.is_some_and(|t| t.elapsed() < ONLINE_GRACE))
+    line(id, |l| l.polls > 0 || l.seen.is_some_and(|t| t.elapsed() < ONLINE_GRACE_SECS))
 }
 
 pub(crate) fn report(id: &str, rs: Vec<Reported>) {
@@ -452,7 +452,7 @@ impl Kernel {
         }
         let job = json!({ "program": p.id, "tool": tool, "arguments": arguments });
         let name = self.read(|s| s.local.desktop.get(&device).map(|d| d.name.clone())).unwrap_or_default();
-        match run_on(&device, job, JOB_WAIT).await {
+        match run_on(&device, job, JOB_WAIT_SECS).await {
             (Some((ok, text)), _) => (text, !ok, None),
             (None, true) => (format!("{name} did not take the call, so nothing ran in {}", p.title), true, None),
             (None, false) => (format!("{name} did not answer, so this may or may not have happened in {}", p.title), true, None),

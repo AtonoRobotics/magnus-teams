@@ -22,7 +22,7 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
-const ROUTINE_TICK: Duration = Duration::from_secs(60);
+const ROUTINE_TICK_SECS: Duration = Duration::from_secs(60);
 const MIN_ROUTINE_HOURS: i64 = 1;
 const MAX_ROUTINE_HOURS: i64 = 24 * 30;
 /// A routine's instructions are its lane's objective, so they fit one.
@@ -278,7 +278,7 @@ impl Kernel {
 /// Checks each minute for routines that are due.
 pub fn schedule(k: Arc<Kernel>) {
     tokio::spawn(async move {
-        let mut t = tokio::time::interval(ROUTINE_TICK);
+        let mut t = tokio::time::interval(ROUTINE_TICK_SECS);
         loop {
             t.tick().await;
             if let Err(e) = k.run_due_routines().await {

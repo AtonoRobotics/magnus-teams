@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-pub const WORLD_MAP_SYNC_INTERVAL: Duration = Duration::from_secs(1800);
+pub const WORLD_MAP_SYNC_SECS: Duration = Duration::from_secs(1800);
 
 pub const WORLD_MAP_MIGRATION_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS public.world_map (

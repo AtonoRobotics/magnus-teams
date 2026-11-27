@@ -10,8 +10,8 @@ use std::time::Duration;
 
 const PROTOCOL: &str = "2025-06-18";
 /// A call to an app's server: the connection, then the whole call.
-const CONNECT_WAIT: Duration = Duration::from_secs(10);
-const CALL_WAIT: Duration = Duration::from_secs(120);
+const CONNECT_WAIT_SECS: Duration = Duration::from_secs(10);
+const CALL_WAIT_SECS: Duration = Duration::from_secs(120);
 
 /// What an app says when it wants a sign-in (HTTP 401 at initialize).
 pub const UNAUTHORIZED: &str = "the app asks for a sign-in (HTTP 401)";
@@ -131,7 +131,7 @@ struct Session {
 
 impl Mcp {
     pub fn new() -> Result<Mcp> {
-        Ok(Mcp { allow_private: false, egress: Egress::new(false, CONNECT_WAIT, CALL_WAIT), views: Default::default() })
+        Ok(Mcp { allow_private: false, egress: Egress::new(false, CONNECT_WAIT_SECS, CALL_WAIT_SECS), views: Default::default() })
     }
 
     /// Reaching apps as `egress` says (a test's stand-in for a public server).
@@ -144,7 +144,7 @@ impl Mcp {
     /// With the server's rule on private addresses.
     pub fn allowing_private(mut self, allow: bool) -> Mcp {
         self.allow_private = allow;
-        self.egress = Egress::new(allow, CONNECT_WAIT, CALL_WAIT);
+        self.egress = Egress::new(allow, CONNECT_WAIT_SECS, CALL_WAIT_SECS);
         self
     }
 

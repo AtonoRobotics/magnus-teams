@@ -1,7 +1,7 @@
 //! Asking the relay to refresh or revoke a relayed sign-in's tokens: the
 //! request signed with this server's key, the answer with the relay's.
 
-use super::super::{CALL_WAIT, CONNECT_WAIT};
+use super::super::{CALL_WAIT_SECS, CONNECT_WAIT_SECS};
 use super::{now, open, timely, Message, Refreshed, Settings, Signed};
 use crate::kernel::Kernel;
 use crate::oauth::random;
@@ -32,7 +32,7 @@ impl<'a> HttpRelay<'a> {
     async fn ask(&self, path: &str, m: &Message) -> Result<Message> {
         let env = self.k.relay_keys.seal(&self.k.vault, m)?;
         // The relay is at the address the operator configured (`[relay] url`).
-        let r = crate::egress_client::configured(CONNECT_WAIT, CALL_WAIT)?
+        let r = crate::egress_client::configured(CONNECT_WAIT_SECS, CALL_WAIT_SECS)?
             .post(format!("{}/{path}", self.s.url.trim_end_matches('/')))
             .json(&env)
             .send()
