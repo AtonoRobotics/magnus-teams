@@ -128,7 +128,7 @@ function setupStepHtml(f) {
       const isConn = p.connected > 0;
       let btn = `<span class="small muted">Not configured</span>`;
       if (app) {
-        if (isConn) btn = `<span class="chip ok">Connected</span>`;
+        if (isConn) btn = `<span class="chip ok">${p.apps.length > 1 && p.connected < p.apps.length ? `Connected (${p.connected}/${p.apps.length})` : "Connected"}</span>`;
         else if (st === "connecting") btn = `<button class="link" data-act="connect-page" data-url="${esc(Connecting[app.name] || "")}">Finish sign-in</button>`;
         else if (st === "needs_attention") btn = `<button data-act="connect" data-app="${esc(app.name)}">Sign in again</button>`;
         else if (app.ready !== false) btn = `<button class="primary" data-act="connect" data-app="${esc(app.name)}">Connect</button>`;
@@ -148,9 +148,9 @@ function setupStepHtml(f) {
   }
   if (step === 2) {
     const sim = Guide.setup.sim;
-    const simMsg = sim === "once" ? `<p class="wiz-note ok">Approved once. Magnus sent the quote request and logged the receipt in Activity.</p>`
-      : sim === "always" ? `<p class="wiz-note ok">Rule saved: Allow quote emails to @apexindustrial.com. Spending money still always asks.</p>`
-      : sim === "deny" ? `<p class="wiz-note bad">Declined. Magnus paused and asked what you want changed.</p>` : "";
+    const simMsg = sim === "once" ? `<p class="wiz-note ok">Simulation only: Approved once. Magnus would send the quote request and log the receipt in Activity.</p>`
+      : sim === "always" ? `<p class="wiz-note ok">Simulation only — no real rule saved yet: Allow quote emails to @apexindustrial.com. Spending money still always asks.</p>`
+      : sim === "deny" ? `<p class="wiz-note bad">Simulation only: Declined. Magnus would pause and ask what you want changed.</p>` : "";
     return `<h2>How Magnus works safely on your behalf</h2>
       <p class="wiz-sub">Instead of waiting for you to type every prompt, Magnus runs tasks in the background and pauses at sensitive moments so you stay in control.</p>
       <div class="wiz-grid-3">

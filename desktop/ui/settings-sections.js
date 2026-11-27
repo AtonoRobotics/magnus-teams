@@ -351,16 +351,14 @@ async function dataSection(el) {
       ${personalSpendCard(mySpend)}
       <div class="card"><label class="row toggle"><input type="checkbox" data-pref="feedback_consent" ${prefs.feedback_consent ? "checked" : ""}>
         <span><span>Send problem reports</span><span class="small muted" style="display:block">When you report a problem, what you wrote and the task's record go to the people who build Magnus. Off: nothing leaves the server.</span></span></label></div>
-      <h3>How Magnus works with you</h3>
-      <div class="card" data-relationship><p class="small muted">What you told Magnus about working with you: tone, what you delegated, standing decisions. Every task and chat of yours carries it; no one else sees it.</p>
-        ${notes.map((n, i) => `<div class="row" data-note="${i}" style="margin-top:6px"><input aria-label="Note" value="${esc(n)}" style="flex:1"><button data-act="note-save">Save</button><button data-act="note-remove">Remove</button></div>`).join("") || `<p class="small faint">Nothing yet.</p>`}
-        <div class="row" style="margin-top:8px"><input id="newnote" aria-label="New note" style="flex:1" placeholder="For example: fewer jokes"><button data-act="note-add">Add</button></div></div>
-      <h3>What Magnus may do on its own</h3>
-      <div class="card" data-grants><p class="small muted">Kinds of your work you let Magnus handle without asking, within your organisation's policy, each with what was done under it. They are yours alone; spending money always asks.</p>
-        ${granted.grants.map(g => grantRow(g, granted.apps, editing)).join("") || `<p class="small faint">None yet. Choose "Handle things like this" on a task Magnus proposes, or ask Magnus.</p>`}</div>
-      <h3>What you and Magnus said you'd do</h3>
-      <div class="card" data-commitments><p class="small muted">What you or Magnus said you would do, recognised from your conversations and what Magnus read for you, with for whom and by when. Open ones are in every task and chat of yours; no one else sees them.</p>
-        ${commitments.map(c => commitmentRow(c, editingC)).join("") || `<p class="small faint">None yet.</p>`}</div>
+      <h3>Memory, commitments &amp; standing rules</h3>
+      <div class="card" data-memory-summary>
+        <p class="small muted">Magnus keeps <strong>${notes.length}</strong> relationship note${notes.length === 1 ? "" : "s"}, <strong>${commitments.length}</strong> commitment${commitments.length === 1 ? "" : "s"}, and <strong>${granted.grants.length}</strong> standing delegation${granted.grants.length === 1 ? "" : "s"} for you.</p>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap">
+          <a class="button small" href="#/settings/memory">Manage in Memory &amp; Context</a>
+          <a class="button small" href="#/settings/rules">Manage in Rules</a>
+        </div>
+      </div>
       <h3>Where you decided otherwise</h3>
       <div class="card" data-disagreements><p class="small muted">When Magnus advised one thing and you decided another, it notes both, and later how it turned out. Only your own tasks and chats see these.</p>
         ${disagreements.map(d => `<p class="small"><span class="faint">${esc(when(d.at))}</span> Magnus advised: ${esc(d.position)} You decided: ${esc(d.decision)} ${d.outcome ? `Outcome: ${esc(d.outcome)}` : `<span class="faint">Outcome not known yet.</span>`}</p>`).join("") || `<p class="small faint">None.</p>`}</div>

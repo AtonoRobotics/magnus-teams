@@ -45,16 +45,27 @@ function idpHtml(idp) {
     </form>`;
 }
 
+const AUDIT_ROWS_LIMIT = 200;
+
+/** Truncation banner when audit log exceeds AUDIT_ROWS_LIMIT. @param {AuditEntry[]} rows @param {boolean} [showAll] */
+function auditMeta(rows, showAll = false) {
+  if (!rows || rows.length <= AUDIT_ROWS_LIMIT) return "";
+  if (showAll) return `<p class="small muted" data-audit-meta style="margin:6px 0">Showing all ${rows.length} entries.</p>`;
+  return `<div class="row small muted" data-audit-meta style="margin:6px 0;justify-content:space-between;align-items:center"><span>Showing latest ${AUDIT_ROWS_LIMIT} of ${rows.length} entries.</span><button type="button" class="small" data-audit-show-all>Show all ${rows.length}</button></div>`;
+}
+
 /** @param {AuditEntry[]} rows */
 function auditHtml(rows) {
   return `<section class="card"><h3>Audit log</h3>
     <form class="row" data-audit-filter><input name="actor" placeholder="Who" aria-label="Who"><input name="action" placeholder="What" aria-label="What"><button>Filter</button><button type="button" data-audit-export>Export CSV</button></form>
-    <table class="t"><tbody data-audit>${auditRows(rows)}</tbody></table></section>`;
+    <div data-audit-meta-wrap>${auditMeta(rows, false)}</div>
+    <table class="t"><tbody data-audit>${auditRows(rows, false)}</tbody></table></section>`;
 }
 
-/** The audit's rows, newest first, the latest 200. @param {AuditEntry[]} rows */
-function auditRows(rows) {
-  return rows.slice(0, 200).map(r => `<tr><td class="small muted">${esc(when(r.at))}</td><td class="small">${esc(r.name || r.admin)}</td><td class="small mono">${esc(r.action)}</td><td class="small">${esc(r.target || "")}</td></tr>`).join("") || `<tr><td class="small muted">Nothing recorded yet.</td></tr>`;
+/** The audit's rows, newest first (capped at AUDIT_ROWS_LIMIT unless showAll is true). @param {AuditEntry[]} rows @param {boolean} [showAll] */
+function auditRows(rows, showAll = false) {
+  const slice = showAll ? rows : rows.slice(0, AUDIT_ROWS_LIMIT);
+  return slice.map(r => `<tr><td class="small muted">${esc(when(r.at))}</td><td class="small">${esc(r.name || r.admin)}</td><td class="small mono">${esc(r.action)}</td><td class="small">${esc(r.target || "")}</td></tr>`).join("") || `<tr><td class="small muted">Nothing recorded yet.</td></tr>`;
 }
 
 /** @param {AdminRetention} r */
@@ -107,6 +118,16 @@ registerAdminSection("security", async el => {
   /** @param {any} err */
   const failed = err => { if (!err.cancelled) toast(err.body?.message || err.body?.error || err.message); };
   let query = "";
+  let currentEntries = audit.entries || [];
+  const drawAudit = (entries, showAll = false) => {
+    currentEntries = entries || [];
+    paint($("[data-audit-meta-wrap]", el), auditMeta(currentEntries, showAll));
+    paint($("[data-audit]", el), auditRows(currentEntries, showAll));
+    const showBtn = $("[data-audit-show-all]", el);
+    if (showBtn) showBtn.onclick = () => drawAudit(currentEntries, true);
+  };
+  const initShowBtn = $("[data-audit-show-all]", el);
+  if (initShowBtn) initShowBtn.onclick = () => drawAudit(currentEntries, true);
   $("[data-sign-in]", el).onsubmit = async e => {
     e.preventDefault();
     const form = /** @type {HTMLFormElement} */ (e.target), f = new FormData(form);
@@ -127,7 +148,7 @@ registerAdminSection("security", async el => {
     e.preventDefault();
     const f = new FormData(/** @type {HTMLFormElement} */ (e.target));
     query = new URLSearchParams([...f].filter(([, v]) => v)).toString();
-    try { const v = await Server.admin.audit(query); paint($("[data-audit]", el), auditRows(v.entries || [])); }
+    try { const v = await Server.admin.audit(query); drawAudit(v.entries || [], false); }
     catch (err) { failed(err); }
   };
   $("[data-audit-export]", el).onclick = async () => {
