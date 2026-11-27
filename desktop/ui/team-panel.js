@@ -115,18 +115,7 @@ function overviewHtml(d, ws, channel = null) {
     footHtml: `<span class="small muted">${where(busy[0].channel)}</span>`,
     inspectLabel: "Open →",
   }) : "";
-  const missions = d.missions || [];
-  const roomWork = typeof TeamRooms !== "undefined" && missions.length
-    ? TeamRooms.workPanelHtml(missions, ws, home.me, id => home.members.find(m => m.id === id)?.name || id)
-    : `<div class="room-empty-work"><div class="small"><strong>Work Canvas</strong></div><p class="small muted">Start shared work below or mention @${agent} in chat. Your requests share automatically; teammates review their own slice privately first.</p></div>`;
-  const others = home.members.filter(m => m.id !== home.me);
-  const memberPicks = others.map(m => `<label class="room-pick small"><input type="checkbox" name="member" value="${esc(m.id)}"> ${esc(m.name)}</label>`).join("");
-  const startMission = channel && home.role !== "guest" ? `<section class="companion-sec"><div class="companion-sec-head"><span>Start shared work</span></div>
-    <form class="room-mission-form" data-mission-new data-mission-room="${esc(channel)}">
-      <div class="room-steer-row"><input name="goal" placeholder="e.g. Draft Friday's board update…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></div>
-      <div class="room-picks">${memberPicks}<label class="room-pick small"><input type="checkbox" name="open_web" value="1"> Public web</label></div>
-    </form></section>` : "";
-  return `${banner}${roomWork}${startMission}${active}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}`;
+  return `${banner}${active}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}`;
 }
 
 /**
@@ -196,10 +185,7 @@ function teamFilesHtml(d, ws) {
 function membersCardHtml(d, ws) {
   const home = Team.home, peer = home.role !== "guest";
   const face = m => `<span class="team-face" title="${esc(m.name)}">${avatar(m.name, false, m.id)}<span class="sr">${esc(m.name)}</span></span>`;
-  const caps = d.capabilities || Team.capabilities?.[ws] || [];
-  const capHtml = typeof TeamRooms !== "undefined" && caps.length
-    ? `<section class="companion-sec"><div class="companion-sec-head"><span>People &amp; personal apps</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${peer ? "Add or invite" : "See all"}</a></div>${TeamRooms.peopleCapabilitiesHtml(caps, home.me)}</section>`
-    : `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${peer ? "Add or invite" : "See all"}</a></div><div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}</div></div></section>`;
+  const capHtml = `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${peer ? "Add or invite" : "See all"}</a></div><div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}</div></div></section>`;
   const myAv = Team.avatars?.[home.me] || { kind: "default" };
   const avatarSec = typeof UserAvatar !== "undefined"
     ? `<section class="companion-sec"><div class="companion-sec-head"><span>Your avatar</span></div>${UserAvatar.pickerHtml(home.me_name || home.me, myAv)}</section>`
@@ -236,13 +222,11 @@ const TeamPanel = {
   /** The right panel beside a channel: its project's, or the workspace's. */
   async side(el, ws, project, channel = null) {
     if (!el || !el.isConnected) return;
-    const [d, missions, caps] = await Promise.all([
+    const [d, caps] = await Promise.all([
       this.load(ws, project).catch(() => null),
-      channel && Server.workspaces.missions ? Server.workspaces.missions(ws, channel).catch(() => []) : Promise.resolve([]),
       Server.workspaces.capabilities ? Server.workspaces.capabilities(ws).catch(() => []) : Promise.resolve([]),
     ]);
     if (!d || !el.isConnected) return;
-    d.missions = missions || [];
     d.capabilities = caps || [];
     if (caps?.length) {
       Team.capabilities[ws] = caps;
@@ -259,21 +243,8 @@ const TeamPanel = {
   paintSide(el, d, ws, channel) {
     this.sideAt = { el, d, ws, channel };
     paint(el, teamSideHtml(d, ws, channel, this.sideTab));
-    if (typeof TeamRooms !== "undefined" && !el.dataset.roomsWired) {
+    if (!el.dataset.roomsWired) {
       el.dataset.roomsWired = "1";
-      TeamRooms.wire(el, ws, () => {
-        const at = this.sideAt;
-        if (at) this.side(at.el, at.ws, at.d?.project?.id || null, at.channel);
-      });
-      el.addEventListener("submit", async e => {
-        const form = /** @type {HTMLFormElement} */ (e.target).closest("[data-mission-new]");
-        if (!form) return;
-        e.preventDefault();
-        const ask = TeamRooms.missionAsk(/** @type {HTMLElement} */ (form), Team.home?.me), at = this.sideAt;
-        if (!ask || !at || !Server.workspaces.createMission) return;
-        await Server.workspaces.createMission(at.ws, ask.room, { goal: ask.goal, lanes: ask.lanes }).catch(() => {});
-        this.side(at.el, at.ws, at.d?.project?.id || null, at.channel);
-      });
       el.addEventListener("click", async e => {
         const t = /** @type {HTMLElement} */ (e.target);
         const preset = t.closest("[data-avatar-preset]");

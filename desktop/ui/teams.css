@@ -17,10 +17,6 @@
 .shared-members-btn, .shared-autojoin-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--surface); color: var(--fg2); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .shared-members-btn:hover, .shared-autojoin-btn:hover { background: var(--row-sel); color: var(--fg); }
 .shared-autojoin-btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
-.room-empty-work { padding: 14px; border-radius: var(--r-md); background: var(--raised); border: 1px dashed var(--line-strong); display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
-.room-empty-work p { margin: 0; }
-.room-mission-form { display: flex; flex-direction: column; gap: 8px; }
-.room-picks { display: flex; flex-wrap: wrap; gap: 8px; }
 .room-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); cursor: pointer; }
 .team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 .team-head h1 { font-size: 18px; margin: 0; }
@@ -98,21 +94,6 @@
 .avatar-picker { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .avatar-opt { padding: 2px; border-radius: var(--r-sm); border: 1px solid transparent; background: transparent; cursor: pointer; }
 .avatar-opt.on { border-color: var(--accent); }
-.room-work { display: flex; flex-direction: column; gap: 12px; }
-.room-mission { display: flex; flex-direction: column; gap: 12px; }
-.room-deliverable { padding: 12px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-.room-deliverable-body { padding: 10px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--hair); white-space: pre-wrap; color: var(--fg2); font-size: 12.5px; line-height: 1.5; }
-.room-lanes { display: flex; flex-direction: column; gap: 8px; }
-.room-lane { padding: 12px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-.room-lane.is-waiting { border-color: var(--aurora-beam-b, var(--accent)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--aurora-beam-b, var(--accent)) 35%, transparent); }
-.room-private-card { padding: 12px; border-radius: var(--r-md); background: var(--approval-bg); border: 1px solid var(--approval-border); display: flex; flex-direction: column; gap: 8px; }
-.room-private-head { font-weight: 600; color: var(--fg); }
-.room-private-draft, .room-contrib { margin: 0; color: var(--fg2); white-space: pre-wrap; line-height: 1.45; }
-.room-steer-row, .room-release-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.room-steer-row input { flex: 1; min-width: 140px; }
-.room-cap-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.room-cap-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--hair); }
-.room-cap-meta { min-width: 0; flex: 1; }
 .shared-promote-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--surface); color: var(--fg2); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .shared-promote-btn:hover { background: var(--row-sel); color: var(--fg); }
 .share-dialog { width: min(520px, 94vw); padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--raised, var(--surface)); color: var(--fg); box-shadow: var(--shadow); }

@@ -203,9 +203,13 @@ impl Kernel {
     /// untrusted, are left to `team_read_knowledge`, which marks it.
     fn lane_knowledge(&self, run: &Run) -> Option<String> {
         self.read(|s| {
-            let m = s.missions.of_member_lane(&run.task)?;
-            let p = lane_project(s, &m.workspace, &m.room, &run.person, &m.requester)?;
-            let w = s.team.workspace(&m.workspace)?;
+            let (workspace, room, requester) = s
+                .missions
+                .of_member_lane(&run.task)
+                .map(|m| (m.workspace.as_str(), m.room.as_str(), m.requester.as_str()))
+                .or_else(|| s.team.whisper_of(&run.task).map(|w| (w.workspace.as_str(), w.channel.as_str(), w.owner.as_str())))?;
+            let p = lane_project(s, workspace, room, &run.person, requester)?;
+            let w = s.team.workspace(workspace)?;
             let name = w.projects.get(&p).map(|x| x.name.as_str()).unwrap_or(p.as_str());
             let shown = |e: &Entry| e.weight != Weight::Outside && (run.untrusted || !super::owner::from_others(&run.person, e.writers()));
             let (listed, left_out) = knowledge_text(w, &[("This project's knowledge base", Some(&p))], shown);
@@ -213,8 +217,7 @@ impl Kernel {
             if left_out > 0 {
                 let noun = if left_out == 1 { "entry" } else { "entries" };
                 text.push_str(&format!(
-                    "\n({left_out} more {noun} in this project's base, from outside sources or other people; read them with team_read_knowledge, workspace \"{}\" and project \"{p}\".)",
-                    m.workspace
+                    "\n({left_out} more {noun} in this project's base, from outside sources or other people; read them with team_read_knowledge, workspace \"{workspace}\" and project \"{p}\".)"
                 ));
             }
             (!listed.is_empty() || left_out > 0).then_some(text)

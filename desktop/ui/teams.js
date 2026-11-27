@@ -169,7 +169,7 @@ async function showTeam(main, ws, place) {
   const chId = (place.kind === "channel" && place.id) ? place.id : firstChannel(Team.home);
   const chanPlace = { kind: "channel", id: chId, thread: place.kind === "channel" ? place.thread : undefined };
   Team.place = place.kind === "channel" ? chanPlace : place;
-  App.shared = { ws, channel: chId, project: Team.home.channels.find(x => x.id === chId)?.project || place.id || null, home: Team.home, missions: [], panel: null };
+  App.shared = { ws, channel: chId, project: Team.home.channels.find(x => x.id === chId)?.project || place.id || null, home: Team.home, panel: null };
   if (typeof onLeave === "function") {
     onLeave(() => {
       Team.loop++;
@@ -189,19 +189,13 @@ async function showTeam(main, ws, place) {
     return;
   }
   await TeamChat.open(main, ws, chanPlace);
-  const loadMissions = async () => {
-    if (!chId || !Server.workspaces.missions) return;
-    const ms = await Server.workspaces.missions(ws, chId).catch(() => []);
-    if (App.shared?.ws === ws && App.shared?.channel === chId) App.shared.missions = ms || [];
-  };
-  await loadMissions();
   if (deepPanel && typeof openPanel === "function") openPanel(deepPanel, { auto: false });
   if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
   const tick = async () => {
     if (loop !== Team.loop || !main.isConnected || location.hash !== hash) return;
     try {
       await loadHome(ws);
-      await Promise.all([TeamChat.refresh(), loadMissions()]);
+      await TeamChat.refresh();
       if (typeof sidebar === "function") sidebar();
       if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
       if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) drawPanel();

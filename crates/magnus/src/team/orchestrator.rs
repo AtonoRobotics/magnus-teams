@@ -135,6 +135,7 @@ impl Kernel {
     /// rule for unattended work says so (`Kernel::unattended_quarantine`).
     /// `routine`: the routine it fires for, recorded on the lane before its
     /// run wakes, so that run asks no one; a follow-up passes none.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn start_room_mission_as(
         self: &Arc<Self>,

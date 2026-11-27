@@ -11,8 +11,8 @@ use serde_json::json;
 async fn ask(s: &Server, who: &str, ws: &str, channel: &str, text: &str) -> String {
     let (st, v) = s.post(who, &format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": text, "agent": true })).await;
     assert_eq!(st, 200, "{v}");
-    assert!(v["mission_id"].is_string(), "the ask started no mission: {v}");
-    v["task_id"].as_str().unwrap_or_else(|| panic!("the ask started no lane: {v}")).to_string()
+    assert!(v.get("mission_id").is_none(), "the ask must not start a mission: {v}");
+    v["task_id"].as_str().unwrap_or_else(|| panic!("the ask started no reply: {v}")).to_string()
 }
 
 /// The lane's run as it stands now.

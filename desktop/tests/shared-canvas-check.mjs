@@ -96,7 +96,7 @@ const ctx = {
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ["side-panel.js", "user-avatar.js", "coedit.js", "team-rooms.js", "teams.js", "team-chat.js", "team-panel.js", "team-people.js", "team-command.js", "shared-canvas.js"]) {
+for (const f of ["side-panel.js", "user-avatar.js", "coedit.js", "teams.js", "team-chat.js", "team-panel.js", "team-people.js", "team-command.js", "shared-canvas.js"]) {
   vm.runInContext(readFileSync(join(here, "../ui", f), "utf8"), ctx, { filename: f });
 }
 vm.runInContext("globalThis.__x = { SharedCanvas, Team, PANELS };", ctx);
@@ -104,25 +104,13 @@ const { SharedCanvas, Team, PANELS } = /** @type {any} */ (ctx.__x);
 Team.home = home;
 Team.ws = "ws1";
 
-// 1. Native Bento tiles: Bob (owner of waiting_release lane) gets urgent Release Airlock tile + Mission tile.
-const bobBoxes = SharedCanvas.boxes();
-assert.equal(bobBoxes[0].label, "Release Airlock");
-assert.equal(bobBoxes[0].tone, "needs");
-assert.equal(bobBoxes[0].open, "shared:missions");
-assert.equal(bobBoxes[1].label, "Mission");
-assert.equal(bobBoxes[1].tone, "run");
+// 1. Native Bento tiles: Missions are retired, so shared conversations stay quiet like private chat.
+assert.equal(SharedCanvas.boxes().length, 0, "retired Missions must not emit Bento tiles");
 
-// Alice (non-owner) must NOT receive Bob's private Release Airlock tile.
-ctx.App.shared.home = { ...home, me: "alice" };
-const aliceBoxes = SharedCanvas.boxes();
-assert.ok(!aliceBoxes.some(b => b.label === "Release Airlock"), "peer must never get another member's Release Airlock Bento tile");
-assert.equal(aliceBoxes[0].label, "Mission");
-ctx.App.shared.home = home;
-
-// 2. Context-aware Views popover lists the 6 shared project views.
+// 2. Context-aware Views popover lists Files and Project settings first, with no Missions entry.
 const dock = SharedCanvas.dockItems("ws1");
-assert.deepEqual([...dock.map(d => d[0])], ["shared:missions", "shared:tasks", "shared:files", "shared:routines", "shared:knowledge", "shared:settings"]);
-assert.deepEqual([...dock.map(d => d[3])], ["Missions", "Tasks", "Files", "Routines", "Knowledge", "Project settings"]);
+assert.deepEqual([...dock.map(d => d[0])], ["shared:files", "shared:settings", "shared:tasks", "shared:routines", "shared:knowledge"]);
+assert.deepEqual([...dock.map(d => d[3])], ["Files", "Project settings", "Tasks", "Routines", "Knowledge"]);
 
 // 3. Clean-room Share payload never leaks unselected private messages.
 const msgs = [
@@ -136,12 +124,11 @@ assert.doesNotMatch(selOnly, /PRIVATE_DRAFT_SECRET/, "unchecked private message 
 assert.doesNotMatch(selOnly, /\bmagnus\b/i, "a shared answer names the agent, so posting it would start the sharer's agent");
 assert.equal(SharedCanvas.cleanRoomPayload({ mode: "selected", messages: msgs, selectedIds: [] }), "", "empty selection shares nothing");
 
-// 4. Unified Canvas renders all shared views via PANELS.shared.
+// 4. Unified Canvas renders shared views via PANELS.shared; legacy "missions" falls back cleanly to Files.
 assert.equal(typeof PANELS.shared, "function", "PANELS.shared is registered");
-const vMissions = await PANELS.shared("missions");
-assert.match(vMissions.head, /Missions/);
-assert.match(vMissions.body, /TOP_SECRET_BOB/, "owner sees private Release Airlock draft in Canvas");
-assert.match(vMissions.body, /data-mission-new/);
+const vLegacy = await PANELS.shared("missions");
+assert.match(vLegacy.head, /Files/);
+assert.doesNotMatch(vLegacy.body, /data-mission-new/, "retired Start shared work mission form must not render");
 
 const vTasks = await PANELS.shared("tasks");
 assert.match(vTasks.head, /Tasks/);

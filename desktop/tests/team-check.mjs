@@ -153,7 +153,7 @@ assert.doesNotMatch(sandbox.boardHtml([], "w", name, false), /data-new-task/, "a
 assert.match(sandbox.progressBar({ done: 1, total: 4 }), /aria-valuenow="25"/);
 const overview = sandbox.overviewHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1");
 assert.match(overview, /Magnus is working for Dana/, "the panel does not say whom the agent works for");
-assert.match(overview, /data-mission-new/, "the panel offers inline shared work creation");
+assert.doesNotMatch(overview, /data-mission-new/, "retired mission form must not appear in overview");
 assert.match(sandbox.teamFilesHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w"), /notes\.md[^]*lib-size/, "the Files tab does not list the files with their size");
 // The redesigned side panel has two intuitive tabs: Work (activity) and People (members).
 const side = sandbox.teamSideHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1", "activity");

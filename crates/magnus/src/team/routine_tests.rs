@@ -10,7 +10,6 @@ use super::{Change, Message};
 use crate::admin_app::tests::{server_with, Server};
 use crate::events::Ev;
 use axum::Router;
-use serde_json::{json, Value};
 
 fn routine(by: &str) -> super::routines::Routine {
     super::routines::Routine { channel: "c".into(), text: "Sum up the day.".into(), every_hours: 1, by: by.into(), ..Default::default() }
@@ -20,18 +19,6 @@ fn routine(by: &str) -> super::routines::Routine {
 async fn room(s: &Server, ws: &str, owner: &str) {
     s.k.emit("test", Ev::Team(Change::Created { workspace: ws.into(), name: ws.into(), owner: owner.into() })).await.unwrap();
     s.k.emit("test", Ev::Team(Change::Channel { workspace: ws.into(), channel: "c".into(), name: "general".into() })).await.unwrap();
-}
-
-/// The one lane of the one mission in channel "c", as its owner sees it,
-/// and the task it started.
-fn only_lane(s: &Server, ws: &str, owner: &str) -> (Value, String) {
-    let missions = s.k.read(|st| st.missions.view_for_room(ws, "c", owner));
-    assert_eq!(missions.len(), 1, "{missions:?}");
-    let lanes = missions[0]["lanes"].as_array().cloned().unwrap_or_default();
-    assert_eq!(lanes.len(), 1, "{lanes:?}");
-    let mission = missions[0]["id"].as_str().unwrap_or_default().to_string();
-    let task = s.k.read(|st| st.missions.mission(&mission).and_then(|m| m.lanes.values().next().and_then(|l| l.child_task.clone())));
-    (lanes[0].clone(), task.unwrap_or_else(|| panic!("the lane started no task: {lanes:?}")))
 }
 
 /// The run of `task`: its member's own, in the background, and no team run.
@@ -84,9 +71,8 @@ async fn a_routines_run_is_quarantined() {
     s.done().await;
 }
 
-/// A routine fires as a member lane of its author's own agent in its
-/// channel, whose answer reports there unasked. It once started a run of
-/// the retired team agent, with the team's tools and the team's spend.
+/// A routine fires as its author's own personal agent in its channel without
+/// creating a Mission.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_routine_fires_as_a_lane_of_its_authors_own_agent() {
     let s = server_with("", |_| Router::new()).await;
@@ -96,17 +82,15 @@ async fn a_routine_fires_as_a_lane_of_its_authors_own_agent() {
     let fired = s.k.read(|st| st.team.workspace("w").unwrap().routines["r"].fired.clone());
     let [Firing::Started(task)] = fired.as_slice() else { panic!("the routine did not fire: {fired:?}") };
     own_background_run(&s, task, "mo");
-    let (lane, lane_task) = only_lane(&s, "w", "mo");
-    assert_eq!(&lane_task, task, "the routine recorded a task that is not its lane's");
-    assert_eq!((lane["kind"].as_str(), lane["owner"].as_str()), (Some("member_agent"), Some("mo")), "{lane}");
-    assert_eq!(lane["objective"], json!("Sum up the day."), "{lane}");
-    assert_eq!(lane["auto_release"], json!(true), "the routine's report would wait for its author to release it: {lane}");
+    assert!(s.k.read(|st| st.missions.view_for_room("w", "c", "mo").is_empty()), "a routine must not create a mission");
+    let whisper = s.k.read(|st| st.team.whisper_of(task).cloned()).expect("routine did not link its reply to the channel");
+    assert_eq!((whisper.workspace.as_str(), whisper.channel.as_str(), whisper.owner.as_str()), ("w", "c", "mo"));
     s.done().await;
 }
 
 /// A question left a day in a channel that lets Magnus join is followed up
-/// once by its asker's own agent, with their question alone, and the
-/// answer waits in their Airlock, as when they only name Magnus.
+/// once by its asker's own agent without creating a Mission, and the answer
+/// stays private to the asker until shared.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_quiet_question_is_followed_up_by_its_askers_own_agent() {
     let s = server_with("", |_| Router::new()).await;
@@ -116,13 +100,13 @@ async fn a_quiet_question_is_followed_up_by_its_askers_own_agent() {
     let message = Message { id: "q".into(), sender: "mo".into(), text: "Who has the launch deck?".into(), thread: None, at };
     s.k.emit("person:mo", Ev::Team(Change::Message { workspace: "w".into(), channel: "c".into(), message })).await.unwrap();
     s.k.follow_up_quiet_threads().await.unwrap();
-    let (lane, task) = only_lane(&s, "w", "mo");
-    own_background_run(&s, &task, "mo");
-    assert_eq!((lane["kind"].as_str(), lane["owner"].as_str()), (Some("member_agent"), Some("mo")), "{lane}");
-    assert!(lane["objective"].as_str().is_some_and(|o| o.contains("Who has the launch deck?")), "{lane}");
-    assert_eq!(lane["auto_release"], json!(false), "a follow-up nobody asked for would post unreleased: {lane}");
+    assert!(s.k.read(|st| st.missions.view_for_room("w", "c", "mo").is_empty()), "a follow-up must not create a mission");
+    let whispers = s.k.read(|st| st.team.whispers_by("w", "c", "mo").into_iter().cloned().collect::<Vec<_>>());
+    assert_eq!(whispers.len(), 1, "expected one follow-up reply: {whispers:?}");
+    own_background_run(&s, &whispers[0].task, "mo");
+    assert!(!whispers[0].shared, "a follow-up nobody asked for would post unshared");
     s.k.follow_up_quiet_threads().await.unwrap();
-    assert_eq!(s.k.read(|st| st.missions.view_for_room("w", "c", "mo").len()), 1, "a quiet thread was followed up twice");
+    assert_eq!(s.k.read(|st| st.team.whispers_by("w", "c", "mo").len()), 1, "a quiet thread was followed up twice");
     s.done().await;
 }
 

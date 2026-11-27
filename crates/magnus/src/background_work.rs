@@ -20,7 +20,7 @@ impl State {
     /// watches and which reports to the channel.
     pub fn background_asks(&self, run: &str) -> bool {
         let task = self.runs.get(run).map(|r| r.task.as_str()).unwrap_or_default();
-        self.team.run_of(task).is_none() && !self.missions.is_routine_lane(task)
+        self.team.run_of(task).is_none() && !self.team.is_routine_task(task) && !self.missions.is_routine_lane(task)
     }
 
     /// Whether a background run stopping for `reason` waits for its person

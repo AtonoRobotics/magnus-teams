@@ -143,26 +143,23 @@ async fn an_erased_contributors_words_leave_the_deliverable() {
     s.done().await;
 }
 
-/// Deleting an `@Magnus` message for everyone took its text from the
-/// channel but left it as the mission's goal and its lane's objective.
+/// An `@Magnus` ask creates no Mission, and deleting it for everyone erases
+/// its task's copy from the content store.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unsent_ask_leaves_its_mission() {
     let s = server_with("", |_| Router::new()).await;
     let (ws, c) = workspace(&s).await;
     let v = post(&s, "sam", &ws, &c, json!({ "text": "@Magnus summarise the plum orchard plan", "agent": true })).await;
-    assert!(v["mission_id"].is_string(), "the ask started no mission: {v}");
-    let view = |st: &State| Value::from(st.missions.view_for_room(&ws, &c, "sam"));
-    assert!(s.k.read(view).to_string().contains("plum orchard"), "the mission does not hold the ask");
+    assert!(v.get("mission_id").is_none(), "the ask must not start a mission: {v}");
+    assert!(s.k.read(|st| st.missions.view_for_room(&ws, &c, "sam").is_empty()), "a mission was recorded");
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 1, "the reply task does not hold the ask");
 
     let sam = s.token("sam").await;
     let (st, r) = s.call(&sam, Method::DELETE, &format!("/v1/workspaces/{ws}/channels/{c}/messages/{}", v["id"].as_str().unwrap()), None).await;
     assert_eq!(st, 200, "{r}");
 
-    let live = s.k.read(view);
-    assert!(!live.to_string().contains("plum orchard"), "the deleted ask is still the mission's goal or objective: {live}");
-    assert!(!logged(&s, &["team_mission"], "plum orchard").await, "the deleted ask is still in the mission's events");
-    let after = view(&replayed(&s).await);
-    assert!(!after.to_string().contains("plum orchard"), "after a restart: {after}");
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 0, "the deleted ask is still in its task");
+    assert!(!logged(&s, &["team_mission"], "plum orchard").await, "the deleted ask is in mission events");
     s.done().await;
 }
 
@@ -250,21 +247,19 @@ async fn an_erased_requesters_words_leave_the_lane_tasks_of_others() {
     s.done().await;
 }
 
-/// An `@Magnus` ask deleted for everyone left its words in the lane's task
-/// and in each steer of the lane.
+/// An `@Magnus` ask deleted for everyone erases its reply task's copy.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unsent_ask_leaves_its_lanes_tasks() {
     let s = server_with("", |_| Router::new()).await;
     let (ws, c) = workspace(&s).await;
     let v = post(&s, "sam", &ws, &c, json!({ "text": "@Magnus summarise the plum orchard plan", "agent": true })).await;
-    let mission = v["mission_id"].as_str().expect("the ask started no mission").to_string();
-    steer(&s, "sam", &ws, &mission).await;
-    assert_eq!(tasks_holding(&s, "plum orchard").await, 2, "the lane's task and its steer do not hold the ask");
+    assert!(v.get("mission_id").is_none(), "the ask must not start a mission: {v}");
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 1, "the reply task does not hold the ask");
 
     let sam = s.token("sam").await;
     let (st, r) = s.call(&sam, Method::DELETE, &format!("/v1/workspaces/{ws}/channels/{c}/messages/{}", v["id"].as_str().unwrap()), None).await;
     assert_eq!(st, 200, "{r}");
 
-    assert_eq!(tasks_holding(&s, "plum orchard").await, 0, "a lane's task or steer still holds the deleted ask");
+    assert_eq!(tasks_holding(&s, "plum orchard").await, 0, "the reply task still holds the deleted ask");
     s.done().await;
 }

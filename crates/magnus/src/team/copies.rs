@@ -223,7 +223,10 @@ impl Kernel {
     pub(crate) async fn copies_of_message(&self, workspace: &str, channel: &str, m: &Message) -> anyhow::Result<Vec<i64>> {
         let (mut seqs, asked, quoting, own) = self.read(|s| {
             let asked = s.asked_by(workspace, &m.id);
-            let rows = s.missions.rows_of(&asked, None);
+            let mut rows = s.missions.rows_of(&asked, None);
+            if let Some(w) = s.team.workspace(workspace) {
+                rows.extend(w.chat.asked.iter().filter(|(_, msg)| *msg == &m.id).filter_map(|(t, _)| s.tasks.get(t).map(|t| t.seq)));
+            }
             let quoting: Vec<i64> = s.team.copies.quoted.iter().filter(|(_, (w, c, _))| w == workspace && c == channel).map(|(seq, _)| *seq).collect();
             let asked: BTreeSet<String> = asked.into_iter().map(String::from).collect();
             (rows, asked, quoting, s.team.message_seqs(&m.id).to_vec())

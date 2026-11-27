@@ -61,10 +61,11 @@ async fn a_team_request_runs_on_the_model_its_member_picked() {
     let (adapter, model) = s.k.default_model();
     let (st, v) = s.post(&sam, &path, json!({ "text": "plan it", "agent": true, "model": { "adapter": adapter, "model": model } })).await;
     assert_eq!(st, 200, "{v}");
-    assert!(v["mission_id"].is_string(), "shared chat ask did not dispatch a personal-agent mission: {v}");
+    assert!(v.get("mission_id").is_none(), "shared chat ask must not start a mission: {v}");
+    assert!(v["task_id"].is_string(), "shared chat ask did not start a personal-agent reply: {v}");
     let run_id = v["run_id"].as_str().unwrap();
     let personal_run = s.k.read(|st| st.runs.get(run_id).cloned()).unwrap();
-    assert_eq!(personal_run.person, "sam", "the dispatched lane did not run as the requester's personal agent");
+    assert_eq!(personal_run.person, "sam", "the reply did not run as the requester's personal agent");
     assert_eq!((personal_run.config.adapter, personal_run.config.model), (adapter, model));
     let picked = ("other".to_string(), "picked-model".to_string());
     let (_, _, picked_run_id) =

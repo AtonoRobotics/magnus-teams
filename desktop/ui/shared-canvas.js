@@ -1,7 +1,6 @@
-// Unified Shared Canvas & Bento adapter: surfaces Missions, private Release
-// Airlock drafts, Tasks, Files, Routines, Knowledge, and Project Settings
-// natively in the single Aurora Bento and Canvas (#detail) when viewing a
-// shared conversation.
+// Unified Shared Canvas adapter: surfaces Files, Project Settings, Tasks,
+// Routines, and Knowledge natively in the single Canvas (#detail) when viewing
+// a shared conversation.
 "use strict";
 
 const SharedCanvas = (() => {
@@ -9,136 +8,48 @@ const SharedCanvas = (() => {
    * ("Conversation"), which redraws every few seconds: only the newest read
    * under one name answers, so sharing them left the dialog empty. */
   const SHARE_SOURCE = "Conversation to share";
+
   /**
-   * Native Bento tiles for an active shared conversation: private Release
-   * Airlock drafts waiting on the current user (urgent `needs`) and active
-   * Missions (`run`) or finished shared outputs (`done`).
+   * Native Bento tiles for an active shared conversation.
+   * Missions are retired; shared conversations stay quiet like private chat.
    */
   function boxes() {
-    const sh = typeof App !== "undefined" ? App.shared : null;
-    const home = sh?.home || (typeof Team !== "undefined" ? Team.home : null);
-    if (!sh || !home) return [];
-    const ws = sh.ws, missions = sh.missions || [], list = [];
-    const openOnMissions = typeof Panel !== "undefined" && Panel.what === "shared:missions";
-    for (const m of missions) {
-      for (const l of (m.lanes || [])) {
-        if (l.owner === home.me && l.status === "waiting_release" && !openOnMissions) {
-          list.push({
-            key: `airlock:${m.id}:${l.id}`,
-            label: "Release Airlock",
-            icon: "need",
-            open: "shared:missions",
-            href: `#/team/${enc(ws)}`,
-            tone: "needs",
-            title: m.goal,
-            desc: l.held_because ? `Held for you to check: ${l.held_because}` : l.scrub_flagged ? "Sensitive data flagged — review privately before sharing" : "Only you see this draft — review and share with the group",
-          });
-        }
-      }
-    }
-    if (!openOnMissions) {
-      const active = missions.filter(m => !m.complete);
-      if (active.length) {
-        const m = active[0];
-        const total = m.total_lanes || (m.lanes || []).length;
-        list.push({
-          key: `mission:${m.id}`,
-          label: "Mission",
-          icon: "sparkles",
-          open: "shared:missions",
-          href: `#/team/${enc(ws)}`,
-          tone: "run",
-          count: active.length > 1 ? active.length : 0,
-          title: m.goal,
-          desc: `${m.released_count || 0} of ${total} updates shared`,
-        });
-      } else {
-        const done = missions.find(m => m.complete && m.deliverable);
-        if (done) {
-          list.push({
-            key: `mission:${done.id}`,
-            label: "Mission ready",
-            icon: "done",
-            open: "shared:missions",
-            href: `#/team/${enc(ws)}`,
-            tone: "done",
-            title: done.goal,
-            desc: firstLine(done.deliverable),
-          });
-        }
-      }
-    }
-    return list;
+    return [];
   }
 
   /** Context-aware Views popover entries when inside a shared conversation. */
   function dockItems(ws) {
     const base = `#/team/${enc(ws)}`;
     return [
-      ["shared:missions", base, "sparkles", "Missions"],
-      ["shared:tasks", `${base}/p/board`, "clock", "Tasks"],
       ["shared:files", `${base}/files`, "file", "Files"],
+      ["shared:settings", `${base}/people`, "gear", "Project settings"],
+      ["shared:tasks", `${base}/p/board`, "clock", "Tasks"],
       ["shared:routines", base, "calendar", "Routines"],
       ["shared:knowledge", `${base}/knowledge`, "shield", "Knowledge"],
-      ["shared:settings", `${base}/people`, "gear", "Project settings"],
     ];
   }
 
   /**
-   * Renders a shared project view (`missions`, `tasks`, `files`, `routines`,
-   * `knowledge`, `settings`, `activity`, `search:<q>`) inside the unified Canvas.
+   * Renders a shared project view (`files`, `settings`, `tasks`, `routines`,
+   * `knowledge`, `activity`, `search:<q>`) inside the unified Canvas.
    * @param {string} [subId]
    */
-  async function view(subId = "missions") {
+  async function view(subId = "files") {
     const sh = (typeof App !== "undefined" && App.shared) || (typeof Team !== "undefined" && Team.ws ? { ws: Team.ws, channel: TeamChat.s?.channel || null, project: null, home: Team.home } : null);
     if (!sh || !sh.ws) return { body: `<p class="empty">Open a shared conversation to view its workspace.</p>` };
     const ws = sh.ws, home = sh.home || Team.home || await loadHome(ws);
     const channel = sh.channel || firstChannel(home);
     const project = sh.project || home.channels.find(c => c.id === channel)?.project || null;
     const colon = subId.indexOf(":");
-    const kind = colon < 0 ? (subId || "missions") : subId.slice(0, colon);
+    const rawKind = colon < 0 ? (subId || "files") : subId.slice(0, colon);
+    const kind = rawKind === "missions" ? "files" : rawKind;
     const arg = colon < 0 ? "" : subId.slice(colon + 1);
-    const titles = { missions: "Missions", tasks: "Tasks", files: "Files", routines: "Routines", knowledge: "Knowledge", settings: "Project settings", activity: "Activity", search: arg ? `Search: ${arg}` : "Search" };
+    const titles = { files: "Files", tasks: "Tasks", routines: "Routines", knowledge: "Knowledge", settings: "Project settings", activity: "Activity", search: arg ? `Search: ${arg}` : "Search" };
     const head = `<h2>${esc(titles[kind] || "Shared project")}</h2><p class="small muted">${esc(home.name)}</p>`;
     const nameOf = id => id === "agent" ? home.agent.name : home.members.find(m => m.id === id)?.name || id;
     const where = id => { const c = home.channels.find(x => x.id === id); return c ? esc(channelTitle(home, c)) : ""; };
     const edit = home.role !== "guest";
     const redraw = () => { if (typeof drawPanel === "function") drawPanel(); if (typeof AuroraStage !== "undefined") AuroraStage.refresh(); };
-
-    if (kind === "missions") {
-      const [d, missions] = await Promise.all([
-        TeamPanel.load(ws, project).catch(() => ({ work: [], delegations: [], routines: [], tasks: [], files: [], members: home.members })),
-        channel && Server.workspaces.missions ? Server.workspaces.missions(ws, channel).catch(() => []) : Promise.resolve([]),
-      ]);
-      if (App.shared?.ws === ws) App.shared.missions = missions || [];
-      const workHtml = typeof TeamRooms !== "undefined" && missions?.length
-        ? TeamRooms.workPanelHtml(missions, ws, home.me, nameOf)
-        : `<div class="room-empty-work"><div class="small"><strong>Missions &amp; Release Airlock</strong></div><p class="small muted">Start shared work below or mention @${esc(home.agent.name)}. Teammates review their private slices before sharing.</p></div>`;
-      const others = home.members.filter(m => m.id !== home.me);
-      const memberPicks = others.map(m => `<label class="room-pick small"><input type="checkbox" name="member" value="${esc(m.id)}"> ${esc(m.name)}</label>`).join("");
-      const form = channel && edit ? `<section class="companion-sec"><div class="companion-sec-head"><span>Start shared work</span></div>
-        <form class="room-mission-form" data-mission-new data-mission-room="${esc(channel)}">
-          <div class="room-steer-row"><input name="goal" placeholder="e.g. Draft Friday's board update…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></div>
-          <div class="room-picks">${memberPicks}<label class="room-pick small"><input type="checkbox" name="open_web" value="1"> Public web</label></div>
-        </form></section>` : "";
-      const body = `${workHtml}${form}${delegationsHtml(d, ws, where)}`;
-      return {
-        head, body,
-        after: el => {
-          if (el.dataset.sharedMissionsWs === ws) return;
-          el.dataset.sharedMissionsWs = ws;
-          if (typeof TeamRooms !== "undefined") TeamRooms.wire(el, ws, redraw);
-          el.addEventListener("submit", async e => {
-            const f = e.target.closest?.("[data-mission-new]");
-            if (!f) return;
-            e.preventDefault();
-            const ask = TeamRooms.missionAsk(f, home.me, channel);
-            if (!ask || !Server.workspaces.createMission) return;
-            try { await Server.workspaces.createMission(ws, ask.room, { goal: ask.goal, lanes: ask.lanes }); redraw(); } catch (err) { toast(err.message); }
-          });
-        },
-      };
-    }
 
     if (kind === "tasks") {
       const d = await TeamPanel.load(ws, project);

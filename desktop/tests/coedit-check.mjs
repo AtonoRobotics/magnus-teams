@@ -52,9 +52,7 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext(read("coedit.js") + "\nthis.Coedit = Coedit;", ctx);
-vm.runInContext(read("user-avatar.js") + "\nthis.UserAvatar = UserAvatar;", ctx);
-vm.runInContext(read("team-rooms.js") + "\nthis.TeamRooms = TeamRooms;", ctx);
-const { Coedit, TeamRooms } = /** @type {any} */ (ctx);
+const { Coedit } = /** @type {any} */ (ctx);
 
 // 1. The share choice, and where each upload goes.
 assert.match(Coedit.choice(), /<option value="copy">Share a copy<\/option><option value="coedit">Co-edit<\/option>/);
@@ -97,13 +95,11 @@ assert.equal(await Coedit.click(clickOn("data-coedit-checkout"), "w", true, () =
 assert.ok(calls.some(c => c[0] === "checkout" && c[2] === "a.dwg"));
 assert.equal(await Coedit.click({ target: { closest: s => s === "[data-team-file]" ? li("a.dwg") : null } }, "w", true, () => {}), false, "a plain click is the list's own");
 
-// 5. An agent's edits on its owner's Airlock card, and only theirs.
+// 5. Coedit.laneEdits escapes agent edits safely.
 const edit = { id: "e2", name: "quote.json", base: 1, author: { person: "bob", run: "r1" }, at: "", mission: "m1", lane: "l2", conflicts: [], diff: [{ at: "notes", before: null, after: "<b>net 30</b>" }] };
-const missions = [{ id: "m1", goal: "Quote", complete: false, released_count: 0, total_lanes: 1, lanes: [{ id: "l2", kind: "member_agent", owner: "bob", objective: "Price it", status: "waiting_release", private_draft: "Priced.", edits: [edit] }] }];
-const bobs = TeamRooms.workPanelHtml(missions, "w", "bob", id => id);
+const bobs = Coedit.laneEdits({ edits: [edit] });
 assert.match(bobs, /quote\.json, on version 1/);
 assert.match(bobs, /&#60;b&#62;net 30&#60;\/b&#62;/, "an edit is shown escaped");
-assert.doesNotMatch(TeamRooms.workPanelHtml(missions, "w", "alice", id => id), /quote\.json/, "another member saw the edit");
 
 // 6. The page loads it before the team's scripts, and the server serves it.
 const page = read("index.html");

@@ -80,7 +80,14 @@ async fn mine(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws
             .into_iter()
             .map(|w| {
                 let run = s.tasks.get(&w.task).and_then(|t| s.runs.get(&t.run_id));
-                json!({ "task": w.task, "thread": w.thread, "shared": w.shared, "done": run.is_some_and(|r| r.status.terminal()), "text": run.and_then(|r| r.summary.clone()) })
+                json!({
+                    "task": w.task,
+                    "thread": w.thread,
+                    "shared": w.shared,
+                    "done": run.is_some_and(|r| r.status.terminal()),
+                    "text": run.and_then(|r| r.summary.clone()),
+                    "held_because": super::reply::held_reason(&w.task),
+                })
             })
             .collect()
     });
@@ -102,7 +109,8 @@ async fn share(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((
     let message = Message { id: new_id(), sender: p.id.clone(), text, thread: w.thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
     send(&k, &p, Change::Message { workspace: ws.clone(), channel: w.channel.clone(), message }).await?;
-    send(&k, &p, Change::WhisperShared { workspace: ws, task }).await?;
+    send(&k, &p, Change::WhisperShared { workspace: ws, task: task.clone() }).await?;
+    super::reply::clear_held_reason(&task);
     Ok(Json(json!({ "id": id })).into_response())
 }
 

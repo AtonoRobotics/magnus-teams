@@ -267,19 +267,20 @@ pub(super) async fn post_and_ask(
     }
     let why = if asked { Some(Why::Asked) } else { k.read(|s| s.team.workspace(ws).and_then(|w| w.agent_answers(channel, role, &text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
-    let objective: String = text.trim().chars().take(super::orchestrator::MAX_OBJECTIVE_CHARS).collect();
+    let objective: String = text.trim().chars().take(super::reply::MAX_REPLY_OBJECTIVE_CHARS).collect();
     if let Some(reason) = crate::compartment::query_gate::scrub_check(&objective) {
         return Json(json!({ "id": id, "limited": reason })).into_response();
     }
     // Called on (asked, @mentioned, a direct chat) the answer goes to the
-    // room; only named or cued, it waits in the sender's Airlock.
+    // conversation past the outbound boundary gate; only named or cued, it
+    // waits privately inline for the asker to review and share.
     let hold = matches!(why, Why::Named | Why::Helpful);
-    match k.start_personal_room_mission(ws, channel, &p.id, &objective, thread, pick, hold).await {
-        Ok((mission, task, run)) => {
+    match k.reply_in_room(ws, channel, &p.id, &objective, thread, pick, hold).await {
+        Ok((task, run)) => {
             ok_or_return!(
                 send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await
             );
-            Json(json!({ "id": id, "mission_id": mission, "task_id": task, "run_id": run, "agent": why })).into_response()
+            Json(json!({ "id": id, "task_id": task, "run_id": run, "agent": why })).into_response()
         }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
