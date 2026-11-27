@@ -16,7 +16,9 @@ memory should not be used as of the new memory update."
 - At boot, after replay and before serving, the kernel archives every
   memory written before `MEMORY_FRESH_START` that is not already archived
   or superseded. It writes one `Ev::MemoryArchived` for each, with reason
-  `"fresh_start"`, in one batch.
+  `"fresh_start"`, in one batch. `MEMORY_FRESH_START` is
+  2026-11-27T18:47:00Z, when the person-only write rules (3d0e543,
+  test.392) went live on the server.
 - Memories in the trash are archived too, so putting one back does not
   serve it again.
 - Once done, a later boot finds nothing to archive and writes nothing.
