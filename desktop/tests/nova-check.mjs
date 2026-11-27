@@ -86,8 +86,9 @@ assert.match(novaCss, /html\[data-style="nova"\] \.lgrid/, "nova.css must style 
 assert.match(novaCss, /html\[data-style="nova"\] \.explore-grid/, "nova.css must style 3-column Explore grid");
 assert.match(novaCss, /\.stage-tile\[data-tier="financial"\]/, "nova.css must style Side Bento financial receipt tiles");
 
-// 6. Theme isolation: Aurora's visual stylesheets must never bleed onto Nova.
-assert.doesNotMatch(ui("aurora.css"), /data-style="nova"/, "aurora.css must not style Nova");
-assert.doesNotMatch(ui("aurora-widgets.css"), /data-style="nova"/, "aurora-widgets.css must not style Nova");
+// 6. Complete theme isolation: no Aurora stylesheet may ever target Nova.
+for (const sheet of ["aurora.css", "aurora-widgets.css", "aurora-stage.css", "aurora-rail.css", "aurora-compact.css"]) {
+  assert.doesNotMatch(ui(sheet), /data-style="nova"/, `${sheet} must not style Nova`);
+}
 
 console.log("nova theme & overhaul check ok");

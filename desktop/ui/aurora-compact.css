@@ -5,51 +5,51 @@
    place has a close (aurora-pages.js, 2026-11-21-aurora-pages.md). */
 
 /* ---------- Scrollbars ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) * {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) * {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(:hover, :focus-within) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(:hover, :focus-within) {
   scrollbar-color: color-mix(in srgb, var(--fg) 24%, transparent) transparent;
 }
 
 /* Web views without the standard properties (WebKit) draw the same. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) ::-webkit-scrollbar {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
   background: transparent;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) ::-webkit-scrollbar-thumb {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 8px;
   background-clip: padding-box;
   background-color: transparent;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(:hover, :focus-within)::-webkit-scrollbar-thumb {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(:hover, :focus-within)::-webkit-scrollbar-thumb {
   background-color: color-mix(in srgb, var(--fg) 24%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) ::-webkit-scrollbar-thumb:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) ::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in srgb, var(--fg) 40%, transparent);
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) * {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) * {
     scrollbar-color: auto;
   }
 }
 
 /* ---------- The model and reasoning, one chip (aurora-compact.js) ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip {
   position: relative;
   min-width: 0;
   flex: 0 1 auto;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip > summary {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip > summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -64,12 +64,12 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   cursor: pointer;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip > summary::-webkit-details-marker {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip > summary::-webkit-details-marker {
   display: none;
 }
 
 /* Its caret, pointing up: the menu opens above the composer. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip > summary::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip > summary::after {
   content: "";
   flex: none;
   width: 6px;
@@ -80,23 +80,23 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   opacity: .7;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip > summary:hover,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip[open] > summary {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip > summary:hover,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip[open] > summary {
   color: var(--fg);
   background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip > summary:focus-visible {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip > summary:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip-words {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip-words {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip-menu {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip-menu {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
@@ -113,13 +113,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   box-shadow: var(--shadow);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip-menu > label.model select {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip-menu > label.model select {
   max-width: none;
   width: 100%;
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .model-chip-menu {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip-menu {
     background: Canvas;
     border-color: CanvasText;
   }
@@ -127,7 +127,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 
 /* ---------- A page's close (aurora-pages.js) ---------- */
 /* At the page's top right, staying there as the page scrolls. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-page-bar {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-page-bar {
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
@@ -137,7 +137,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   overflow: visible;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-page-close {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-page-close {
   width: 36px;
   height: 36px;
   min-width: 36px;
@@ -149,18 +149,18 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--fg2);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-page-close:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-page-close:hover {
   color: var(--fg);
   border-color: var(--line-strong);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-page-close:focus-visible {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-page-close:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
 /* ---------- Bottom bento strip (aurora-stage.js) ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento-bottom {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento-bottom {
   position: relative;
   flex: none;
   display: grid;
@@ -176,7 +176,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   padding: 0 16px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento-bottom[data-count="0"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento-bottom[data-count="0"] {
   height: 0;
   max-height: 0;
   margin: 0;
@@ -188,7 +188,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 /* ---------- Antigravity-style compact change history inside #thread ----------
    Live cards rearrange into the Side and Bottom bento; the chat stream keeps a
    quiet, scannable vertical change history of steps and completed work. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread [data-history="1"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread [data-history="1"] {
   border: 0;
   border-left: 2px solid var(--aurora-rim);
   border-radius: 0;
@@ -200,7 +200,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   margin: 4px 0 4px 4px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread [data-history="1"] .rg-head {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread [data-history="1"] .rg-head {
   padding: 1px 0 4px;
   border: 0;
   background: transparent;
@@ -208,7 +208,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--muted);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread [data-history="1"] .sub-agent {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread [data-history="1"] .sub-agent {
   padding: 3px 0;
   border: 0;
   border-radius: 0;
@@ -220,48 +220,48 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   font-size: 12.5px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread [data-history="1"] .rg-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread [data-history="1"] .rg-row {
   padding: 3px 0;
   border-radius: var(--r-xs);
   gap: 8px;
   font-size: 12.5px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread [data-history="1"] .card-acts {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread [data-history="1"] .card-acts {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread [data-history="1"] .sub-agent details > summary {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread [data-history="1"] .sub-agent details > summary {
   font-size: 11.5px;
   color: var(--muted);
   cursor: pointer;
   padding: 2px 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) #thread .decide[data-history-hidden="1"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #thread .decide[data-history-hidden="1"] {
   display: none;
 }
 
 /* ---------- Inline expandable line items inside stage cards ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-items {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-items {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-top: 6px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item {
   border-radius: var(--r-xs);
   border: 1px solid transparent;
   transition: background .14s ease, border-color .14s ease;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item[open] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item[open] {
   background: color-mix(in srgb, var(--fg) 4%, transparent);
   border-color: var(--aurora-rim);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-row {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -274,16 +274,16 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   border-radius: var(--r-xs);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-row::-webkit-details-marker {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-row::-webkit-details-marker {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-row:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-row:hover {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
   color: var(--fg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-title {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-title {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -292,40 +292,40 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   font-weight: 500;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-meta {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-meta {
   flex: none;
   font-size: 11px;
   color: var(--muted);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item[data-status="completed"] .stage-step-dot,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item[data-status="done"] .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item[data-status="completed"] .stage-step-dot,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item[data-status="done"] .stage-step-dot {
   background: var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item[data-status="running"] .stage-step-dot,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item[data-status="active"] .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item[data-status="running"] .stage-step-dot,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item[data-status="active"] .stage-step-dot {
   background: var(--accent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item[data-status="suspended"] .stage-step-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item[data-status="suspended"] .stage-step-dot {
   background: var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-body {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-body {
   padding: 2px 8px 8px 20px;
   font-size: 12px;
   line-height: 1.45;
   color: var(--muted);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-body > p {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-body > p {
   margin: 0 0 4px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-link {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-link {
   display: inline-block;
   margin-top: 2px;
   font-size: 11.5px;
@@ -333,6 +333,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   text-decoration: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-item-link:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-item-link:hover {
   text-decoration: underline;
 }

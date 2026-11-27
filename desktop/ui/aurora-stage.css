@@ -24,7 +24,7 @@
 }
 
 /* ---------- The conversation and its bento ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body:not([data-workspace="single"][data-region="work"]) .shell > main:has(> section.conv) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-workspace="single"][data-region="work"]) .shell > main:has(> section.conv) {
   container-type: inline-size;
   container-name: aurora-main;
   display: flex;
@@ -44,7 +44,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
      than blurred: a blur the size of the window cost a quarter of the frame
      rate (51 to 38 fps on Strix Beta), and text reads better on a calm
      surface. The smaller islands on it keep their blur. */
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body:not([data-navigation=drawer]) .shell::before {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -62,13 +62,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 
 /* What happened while the person was away is a box, not a banner over the
    thread. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv:has(> .stage-bento) > #banners > .banner-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv:has(> .stage-bento) > #banners > .banner-row {
   display: none;
 }
 
 /* On a desktop the frame is the card; on a phone, with no frame, the
    conversation is. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .shell > main:has(> section.conv) > section.conv {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> section.conv) > section.conv {
   flex: 1;
   height: auto;
   min-height: 0;
@@ -76,7 +76,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 }
 
 @media (max-width: 760px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .shell > main:has(> section.conv) > section.conv {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> section.conv) > section.conv {
     border-radius: var(--r-xl);
     border: 1px solid var(--aurora-rim);
     background: var(--aurora-glass);
@@ -90,7 +90,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
    findings exist, the conversation rearranges into a 2-column live workspace
    (chat + composer left, composed bento stage right) on wide viewports, and
    gracefully folds back to calm centered chat when idle. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
   position: relative;
   flex: none;
   display: grid;
@@ -106,29 +106,29 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   padding: 0 16px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento[data-count="0"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento[data-count="0"] {
   height: 0;
   max-height: 0;
   margin-top: 0;
   overflow: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento:is([data-count="1"], [data-count="3"], [data-count="5"]) > .stage-tile:first-child,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-bento > .stage-tile:first-child:is([data-tone="needs"], [data-tone="run"]) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento:is([data-count="1"], [data-count="3"], [data-count="5"]) > .stage-tile:first-child,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento > .stage-tile:first-child:is([data-tone="needs"], [data-tone="run"]) {
   grid-column: 1 / -1;
 }
 
 @container aurora-main (min-width: 820px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] {
     display: grid;
     grid-template-columns: minmax(360px, 56%) minmax(280px, 44%);
     grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
     align-content: stretch;
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .conv-head { grid-column: 1 / -1; grid-row: 1; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > #banners { grid-column: 1 / -1; grid-row: 2; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .thread { grid-column: 1; grid-row: 3; min-height: 0; overflow-y: auto; padding-left: 24px; padding-right: 20px; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .stage-bento {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .conv-head { grid-column: 1 / -1; grid-row: 1; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > #banners { grid-column: 1 / -1; grid-row: 2; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .thread { grid-column: 1; grid-row: 3; min-height: 0; overflow-y: auto; padding-left: 24px; padding-right: 20px; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento {
     grid-column: 2;
     grid-row: 3;
     grid-template-columns: 1fr;
@@ -141,7 +141,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
     background: color-mix(in srgb, var(--fg) 1.5%, transparent);
     gap: 10px;
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .stage-bento-bottom {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento-bottom {
     grid-column: 1 / -1;
     grid-row: 4;
     max-width: none;
@@ -150,16 +150,16 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
     border-top: 1px solid var(--aurora-rim);
     background: color-mix(in srgb, var(--fg) 1.5%, transparent);
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .stage-bento-bottom[data-count="0"] { padding: 0; border-top: 0; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .chat-status { grid-column: 1 / -1; grid-row: 5; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv[data-stage-mode="composed"] > .composer-slot { grid-column: 1 / -1; grid-row: 6; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .stage-bento-bottom[data-count="0"] { padding: 0; border-top: 0; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .chat-status { grid-column: 1 / -1; grid-row: 5; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv[data-stage-mode="composed"] > .composer-slot { grid-column: 1 / -1; grid-row: 6; }
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .stage-tile.stage-tile-enter {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile.stage-tile-enter {
   animation: stageTileIn .42s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile.stage-tile-leaving {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile.stage-tile-leaving {
   pointer-events: none;
   animation: stageTileOut .32s var(--ease) both;
 }
@@ -185,7 +185,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   text-align: center;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -205,17 +205,17 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile:hover {
   border-color: var(--line-strong);
   text-decoration: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile[data-tone="needs"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="needs"] {
   border-color: color-mix(in srgb, var(--warn) 50%, transparent);
   box-shadow: 0 0 22px color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-label {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-label {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -224,7 +224,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--muted);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-ic {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-ic {
   display: grid;
   place-items: center;
   width: 18px;
@@ -234,12 +234,12 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-ic svg.ic {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-ic svg.ic {
   width: 12px;
   height: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-name {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -247,7 +247,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   white-space: nowrap;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-badge {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-badge {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
@@ -260,7 +260,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   text-align: center;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-close {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close {
   position: relative;
   display: grid;
   place-items: center;
@@ -278,33 +278,33 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: opacity .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-close::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close::after {
   content: "";
   position: absolute;
   inset: -13px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-close svg.ic {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close svg.ic {
   width: 12px;
   height: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(.stage-tile:hover, .stage-tile:focus-within) .stage-tile-close {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile:hover, .stage-tile:focus-within) .stage-tile-close {
   opacity: 1;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-close:is(:hover, :focus-visible) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close:is(:hover, :focus-visible) {
   background: color-mix(in srgb, var(--fg) 10%, transparent);
   color: var(--fg);
 }
 
 @media (hover: none) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile .stage-tile-close {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .stage-tile-close {
     opacity: 1;
   }
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile .mini-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .mini-dot {
   width: 7px;
   height: 7px;
   flex: none;
@@ -313,38 +313,38 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   transition: background .3s var(--ease), box-shadow .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile[data-tone="run"] .mini-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="run"] .mini-dot {
   background: var(--aurora-beam-a);
   box-shadow: 0 0 10px var(--aurora-beam-a);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile[data-tone="needs"] .mini-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="needs"] .mini-dot {
   background: var(--warn);
   box-shadow: 0 0 10px var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile[data-tone="done"] .mini-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="done"] .mini-dot {
   background: var(--ok);
   box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile[data-tone="talk"] .mini-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="talk"] .mini-dot {
   background: var(--aurora-beam-b);
   box-shadow: 0 0 10px var(--aurora-beam-b);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile[data-tone="done"]:has(.aurora-confirmed-row) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="done"]:has(.aurora-confirmed-row) {
   border-color: color-mix(in srgb, var(--ok) 50%, transparent);
   box-shadow: 0 0 22px color-mix(in srgb, var(--ok) 14%, transparent);
 }
 
 /* A decision's box: its title opens it, its answers are in the box. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile a.stage-tile-title {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile a.stage-tile-title {
   color: var(--fg);
   text-decoration: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile .ask-answers {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
@@ -354,23 +354,23 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   border-top: 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile .ask-answers button {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers button {
   min-height: 26px;
   padding: 3px 10px;
   font-size: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile .aurora-confirmed-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .aurora-confirmed-row {
   justify-content: flex-start;
   padding-top: 2px;
   border-top: 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .stage-tile:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
   animation: auroraSpark 2.4s ease-in-out infinite;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-title {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-title {
   font-size: 14px;
   font-weight: 600;
   overflow: hidden;
@@ -378,7 +378,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   white-space: nowrap;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-desc {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -389,7 +389,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 }
 
 /* A task box's last actions, newest last, each marked with how it went, and once done its proof. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(.stage-tile-steps, .stage-tile-proof) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile-steps, .stage-tile-proof) {
   display: block;
   margin: 6px 0 0;
   padding: 0;
@@ -399,28 +399,28 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--fg2);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-steps li {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-steps li {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-tile-steps li[data-state="failed"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-steps li[data-state="failed"] {
   color: var(--bad);
 }
 
 /* An answer's new block streams in word by word. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stream-word {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stream-word {
   display: inline-block;
   animation: stageWordIn .34s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-stream-in:has(.stream-word) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-stream-in:has(.stream-word) {
   animation: none;
 }
 
 /* Quiet footer row on completed answers to reopen work on the canvas. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-canvas-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-canvas-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -429,7 +429,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   padding-top: 8px;
   border-top: 1px solid var(--aurora-rim);
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-canvas-meta {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-canvas-meta {
   flex: 1;
   min-width: 0;
   font-size: 12px;
@@ -438,7 +438,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-verified-pill {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-verified-pill {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -449,7 +449,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   background: var(--ok-soft);
   color: var(--ok);
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-canvas-open {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-canvas-open {
   flex: none;
   min-height: 28px;
   padding: 4px 12px;
@@ -462,7 +462,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   cursor: pointer;
   transition: border-color .2s var(--ease), color .2s var(--ease), background-color .2s var(--ease);
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .aurora-canvas-open:is(:hover, :focus-visible) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-canvas-open:is(:hover, :focus-visible) {
   border-color: var(--line-strong);
   color: var(--fg);
   background: color-mix(in srgb, var(--fg) 8%, transparent);
@@ -470,7 +470,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 
 /* ---------- The canvas ---------- */
 /* The column holds the canvas island, not a panel. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .shell > aside.detail:has(> .stage-artifact) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > aside.detail:has(> .stage-artifact) {
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -481,24 +481,24 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 /* Content-adaptive canvas width (compact for approvals/lists, wide for
    tasks/files/Cloud Computer) while honoring manual splitter drags. */
 @media (min-width: 761px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) {
     grid-template-rows: 0 minmax(0, 1fr);
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="compact"]) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="compact"]) {
     grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(380px, 34vw, 460px);
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell > aside.detail:has(> .stage-artifact[data-canvas-size="compact"]) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell > aside.detail:has(> .stage-artifact[data-canvas-size="compact"]) {
     min-width: 0;
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="wide"]) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="wide"]) {
     grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(var(--panel-width, 360px), calc((100% - var(--nav-width) - var(--splitter-width, 16px)) * 0.54), 820px);
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) > .workspace-bar {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) > .workspace-bar {
     display: none;
   }
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-artifact {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact {
   position: relative;
   flex: 1;
   min-width: 0;
@@ -514,7 +514,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   overflow: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .artifact-top {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-top {
   flex: none;
   display: flex;
   align-items: flex-start;
@@ -524,10 +524,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   border-bottom: 1px solid var(--aurora-rim);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .artifact-title { flex: 1; min-width: 0; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .artifact-title h2 { margin: 0; font-size: 16.5px; font-weight: 600; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-title { flex: 1; min-width: 0; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-title h2 { margin: 0; font-size: 16.5px; font-weight: 600; }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .artifact-close {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-close {
   flex: none;
   min-height: 30px;
   padding: 4px 13px;
@@ -537,11 +537,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   color: var(--fg2);
   font-size: 13px;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .artifact-close:hover { color: var(--fg); border-color: var(--line-strong); }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-artifact > .artifact-content { padding: 16px 22px 24px; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-close:hover { color: var(--fg); border-color: var(--line-strong); }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact > .artifact-content { padding: 16px 22px 24px; }
 
 /* ---------- A decision on the canvas (2026-11-21-aurora-canvas.md) ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-kind {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-kind {
   margin: 0 0 4px;
   color: var(--muted);
   font-size: 11.5px;
@@ -549,9 +549,9 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   letter-spacing: .04em;
   text-transform: uppercase;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .artifact-title h2 { font-size: 19px; line-height: 1.35; text-wrap: pretty; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision > .artifact-content { padding-bottom: 0; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision article.card.item {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .artifact-title h2 { font-size: 19px; line-height: 1.35; text-wrap: pretty; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision > .artifact-content { padding-bottom: 0; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision article.card.item {
   flex: 1;
   margin: 0;
   padding: 0;
@@ -559,8 +559,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   background: transparent;
   box-shadow: none;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision article.card.item > .ask { flex: 1; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision article.card.item > .ask { flex: 1; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview {
   margin: 12px 0;
   padding: 12px 14px;
   border-radius: var(--r-md);
@@ -570,23 +570,23 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   flex-direction: column;
   gap: 8px;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview-rows { display: flex; flex-direction: column; gap: 5px; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview-row {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview-rows { display: flex; flex-direction: column; gap: 5px; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview-row {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   gap: 8px;
   font-size: 13px;
   line-height: 1.4;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview-key {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview-key {
   color: var(--muted);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview-val { color: var(--fg); word-break: break-word; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview-body {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview-val { color: var(--fg); word-break: break-word; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview-body {
   margin: 2px 0 0;
   padding-top: 8px;
   border-top: 1px solid var(--aurora-rim);
@@ -596,11 +596,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   white-space: pre-wrap;
   word-break: break-word;
 }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-preview-body:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .ask-content > summary { cursor: pointer; color: var(--fg2); font-size: 13.5px; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-about { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .decision-meta { margin: 0; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .stage-decision .ask-answers {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-preview-body:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .ask-content > summary { cursor: pointer; color: var(--fg2); font-size: 13.5px; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-about { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-meta { margin: 0; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .ask-answers {
   position: sticky;
   bottom: 0;
   margin-top: auto;
@@ -608,16 +608,16 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   background: linear-gradient(to bottom, transparent, var(--aurora-glass-strong) 14px);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="full"] .stage-artifact.stage-opening {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-artifact.stage-opening {
   animation: stageArtifactIn .55s var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"])[data-motion="reduced"] .stage-artifact.stage-opening {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .stage-artifact.stage-opening {
   animation: fade .15s linear both;
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> section.conv) > section.conv) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> section.conv) > section.conv) {
     background: Canvas;
     backdrop-filter: none;
     border-color: CanvasText;
@@ -628,11 +628,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
    The first playbook a wide 21:9 image card, the rest 4:3 image cards in
    pairs; the image fills the card under a dark fade and zooms on hover.
    aurora-explore.js slides them when the filter changes. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-hero {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-hero {
   padding-right: 56px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid {
   position: relative;
   gap: 16px;
 }
@@ -640,7 +640,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 /* The shape is the least a card takes: one whose words need more grows to
    hold them (overflow visible makes aspect-ratio a minimum), and none is
    wider than its column (decisions/2026-11-21-explore-cards-hold-their-words.md). */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card {
   position: relative;
   isolation: isolate;
   aspect-ratio: 4 / 3;
@@ -662,7 +662,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
   max-width: 620px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card .card-media {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .card-media {
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -672,45 +672,45 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
   border-radius: inherit;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card .card-media::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .card-media::after {
   background: linear-gradient(180deg, rgba(0, 0, 0, .1) 0%, rgba(0, 0, 0, .5) 42%, rgba(0, 0, 0, .94) 78%);
 }
 
 /* As the mockup's: the words at the foot over the fade, the kind of
    playbook at the top, in its own place so the words never sit on it. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card .explore-card-head {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .explore-card-head {
   margin-bottom: auto;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card .explore-card-foot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .explore-card-foot {
   margin-top: 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card .card-media img {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .card-media img {
   opacity: .92;
   transition: transform .8s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card:hover .card-media img {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:hover .card-media img {
   transform: scale(1.03);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card h3 {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card h3 {
   font-size: 18px;
   letter-spacing: -0.02em;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card:first-child h3 {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child h3 {
   font-size: clamp(22px, 2.6vw, 29px);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card p.muted {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card p.muted {
   color: rgba(235, 240, 250, .8);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card.explore-leaving {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card.explore-leaving {
   pointer-events: none;
   z-index: 0;
 }
@@ -718,13 +718,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 /* Container-responsive conversation head: keeps Approvals, Views, Your
    computer, Project select, and Trash inside the column at any desktop split
    width or phone viewport (decisions/2026-11-21-aurora-phone.md). */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) section.conv {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv {
   container-type: inline-size;
   container-name: aurora-conv;
 }
 
 @container aurora-conv (max-width: 680px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .conv-head .computer-chip-words {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head .computer-chip-words {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -733,24 +733,24 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
     white-space: nowrap;
   }
 
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .conv-head select {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head select {
     max-width: 112px;
   }
 
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .conv-head .conv-proj {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head .conv-proj {
     max-width: 88px;
   }
 }
 
 @container aurora-conv (max-width: 500px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .conv-head {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head {
     flex-wrap: wrap;
     row-gap: 6px;
     column-gap: 8px;
     padding: 10px 14px 6px;
   }
 
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .conv-head > .row {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head > .row {
     min-width: 0;
     max-width: 100%;
     flex-wrap: wrap;
@@ -761,7 +761,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova
 
 /* On a phone, as the mockup's: one column, the first card 4:3 too. */
 @media (max-width: 760px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"], [data-style="nova"]) .explore-grid > .explore-card:first-child {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
     aspect-ratio: 4 / 3;
   }
 }

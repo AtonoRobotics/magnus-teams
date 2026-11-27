@@ -1,0 +1,696 @@
+/* Nova standalone Bento Stage, Artifact Canvas & Explore card media.
+   Completely independent of Aurora stylesheets. */
+
+html[data-style="nova"] body:not([data-workspace="single"][data-region="work"]) .shell > main:has(> section.conv) {
+  container-type: inline-size;
+  container-name: aurora-main;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+@media (min-width: 761px) {
+  /* One frame holds the work: the page or conversation, and the canvas
+     beside it (decisions/2026-11-21-aurora-composition.md). It spans the
+     columns they share, so it stays still while they trade room inside it;
+     what sits in it is drawn over it. Placed by the grid but out of its
+     flow, it takes no part in sizing the columns. It is denser glass rather
+     than blurred: a blur the size of the window cost a quarter of the frame
+     rate (51 to 38 fps on Strix Beta), and text reads better on a calm
+     surface. The smaller islands on it keep their blur. */
+  html[data-style="nova"] body:not([data-navigation=drawer]) .shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    grid-row: 2;
+    grid-column: 2 / -1;
+    z-index: 0;
+    margin-left: 12px;
+    border-radius: var(--r-xl);
+    border: 1px solid var(--hair);
+    background: var(--surface);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    pointer-events: none;
+  }
+}
+
+html[data-style="nova"] section.conv:has(> .stage-bento) > #banners > .banner-row {
+  display: none;
+}
+
+html[data-style="nova"] .shell > main:has(> section.conv) > section.conv {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  html[data-style="nova"] .shell > main:has(> section.conv) > section.conv {
+    border-radius: var(--r-xl);
+    border: 1px solid var(--hair);
+    background: var(--surface);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+}
+
+html[data-style="nova"] .stage-bento {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 728px;
+  max-height: 44vh;
+  overflow-y: auto;
+  margin: 8px auto 4px;
+  padding: 0 16px;
+}
+
+html[data-style="nova"] .stage-bento[data-count="0"] {
+  height: 0;
+  max-height: 0;
+  margin-top: 0;
+  overflow: hidden;
+}
+
+html[data-style="nova"] .stage-bento:is([data-count="1"], [data-count="3"], [data-count="5"]) > .stage-tile:first-child,
+html[data-style="nova"] .stage-bento > .stage-tile:first-child:is([data-tone="needs"], [data-tone="run"]) {
+  grid-column: 1 / -1;
+}
+
+@container aurora-main (min-width: 820px) {
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] {
+    display: grid;
+    grid-template-columns: minmax(360px, 56%) minmax(280px, 44%);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+    align-content: stretch;
+  }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .conv-head { grid-column: 1 / -1; grid-row: 1; }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > #banners { grid-column: 1 / -1; grid-row: 2; }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .thread { grid-column: 1; grid-row: 3; min-height: 0; overflow-y: auto; padding-left: 24px; padding-right: 20px; }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .stage-bento {
+    grid-column: 2;
+    grid-row: 3;
+    grid-template-columns: 1fr;
+    max-width: none;
+    max-height: none;
+    height: auto;
+    margin: 0;
+    padding: 14px 18px;
+    border-left: 1px solid var(--aurora-rim);
+    background: color-mix(in srgb, var(--fg) 1.5%, transparent);
+    gap: 10px;
+  }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .stage-bento-bottom {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    max-width: none;
+    margin: 0;
+    padding: 10px 20px;
+    border-top: 1px solid var(--aurora-rim);
+    background: color-mix(in srgb, var(--fg) 1.5%, transparent);
+  }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .stage-bento-bottom[data-count="0"] { padding: 0; border-top: 0; }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .chat-status { grid-column: 1 / -1; grid-row: 5; }
+  html[data-style="nova"] section.conv[data-stage-mode="composed"] > .composer-slot { grid-column: 1 / -1; grid-row: 6; }
+}
+
+html[data-style="nova"][data-motion="full"] .stage-tile.stage-tile-enter {
+  animation: stageTileIn .42s var(--ease) both;
+}
+
+html[data-style="nova"] .stage-tile.stage-tile-leaving {
+  pointer-events: none;
+  animation: stageTileOut .32s var(--ease) both;
+}
+
+html[data-style="nova"] .stage-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hair);
+  overflow: hidden;
+  background:
+    radial-gradient(220px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 70%),
+    var(--aurora-glass);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
+}
+
+html[data-style="nova"] .stage-tile:hover {
+  border-color: var(--line-strong);
+  text-decoration: none;
+}
+
+html[data-style="nova"] .stage-tile[data-tone="needs"] {
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+html[data-style="nova"] .stage-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+html[data-style="nova"] .stage-tile-ic {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+html[data-style="nova"] .stage-tile-ic svg.ic {
+  width: 12px;
+  height: 12px;
+}
+
+html[data-style="nova"] .stage-tile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-style="nova"] .stage-tile-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: var(--warn-fg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+html[data-style="nova"] .stage-tile-close {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: -2px -4px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
+}
+
+html[data-style="nova"] .stage-tile-close::after {
+  content: "";
+  position: absolute;
+  inset: -13px;
+}
+
+html[data-style="nova"] .stage-tile-close svg.ic {
+  width: 12px;
+  height: 12px;
+}
+
+html[data-style="nova"] :is(.stage-tile:hover, .stage-tile:focus-within) .stage-tile-close {
+  opacity: 1;
+}
+
+html[data-style="nova"] .stage-tile-close:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg);
+}
+
+@media (hover: none) {
+  html[data-style="nova"] .stage-tile .stage-tile-close {
+    opacity: 1;
+  }
+}
+
+html[data-style="nova"] .stage-tile .mini-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background .3s var(--ease), box-shadow .3s var(--ease);
+}
+
+html[data-style="nova"] .stage-tile[data-tone="run"] .mini-dot {
+  background: var(--aurora-beam-a);
+  box-shadow: 0 0 10px var(--aurora-beam-a);
+}
+
+html[data-style="nova"] .stage-tile[data-tone="needs"] .mini-dot {
+  background: var(--warn);
+  box-shadow: 0 0 10px var(--warn);
+}
+
+html[data-style="nova"] .stage-tile[data-tone="done"] .mini-dot {
+  background: var(--ok);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
+}
+
+html[data-style="nova"] .stage-tile[data-tone="talk"] .mini-dot {
+  background: var(--aurora-beam-b);
+  box-shadow: 0 0 10px var(--aurora-beam-b);
+}
+
+html[data-style="nova"] .stage-tile[data-tone="done"]:has(.aurora-confirmed-row) {
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+html[data-style="nova"] .stage-tile a.stage-tile-title {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+html[data-style="nova"] .stage-tile .ask-answers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px;
+  margin: 3px 0 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+html[data-style="nova"] .stage-tile .ask-answers button {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+html[data-style="nova"] .stage-tile .aurora-confirmed-row {
+  justify-content: flex-start;
+  padding-top: 2px;
+  border-top: 0;
+}
+
+html[data-style="nova"][data-motion="full"] .stage-tile:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
+  animation: auroraSpark 2.4s ease-in-out infinite;
+}
+
+html[data-style="nova"] .stage-tile-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-style="nova"] .stage-tile-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--fg2);
+}
+
+html[data-style="nova"] :is(.stage-tile-steps, .stage-tile-proof) {
+  display: block;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg2);
+}
+
+html[data-style="nova"] .stage-tile-steps li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-style="nova"] .stage-tile-steps li[data-state="failed"] {
+  color: var(--bad);
+}
+
+html[data-style="nova"] .stream-word {
+  display: inline-block;
+  animation: stageWordIn .34s var(--ease) both;
+}
+
+html[data-style="nova"] .aurora-stream-in:has(.stream-word) {
+  animation: none;
+}
+
+html[data-style="nova"] .aurora-canvas-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--aurora-rim);
+}
+
+html[data-style="nova"] .aurora-canvas-meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-style="nova"] .aurora-verified-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+html[data-style="nova"] .aurora-canvas-open {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .2s var(--ease), color .2s var(--ease), background-color .2s var(--ease);
+}
+
+html[data-style="nova"] .aurora-canvas-open:is(:hover, :focus-visible) {
+  border-color: var(--line-strong);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+html[data-style="nova"] .shell > aside.detail:has(> .stage-artifact) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+@media (min-width: 761px) {
+  html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) {
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+  html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="compact"]) {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(380px, 34vw, 460px);
+  }
+  html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell > aside.detail:has(> .stage-artifact[data-canvas-size="compact"]) {
+    min-width: 0;
+  }
+  html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="wide"]) {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(var(--panel-width, 360px), calc((100% - var(--nav-width) - var(--splitter-width, 16px)) * 0.54), 820px);
+  }
+  html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) > .workspace-bar {
+    display: none;
+  }
+}
+
+html[data-style="nova"] .stage-artifact {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hair);
+  background: var(--surface);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+html[data-style="nova"] .artifact-top {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 22px;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--aurora-rim);
+}
+
+html[data-style="nova"] .artifact-title { flex: 1; min-width: 0; }
+
+html[data-style="nova"] .artifact-title h2 { margin: 0; font-size: 16.5px; font-weight: 600; }
+
+html[data-style="nova"] .artifact-close {
+  flex: none;
+  min-height: 30px;
+  padding: 4px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg2);
+  font-size: 13px;
+}
+
+html[data-style="nova"] .artifact-close:hover { color: var(--fg); border-color: var(--line-strong); }
+
+html[data-style="nova"] .stage-artifact > .artifact-content { padding: 16px 22px 24px; }
+
+html[data-style="nova"] .stage-decision .decision-kind {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+html[data-style="nova"] .stage-decision .artifact-title h2 { font-size: 19px; line-height: 1.35; text-wrap: pretty; }
+
+html[data-style="nova"] .stage-decision > .artifact-content { padding-bottom: 0; }
+
+html[data-style="nova"] .stage-decision article.card.item {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-style="nova"] .stage-decision article.card.item > .ask { flex: 1; }
+
+html[data-style="nova"] .stage-decision .decision-preview {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+html[data-style="nova"] .stage-decision .decision-preview-rows { display: flex; flex-direction: column; gap: 5px; }
+
+html[data-style="nova"] .stage-decision .decision-preview-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+html[data-style="nova"] .stage-decision .decision-preview-key {
+  color: var(--muted);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-style="nova"] .stage-decision .decision-preview-val { color: var(--fg); word-break: break-word; }
+
+html[data-style="nova"] .stage-decision .decision-preview-body {
+  margin: 2px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--aurora-rim);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+html[data-style="nova"] .stage-decision .decision-preview-body:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+html[data-style="nova"] .stage-decision .ask-content > summary { cursor: pointer; color: var(--fg2); font-size: 13.5px; }
+
+html[data-style="nova"] .stage-decision .decision-about { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+
+html[data-style="nova"] .stage-decision .decision-meta { margin: 0; }
+
+html[data-style="nova"] .stage-decision .ask-answers {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding-bottom: 18px;
+  background: linear-gradient(to bottom, transparent, var(--aurora-glass-strong) 14px);
+}
+
+html[data-style="nova"][data-motion="full"] .stage-artifact.stage-opening {
+  animation: stageArtifactIn .55s var(--ease) both;
+}
+
+html[data-style="nova"][data-motion="reduced"] .stage-artifact.stage-opening {
+  animation: fade .15s linear both;
+}
+
+@media (forced-colors: active) {
+  html[data-style="nova"] :is(.stage-tile, .stage-artifact, .shell > main:has(> section.conv) > section.conv) {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+}
+
+html[data-style="nova"] .explore-hero {
+  padding-right: 56px;
+}
+
+html[data-style="nova"] .explore-grid {
+  position: relative;
+  gap: 16px;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card {
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 4 / 3;
+  min-width: 0;
+  overflow: visible;
+  justify-content: flex-end;
+  padding: 22px 24px;
+  border-radius: var(--r-xl);
+  color: #f5f7fb;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card .card-media {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border-radius: inherit;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card .card-media::after {
+  background: linear-gradient(180deg, rgba(0, 0, 0, .1) 0%, rgba(0, 0, 0, .5) 42%, rgba(0, 0, 0, .94) 78%);
+}
+
+html[data-style="nova"] .explore-grid > .explore-card .explore-card-head {
+  margin-bottom: auto;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card .explore-card-foot {
+  margin-top: 0;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card .card-media img {
+  opacity: .92;
+  transition: transform .8s var(--ease);
+}
+
+html[data-style="nova"] .explore-grid > .explore-card:hover .card-media img {
+  transform: scale(1.03);
+}
+
+html[data-style="nova"] .explore-grid > .explore-card h3 {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card:first-child h3 {
+  font-size: clamp(22px, 2.6vw, 29px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+html[data-style="nova"] .explore-grid > .explore-card p.muted {
+  color: rgba(235, 240, 250, .8);
+}
+
+html[data-style="nova"] .explore-grid > .explore-card.explore-leaving {
+  pointer-events: none;
+  z-index: 0;
+}
+
+html[data-style="nova"] section.conv {
+  container-type: inline-size;
+  container-name: aurora-conv;
+}
+
+@container aurora-conv (max-width: 680px) {
+  html[data-style="nova"] .conv-head .computer-chip-words {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  html[data-style="nova"] .conv-head select {
+    max-width: 112px;
+  }
+
+  html[data-style="nova"] .conv-head .conv-proj {
+    max-width: 88px;
+  }
+}
+
+@container aurora-conv (max-width: 500px) {
+  html[data-style="nova"] .conv-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    column-gap: 8px;
+    padding: 10px 14px 6px;
+  }
+
+  html[data-style="nova"] .conv-head > .row {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  html[data-style="nova"] .explore-grid > .explore-card:first-child {
+    aspect-ratio: 4 / 3;
+  }
+}

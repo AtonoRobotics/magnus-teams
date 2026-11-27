@@ -1,0 +1,434 @@
+/* Nova standalone Left Rail, Slide-out Drawer & Compact Thread History.
+   Completely independent of Aurora stylesheets. */
+
+html[data-style="nova"] nav.side [data-nav-toggle] {
+  display: none;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side {
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side #side {
+  display: contents;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .brand {
+  order: -2;
+  margin-bottom: 6px;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .new-chat {
+  order: -1;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .aurora-rail-open {
+  position: relative;
+  display: inline-grid;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .rail-tree,
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .sect:has(> a[href="#/trash"]) {
+  display: none;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side a:hover {
+  transform: none;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side :is(.icon-btn, a.primary-nav) {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+html[data-style="nova"] body[data-navigation=expanded] nav.side .aurora-rail-pin {
+  display: inline-grid;
+}
+
+html[data-style="nova"] body[data-navigation=expanded] nav.side .aurora-rail-pin[aria-pressed="true"] {
+  color: var(--accent-text);
+}
+
+html[data-style="nova"] body[data-navigation=expanded] nav.side .brand-name {
+  flex: 1;
+}
+
+html[data-style="nova"] body:not([data-navigation=drawer]) .navigation-drawer {
+  inset: 8px auto 8px 8px;
+  width: 264px;
+  height: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+}
+
+html[data-style="nova"] body:not([data-navigation=drawer]) .navigation-drawer::backdrop {
+  background: rgb(0 0 0 / .22);
+}
+
+html[data-style="nova"][data-motion="full"] body:not([data-navigation=drawer]) .navigation-drawer[open] {
+  animation: auroraRailIn .26s var(--ease) both;
+}
+
+@media (pointer: fine) {
+  html[data-style="nova"] body[data-navigation=expanded] nav.side {
+    gap: 8px;
+  }
+
+  html[data-style="nova"] body[data-navigation=expanded] nav.side #side {
+    gap: 2px;
+  }
+
+  html[data-style="nova"] body[data-navigation=expanded] nav.side .group {
+    padding: 8px 8px 2px;
+  }
+}
+
+html[data-style="nova"][data-motion="full"] .aurora-avatar[data-state="listening"]::before,
+html[data-style="nova"][data-motion="full"] .aurora-avatar[data-state="listening"]::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ok) 65%, transparent);
+  pointer-events: none;
+  animation: auroraVoiceRipple 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+html[data-style="nova"][data-motion="full"] .aurora-avatar[data-state="listening"]::after {
+  animation-delay: 0.65s;
+}
+
+html[data-style="nova"] nav.side .brand .logo:has(> .aurora-avatar) {
+  width: auto;
+  height: auto;
+}
+
+html[data-style="nova"] nav.side .brand .logo:has(> .aurora-avatar) > svg {
+  display: none;
+}
+
+html[data-style="nova"] body[data-navigation=drawer] .aurora-avatar-bar {
+  display: inline-grid;
+}
+
+html[data-style="nova"] * {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+html[data-style="nova"] :is(:hover, :focus-within) {
+  scrollbar-color: color-mix(in srgb, var(--fg) 24%, transparent) transparent;
+}
+
+html[data-style="nova"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+html[data-style="nova"] ::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+  background-color: transparent;
+}
+
+html[data-style="nova"] :is(:hover, :focus-within)::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--fg) 24%, transparent);
+}
+
+html[data-style="nova"] ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fg) 40%, transparent);
+}
+
+@media (forced-colors: active) {
+  html[data-style="nova"] * {
+    scrollbar-color: auto;
+  }
+}
+
+html[data-style="nova"] .model-chip {
+  position: relative;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+html[data-style="nova"] .model-chip > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(260px, 46vw);
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--fg2);
+  font-size: 13px;
+  white-space: nowrap;
+  list-style: none;
+  cursor: pointer;
+}
+
+html[data-style="nova"] .model-chip > summary::-webkit-details-marker {
+  display: none;
+}
+
+html[data-style="nova"] .model-chip > summary::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(2px) rotate(45deg);
+  opacity: .7;
+}
+
+html[data-style="nova"] .model-chip > summary:hover,
+html[data-style="nova"] .model-chip[open] > summary {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+html[data-style="nova"] .model-chip > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+html[data-style="nova"] .model-chip-words {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-style="nova"] .model-chip-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: var(--z-flyout);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  box-shadow: var(--shadow);
+}
+
+html[data-style="nova"] .model-chip-menu > label.model select {
+  max-width: none;
+  width: 100%;
+}
+
+@media (forced-colors: active) {
+  html[data-style="nova"] .model-chip-menu {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+}
+
+html[data-style="nova"] .aurora-page-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  justify-content: flex-end;
+  height: 0;
+  overflow: visible;
+}
+
+html[data-style="nova"] .aurora-page-close {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  margin: -8px -8px 0 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--fg2);
+}
+
+html[data-style="nova"] .aurora-page-close:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+html[data-style="nova"] .aurora-page-close:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+html[data-style="nova"] .stage-bento-bottom {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-content: start;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 728px;
+  max-height: 28vh;
+  overflow-y: auto;
+  margin: 4px auto;
+  padding: 0 16px;
+}
+
+html[data-style="nova"] .stage-bento-bottom[data-count="0"] {
+  height: 0;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+  overflow: hidden;
+}
+
+html[data-style="nova"] #thread [data-history="1"] {
+  border: 0;
+  border-left: 2px solid var(--aurora-rim);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 2px 0 2px 12px;
+  margin: 4px 0 4px 4px;
+}
+
+html[data-style="nova"] #thread [data-history="1"] .rg-head {
+  padding: 1px 0 4px;
+  border: 0;
+  background: transparent;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+html[data-style="nova"] #thread [data-history="1"] .sub-agent {
+  padding: 3px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 2px 8px;
+  font-size: 12.5px;
+}
+
+html[data-style="nova"] #thread [data-history="1"] .rg-row {
+  padding: 3px 0;
+  border-radius: var(--r-xs);
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+html[data-style="nova"] #thread [data-history="1"] .card-acts {
+  display: none;
+}
+
+html[data-style="nova"] #thread [data-history="1"] .sub-agent details > summary {
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+html[data-style="nova"] #thread .decide[data-history-hidden="1"] {
+  display: none;
+}
+
+html[data-style="nova"] .stage-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+html[data-style="nova"] .stage-item {
+  border-radius: var(--r-xs);
+  border: 1px solid transparent;
+  transition: background .14s ease, border-color .14s ease;
+}
+
+html[data-style="nova"] .stage-item[open] {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border-color: var(--hair);
+}
+
+html[data-style="nova"] .stage-item-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--fg2);
+  border-radius: var(--r-xs);
+}
+
+html[data-style="nova"] .stage-item-row::-webkit-details-marker {
+  display: none;
+}
+
+html[data-style="nova"] .stage-item-row:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  color: var(--fg);
+}
+
+html[data-style="nova"] .stage-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+html[data-style="nova"] .stage-item-meta {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+html[data-style="nova"] .stage-item[data-status="completed"] .stage-step-dot,
+html[data-style="nova"] .stage-item[data-status="done"] .stage-step-dot {
+  background: var(--ok);
+}
+
+html[data-style="nova"] .stage-item[data-status="running"] .stage-step-dot,
+html[data-style="nova"] .stage-item[data-status="active"] .stage-step-dot {
+  background: var(--accent);
+}
+
+html[data-style="nova"] .stage-item[data-status="suspended"] .stage-step-dot {
+  background: var(--warn);
+}
+
+html[data-style="nova"] .stage-item-body {
+  padding: 2px 8px 8px 20px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+html[data-style="nova"] .stage-item-body > p {
+  margin: 0 0 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+html[data-style="nova"] .stage-item-link {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+html[data-style="nova"] .stage-item-link:hover {
+  text-decoration: underline;
+}

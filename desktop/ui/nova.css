@@ -128,10 +128,6 @@ html[data-style="nova"] :is(button.primary, .button.primary):hover { box-shadow:
 html[data-style="nova"] body[data-navigation=compact] nav.side a.primary-nav { border-radius: var(--r-pill); }
 html[data-style="nova"] nav.side a.primary-nav.on { background: var(--seg-on); color: var(--fg); }
 
-html[data-style="nova"] .stage-tile { background: var(--surface); border-color: var(--hair); backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: var(--r-lg); }
-html[data-style="nova"] .stage-tile:hover { border-color: var(--line-strong); }
-html[data-style="nova"] .stage-tile[data-tone="needs"] { border-color: color-mix(in srgb, var(--warn) 40%, transparent); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28); }
-
 /* ---------- 3. Whisper-quiet sidebar: hover-only delete controls ---------- */
 @media (hover: hover) and (pointer: fine) {
   html[data-style="nova"] .nav-conv-del,
@@ -470,18 +466,10 @@ html[data-style="nova"] .lcard:hover {
 
 html[data-style="nova"] .explore-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
 }
 
 html[data-style="nova"] .explore-grid > .explore-card {
-  border-radius: var(--r-xl);
   border-color: var(--hair);
-}
-
-html[data-style="nova"] .explore-grid > .explore-card:first-child {
-  grid-column: auto;
-  aspect-ratio: 4 / 3;
-  max-height: none;
 }
 
 /* Centered Gemini-style Home intro on empty New Chat */
