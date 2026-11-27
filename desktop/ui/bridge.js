@@ -185,14 +185,24 @@ const webBridge = {
   },
   async signOut() { await this.api("POST", "/v1/sign-out", {}).catch(() => {}); },
   async forgotPassword(email) { return this.api("POST", "/v1/password-reset/request", { email }); },
+  _etags: new Map(),
   async api(method, path, body) {
-    const opts = { method, credentials: "same-origin", headers: { "x-magnus-client": "web" } };
+    const isGet = method === "GET" && (body === undefined || body === null);
+    const cached = isGet ? this._etags.get(path) : null;
+    const headers = { "x-magnus-client": "web" };
+    if (cached?.etag) headers["if-none-match"] = cached.etag;
+    const opts = { method, credentials: "same-origin", headers };
     if (body !== undefined && body !== null) { opts.headers["content-type"] = "application/json"; opts.body = JSON.stringify(body); }
     const r = await fetch(path, opts);
+    if (r.status === 304 && cached) return cached.data;
     const text = await r.text();
     let parsed = text;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* plain text */ }
     if (!r.ok) throw errorOf(r.status, parsed);
+    if (isGet) {
+      const etag = r.headers?.get?.("etag");
+      if (etag) this._etags.set(path, { etag, data: parsed });
+    }
     return parsed;
   },
   live(task, onText) {

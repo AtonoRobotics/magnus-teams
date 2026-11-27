@@ -210,22 +210,19 @@ const AuroraAvatar = (() => {
   }
 
   function run() {
-    if (typeof AuroraCore !== "undefined") {
-      place();
-      tell();
-      return;
-    }
-    if (timer || document.hidden) return;
-    timer = window.setInterval(() => { if (on()) { place(); tell(); } }, AVATAR_POLL_MS);
+    place();
+    tell();
   }
-  function stop() { if (timer) { clearInterval(timer); timer = 0; } }
+  function stop() {}
 
   if (typeof AuroraCore !== "undefined") {
     AuroraCore.onState(() => tell());
     AuroraCore.onDom(records => { if (records.some(r => r.addedNodes.length || r.removedNodes.length)) queuePlace(); });
   }
+  if (typeof UIStore !== "undefined") UIStore.subscribe("*", queuePlace);
+  window.addEventListener("magnus-render", queuePlace);
 
-  document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); else { run(); tell(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { run(); } });
   window.addEventListener("magnus-theme", () => { place(); tell(); for (const m of mounted) m.avatar.set(m.fixedState || state); });
 
   // Clicking the avatar shows what Magnus is doing: what waits on the
@@ -263,8 +260,8 @@ const AuroraAvatar = (() => {
     });
   }, { passive: true });
 
-  const first = new MutationObserver(() => { if (document.body) { first.disconnect(); run(); } });
-  if (document.body) run(); else first.observe(document.documentElement, { childList: true });
+  if (document.body) run();
+  else document.addEventListener("DOMContentLoaded", run);
 
   return { define, mount, get state() { return state; }, get mounted() { return mounted.map(m => ({ place: m.button.className, name: m.name })); }, now: () => { place(); tell(); } };
 })();

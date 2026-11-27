@@ -573,11 +573,13 @@ function wireDocument() {
   const style = document.createElement("style"); style.textContent = Compose.markdownStyles; document.head.append(style);
   document.addEventListener("load", e => { if (e.target.matches?.("iframe.composed")) { try { wireMarkdown(e.target.contentDocument); sizeComposedFrame(e.target); } catch { /* frame unavailable */ } } }, true);
   let uiBlocksQueued = 0;
-  new MutationObserver(() => {
+  const syncDocumentWidgets = () => {
     Menus.prune();
     for (const [frame, sizing] of frameSizing) if (!frame.isConnected) { sizing.observer.disconnect(); frame._frameActions?.dispose(); delete frame._frameActions; frameSizing.delete(frame); }
     if (!uiBlocksQueued) uiBlocksQueued = requestAnimationFrame(() => { uiBlocksQueued = 0; drawUiBlocks(document); });
-  }).observe(document.body, { childList: true, subtree: true });
+  };
+  window.addEventListener("magnus-render", syncDocumentWidgets);
+  if (typeof AuroraCore !== "undefined") AuroraCore.onDom(syncDocumentWidgets);
   // Anything that names an item opens it beside the conversation, without
   // leaving it.
   document.addEventListener("click", e => {
