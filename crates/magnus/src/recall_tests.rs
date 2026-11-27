@@ -12,7 +12,16 @@ async fn boot() -> Server {
 }
 
 fn memory(id: &str, person: &str, fact: &str, topic: Option<&str>) -> Ev {
-    Ev::Memory { id: id.into(), person: person.into(), run: String::new(), fact: fact.into(), topic: topic.map(String::from), label: Label::default(), sources: vec![], by: None }
+    Ev::Memory(crate::events::MemoryPayload {
+        id: id.into(),
+        person: person.into(),
+        run: String::new(),
+        fact: fact.into(),
+        topic: topic.map(String::from),
+        label: Label::default(),
+        sources: vec![],
+        by: None,
+    })
 }
 
 /// What `memory_search` serves mo for `query`, by memory id.

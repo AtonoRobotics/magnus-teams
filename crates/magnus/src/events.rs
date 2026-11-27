@@ -4,11 +4,11 @@
 mod memory;
 mod meta;
 mod mission;
+mod payloads;
 mod security;
-pub use {memory::*, meta::*, mission::*, security::*};
+pub use {memory::*, meta::*, mission::*, payloads::*, security::*};
 
 use crate::tools::Label;
-use magnus_adapter_proto::{Block, ErrorClass, Usage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -43,13 +43,7 @@ pub enum Ev {
         channel: String,
     },
     /// The retired console's session lifetimes: read, and changing nothing.
-    ConsoleSettings {
-        idle_minutes: i64,
-        session_hours: i64,
-        /// The subnets it takes connections from, as an admin set them under Operations › Network (None: the config's).
-        #[serde(default)]
-        allow: Option<Vec<String>>,
-    },
+    ConsoleSettings(ConsoleSettingsPayload),
     /// An admin's draft of a policy layer (None: dropped). Nothing in force changes until it is applied.
     PolicyDrafted {
         layer: String,
@@ -87,61 +81,20 @@ pub enum Ev {
         image_b64: String, // content; gone once its task is deleted
     },
     /// Something done in the admin console (audit: who, what, to what, from where, before/after).
-    AdminAction {
-        admin: String,
-        #[serde(default)]
-        name: String,
-        action: String,
-        #[serde(default)]
-        target: Option<String>,
-        #[serde(default)]
-        source: Option<String>,
-        #[serde(default)]
-        before: Option<Value>,
-        #[serde(default)]
-        after: Option<Value>,
-    },
+    AdminAction(AdminActionPayload),
     /// Lost-reset module rewound context from `from` to `to` with a note (replies remain in log).
-    ContextReset {
-        run: String,
-        from: u32,
-        to: u32,
-        signal: String,
-        note: String,
-    },
+    ContextReset(ContextResetPayload),
     /// One verifier call reviewing contract criteria (`criteria`) or work against them (`work`).
-    VerifierReply {
-        run: String,
-        purpose: String,
-        model: String,
-        #[serde(default)]
-        blocks: Vec<magnus_adapter_proto::Block>,
-        usage: magnus_adapter_proto::Usage,
-    },
+    VerifierReply(VerifierReplyPayload),
     /// One model call of the reviewer module: judging a send before it
     /// leaves (`send`), or the completion criteria no code check covers
     /// (`completion`).
-    ReviewerReply {
-        run: String,
-        purpose: String,
-        model: String,
-        #[serde(default)]
-        blocks: Vec<magnus_adapter_proto::Block>,
-        usage: magnus_adapter_proto::Usage,
-    },
+    ReviewerReply(ReviewerReplyPayload),
     /// A draft written by a scoped step: the model call saw only these
     /// threads and the person's own words, and the draft's body is what it
     /// wrote. `participants` are the threads' addresses, entitled to what
     /// the draft holds: a send of it to them passes under content provenance (#178).
-    DraftScoped {
-        run: String,
-        person: String,
-        draft: String,
-        threads: Vec<String>,
-        #[serde(default)]
-        participants: Vec<String>,
-        usage: magnus_adapter_proto::Usage,
-    },
+    DraftScoped(DraftScopedPayload),
     /// The proactive loop woke a review run for the person: why (cadence,
     /// overnight, a task's end (`task {id} done|failed`), an approval
     /// waiting, a schedule coming up, a commitment due), for the loop's
@@ -225,14 +178,7 @@ pub enum Ev {
     /// An admin turned one of the organisation's apps on or off, or set who
     /// may use it (admin console spec, Security › Connectors and
     /// credentials). `access_groups` and `blocked_groups` None keep the app's own.
-    ConnectorSettings {
-        name: String,
-        enabled: bool,
-        #[serde(default)]
-        access_groups: Option<Vec<String>>,
-        #[serde(default)]
-        blocked_groups: Option<Vec<String>>,
-    },
+    ConnectorSettings(ConnectorSettingsPayload),
     /// The organisation's credential for an app (its key) was set, or
     /// revoked. The value is in the vault, never here.
     CredentialSet {
@@ -275,26 +221,14 @@ pub enum Ev {
     },
     /// The groups and roles the identity provider gave a person at sign-in
     /// (where the owner named those claims); they replace the config's.
-    RightsFromProvider {
-        person: String,
-        #[serde(default)]
-        groups: Option<Vec<String>>,
-        #[serde(default)]
-        roles: Option<Vec<String>>,
-    },
+    RightsFromProvider(RightsFromProviderPayload),
     /// The owner set whether people's data is private from the admin
     /// (owner's ruling 14): by default it is the organisation's.
     DataAccessSet {
         private: bool,
     },
     /// The admin read a person's data (`what`: tasks, chats, files, memory).
-    PersonDataRead {
-        person: String,
-        what: String,
-        /// One task, conversation, file or memory, when one was opened.
-        #[serde(default)]
-        item: Option<String>,
-    },
+    PersonDataRead(PersonDataReadPayload),
     /// Root deleted a person's data (admin console spec, Users › Delete):
     /// their tasks, runs, conversations, files, memory, schedules and inbox
     /// leave the appliance's state; their content leaves the store (the
@@ -324,45 +258,16 @@ pub enum Ev {
     /// (behavior spec, Per-user relationship): `great` ("that was great"),
     /// `annoying` ("that was annoying"), or none, taken back. The latest
     /// counts. It names the message, not its words.
-    Reacted {
-        person: String,
-        thread: String,
-        entry: String,
-        #[serde(default)]
-        reaction: Option<String>,
-    },
+    Reacted(ReactedPayload),
     /// Magnus advised one thing and the person decided otherwise: its
     /// position and their decision, recorded by Magnus in a run of theirs
     /// (`disagreement`).
-    DisagreementRecorded {
-        id: String,
-        person: String,
-        run: String,
-        #[serde(default)]
-        position: String,
-        #[serde(default)]
-        decision: String,
-    },
+    DisagreementRecorded(DisagreementRecordedPayload),
     /// How a disagreement turned out, recorded later.
-    DisagreementOutcome {
-        id: String,
-        person: String,
-        run: String,
-        #[serde(default)]
-        outcome: String,
-    },
+    DisagreementOutcome(DisagreementOutcomePayload),
     /// A person branched a thread at an entry: a new thread starts with the
     /// conversation up to there, as it was then.
-    ThreadBranched {
-        person: String,
-        thread: String,
-        from: String,
-        upto: String,
-        #[serde(default)]
-        entries: Vec<Value>,
-        #[serde(default)]
-        title: String,
-    },
+    ThreadBranched(ThreadBranchedPayload),
     /// A person connected one of the organisation's apps with their own
     /// account (connectors spec, Lifecycle and audit). The tokens are in
     /// the vault, never here; `account` is whom the app says they are.
@@ -464,69 +369,17 @@ pub enum Ev {
         reason: String,
     },
     /// A schedule is over: it reached its end or its run count, or one of its own runs ended it.
-    ScheduleEnded {
-        id: String,
-        /// Why: the kernel's words, or what the run that ended it wrote (content, removed with that run).
-        #[serde(default)]
-        reason: String,
-        /// The run that ended it, when one did.
-        #[serde(default)]
-        run: Option<String>,
-    },
+    ScheduleEnded(ScheduleEndedPayload),
     /// A schedule stopped starting runs after too many failed in a row,
     /// until its person resumes it.
-    SchedulePaused {
-        id: String,
-        reason: String,
-        /// The task whose run waits on a person: the schedule resumes by
-        /// itself once it no longer does. None: paused for failures,
-        /// until its person resumes it.
-        #[serde(default)]
-        task: Option<String>,
-        /// An admin's suspension: only an admin lifts it.
-        #[serde(default)]
-        admin: bool,
-        /// How it was done: "button" (the app), "conversation" (chat), or
-        /// "console" (the admin UI). None: automatic, or logged before #267.
-        #[serde(default)]
-        source: Option<String>,
-        /// The chat run that did it, when by conversation.
-        #[serde(default)]
-        turn: Option<String>,
-    },
+    SchedulePaused(SchedulePausedPayload),
     /// When a schedule runs and when it ends, changed by its person (or the
     /// owner or an admin); what each run does stays.
-    ScheduleChanged {
-        id: String,
-        every_minutes: Option<u32>,
-        daily_at: Option<String>,
-        until: Option<chrono::DateTime<chrono::Utc>>,
-        max_runs: Option<u32>,
-        /// How it was done: "button", "conversation" or "console" (#267).
-        #[serde(default)]
-        source: Option<String>,
-        /// The chat run that did it, when by conversation.
-        #[serde(default)]
-        turn: Option<String>,
-    },
-    ScheduleResumed {
-        id: String,
-        /// How it was done: "button", "conversation" or "console" (#267).
-        #[serde(default)]
-        source: Option<String>,
-        /// The chat run that did it, when by conversation.
-        #[serde(default)]
-        turn: Option<String>,
-    },
+    ScheduleChanged(ScheduleChangedPayload),
+    ScheduleResumed(ScheduleResumedPayload),
     /// The person declined a card proposed in chat (a schedule or a
     /// suggestion), with their reason (none in logs from before #253).
-    CardDeclined {
-        card: String,
-        #[serde(default)]
-        person: Option<String>,
-        #[serde(default)]
-        reason: Option<String>,
-    },
+    CardDeclined(CardDeclinedPayload),
     /// The person answered "Not now" to a card proposed in chat.
     CardDeferred {
         card: String,
@@ -539,99 +392,32 @@ pub enum Ev {
         person: String,
         task: String,
     },
-    ScheduleRemoved {
-        id: String,
-        /// How it was done: "button", "conversation" or "console" (#267).
-        #[serde(default)]
-        source: Option<String>,
-        /// The chat run that did it, when by conversation.
-        #[serde(default)]
-        turn: Option<String>,
-    },
+    ScheduleRemoved(ScheduleRemovedPayload),
     /// A person's standing authority over a category of their own work
     /// (behavior spec, Standing authority; #235): set when they chose
     /// "Handle things like this" on a task proposal, or accepted a grant
     /// card Magnus put to them. An edit sets it again with the same id.
     /// `cedar` is the policy the kernel wrote from these fields: what it
     /// covers in the tasks started under it.
-    GrantSet {
-        id: String,
-        person: String,
-        /// The category of work, in words (content).
-        #[serde(default)]
-        title: String,
-        /// The apps it covers, by name.
-        apps: Vec<String>,
-        /// Exclusions the person lifted: `send`, `irreversible`.
-        #[serde(default)]
-        allow: Vec<String>,
-        /// `day`, `week` or `month`: a rolling 1, 7 or 30 days.
-        period: String,
-        /// Model cost its tasks may spend in a period.
-        max_usd: f64,
-        /// The card it was set from, if any.
-        #[serde(default)]
-        card: Option<String>,
-        cedar: String,
-        /// The taint of the chat turn whose words its title is, when they
-        /// were not the person's own.
-        #[serde(default)]
-        label: Option<Label>,
-    },
+    GrantSet(GrantSetPayload),
     /// The person revoked a grant: it covers nothing from now on.
     GrantRevoked {
         id: String,
         person: String,
     },
     /// An action a policy asked about went ahead under a grant.
-    GrantUsed {
-        grant: String,
-        task: String,
-        run: String,
-        call_id: String,
-        tool: String,
-    },
+    GrantUsed(GrantUsedPayload),
     /// Something the person or Magnus said they would do (behavior spec,
     /// the commitment ledger; #236), recognised by Magnus in a run of the
     /// person's: `who` (`person` or `magnus`) will do `what`, for `to`, by
     /// `by` (a date or a time). `quote` is the words it was recognised
     /// from, found verbatim in the person's own words of the run or in the
     /// result of a call it read (`source`). `label` is the run's taint.
-    CommitmentRecorded {
-        id: String,
-        person: String,
-        who: String,
-        #[serde(default)]
-        what: String,
-        #[serde(default)]
-        to: Option<String>,
-        #[serde(default)]
-        by: Option<String>,
-        /// `{kind: conversation, thread, task}` or `{kind: app, app, tool, task, call}`.
-        #[serde(default)]
-        source: Value,
-        #[serde(default)]
-        quote: String,
-        #[serde(default)]
-        label: Label,
-    },
+    CommitmentRecorded(CommitmentRecordedPayload),
     /// A commitment corrected (its words, for whom, by when) or its status
     /// changed (`open`, `done`, `released`), by the person or by Magnus.
     /// What is given replaces what it had; an empty `to` or `by` clears it.
-    CommitmentChanged {
-        id: String,
-        person: String,
-        #[serde(default)]
-        what: Option<String>,
-        #[serde(default)]
-        to: Option<String>,
-        #[serde(default)]
-        by: Option<String>,
-        #[serde(default)]
-        status: Option<String>,
-        #[serde(default)]
-        note: Option<String>,
-    },
+    CommitmentChanged(CommitmentChangedPayload),
     /// The person removed a commitment; the content of its events is
     /// deleted with a `removed` event that follows.
     CommitmentRemoved {
@@ -654,22 +440,9 @@ pub enum Ev {
     },
     /// Retired (spec rev 140: definitions are screened, `Tools`): a tool
     /// definition pinned by hash, `approved` once the owner reviewed its text.
-    ToolPinned {
-        tool: String,
-        hash: String,
-        description: String,
-        input_schema: Value,
-        #[serde(default)]
-        approved: bool,
-    },
+    ToolPinned(ToolPinnedPayload),
     /// Retired as `ToolPinned` is: a definition changed, awaiting review.
-    ToolChanged {
-        tool: String,
-        hash: String,
-        description: String,
-        input_schema: Value,
-        item: String,
-    },
+    ToolChanged(ToolChangedPayload),
     TaskCreated {
         task: String,
         run: String,
@@ -708,29 +481,11 @@ pub enum Ev {
     },
     /// A file the person added: to the library, a project, or a chat
     /// message. Its content is private data, never instructions.
-    FileUploaded {
-        id: String,
-        person: String,
-        #[serde(default)]
-        name: String,
-        media_type: String,
-        #[serde(default)]
-        data_b64: String,
-        /// Where it was added, when that was a chat thread.
-        #[serde(default)]
-        thread: Option<String>,
-    },
+    FileUploaded(FileUploadedPayload),
     /// A project was made or changed by its person: its name and the
     /// instructions that apply to everything in it. Only the person writes
     /// these (I1); no tool does.
-    ProjectSet {
-        id: String,
-        person: String,
-        #[serde(default)]
-        name: String,
-        #[serde(default)]
-        instructions: Option<String>,
-    },
+    ProjectSet(ProjectSetPayload),
     /// The person moved a task, chat thread, schedule or file into a
     /// project, or out of one (`project` None).
     Moved {
@@ -744,28 +499,8 @@ pub enum Ev {
         attempt: u32,
         context: ContextRef,
     },
-    ModelReply {
-        run: String,
-        step: u32,
-        #[serde(default)]
-        blocks: Vec<Block>,
-        #[serde(default)]
-        state: Option<Value>,
-        usage: Usage,
-        served_model: String,
-        stop: String,
-    },
-    ModelError {
-        run: String,
-        step: u32,
-        attempt: u32,
-        class: ErrorClass,
-        message: String,
-        /// What the provider charged before the call failed (it counts
-        /// against the budget like a reply's).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        usage: Option<Usage>,
-    },
+    ModelReply(ModelReplyPayload),
+    ModelError(ModelErrorPayload),
     /// Text the loop shows the model after a step (a malformed reply, a
     /// verification failure without a tool call to answer).
     Notice {
@@ -774,27 +509,9 @@ pub enum Ev {
         text: String,
     },
     /// Recorded before an external call (intent first).
-    Intent {
-        run: String,
-        call_id: String,
-        step_id: String,
-        key: String,
-        tool: String,
-        #[serde(default)]
-        input: Value,
-        issuer: String,
-    },
+    Intent(IntentPayload),
     /// A boundary decision, with the stage and rule that produced it (E4).
-    Decision {
-        run: String,
-        call_id: String,
-        tool: String,
-        outcome: String,
-        stage: String,
-        reason: String,
-        #[serde(default)]
-        rule: Option<String>,
-    },
+    Decision(DecisionPayload),
     /// The result of a tool call as the model will see it, already redacted.
     ToolResult {
         run: String,
@@ -816,15 +533,7 @@ pub enum Ev {
         #[serde(default)]
         check: bool,
     },
-    Contract {
-        run: String,
-        version: u32,
-        #[serde(default)]
-        contract: Value,
-        /// A person's approval of a change to a frozen contract (retired, rev 147).
-        #[serde(default)]
-        approved_by: Option<String>,
-    },
+    Contract(ContractPayload),
     /// Retired with contracts (spec rev 147): read in old logs only.
     WorkStarted {
         run: String,
@@ -842,15 +551,7 @@ pub enum Ev {
         #[serde(default)]
         plan: Value,
     },
-    Verification {
-        run: String,
-        #[serde(default)]
-        criterion: String,
-        passed: bool,
-        #[serde(default)]
-        evidence: Value,
-        by: String,
-    },
+    Verification(VerificationPayload),
     Suspended {
         run: String,
         reason: String,
@@ -917,15 +618,7 @@ pub enum Ev {
     /// window (#369, #409). `full` tells whole answers from history:
     /// events before #411 hold fresh-only ids after the seed, and
     /// replay unions those onto the newest entry instead (#415).
-    WatchedSeen {
-        person: String,
-        app: String,
-        tool: String,
-        #[serde(default)]
-        ids: Vec<String>,
-        #[serde(default)]
-        full: bool,
-    },
+    WatchedSeen(WatchedSeenPayload),
     /// A scheduled poll of a watched read started (#406): the poll
     /// clock for the person's app tool restarts here.
     WatchPolled {
@@ -933,25 +626,7 @@ pub enum Ev {
         app: String,
         tool: String,
     },
-    Approval {
-        id: String,
-        item: String,
-        person: String,
-        task: String,
-        tool: String,
-        #[serde(default)]
-        input_hash: Option<String>,
-        scope: String,
-        #[serde(default)]
-        until: Option<chrono::DateTime<chrono::Utc>>,
-        #[serde(default)]
-        reason: Option<String>,
-        /// Kept here, as the item goes with its task: the one risk class it covers and (rev 140) the destinations it covers. Absent before.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        risk: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        destinations: Option<Vec<String>>,
-    },
+    Approval(ApprovalPayload),
     ApprovalUsed {
         id: String,
         run: String,
@@ -966,81 +641,20 @@ pub enum Ev {
         budget: crate::config::Budget,
     },
     /// A file the agent delivered to the person from its workspace (K19).
-    Output {
-        id: String,
-        run: String,
-        #[serde(default)]
-        name: String,
-        media_type: String,
-        #[serde(default)]
-        data_b64: String,
-    },
+    Output(OutputPayload),
     /// A conformance suite run for an adapter version.
-    AdapterVerified {
-        adapter_id: String,
-        adapter: String,
-        version: String,
-        model: String,
-        passed: bool,
-        report: Value,
-    },
+    AdapterVerified(AdapterVerifiedPayload),
     /// One itemized change to the agent's playbook (I2), made through the
     /// boundary like a memory write and labeled with the writing run's taint.
-    Playbook {
-        item: String,
-        op: String,
-        person: String,
-        run: String,
-        #[serde(default)]
-        text: Option<String>,
-        /// The failure the item addresses.
-        #[serde(default)]
-        addresses: Option<String>,
-        label: Label,
-    },
+    Playbook(PlaybookPayload),
     /// The person's verdict on an outcome (a task's, or a chat answer's):
     /// right, partly or wrong, with an optional note. The latest counts.
-    Verdict {
-        task: String,
-        person: String,
-        verdict: String,
-        #[serde(default)]
-        note: Option<String>,
-    },
+    Verdict(VerdictPayload),
     /// A grader's verdict on a run, recorded by the evaluation runner (V2).
-    Graded {
-        run: String,
-        grader: String,
-        passed: bool,
-        #[serde(default)]
-        score: Option<f64>,
-        #[serde(default)]
-        details: Value,
-    },
-    Memory {
-        id: String,
-        person: String,
-        run: String,
-        #[serde(default)]
-        fact: String,
-        #[serde(default)]
-        topic: Option<String>,
-        /// The writing run's taint; reading the entry back carries it (M1).
-        label: Label,
-        #[serde(default)]
-        sources: Vec<String>,
-        /// Who filed it: the run's model (None) or the memory pass.
-        #[serde(default)]
-        by: Option<String>,
-    },
+    Graded(GradedPayload),
+    Memory(MemoryPayload),
     /// One model call of the memory pass after a chat turn or a run ended.
-    MemoryPass {
-        run: String,
-        model: String,
-        #[serde(default)]
-        blocks: Vec<magnus_adapter_proto::Block>,
-        usage: magnus_adapter_proto::Usage,
-    },
+    MemoryPass(MemoryPassPayload),
     /// An entry joins the company knowledge base (M1-M4). `readers` are
     /// clauses that must all be met, each by any one of its principals
     /// (`person:<id>`, `group:<id>`); none means everyone. `integrity` is
@@ -1049,34 +663,7 @@ pub enum Ev {
     /// A version of a document in the org context bundle (OKF v0.2, the
     /// Magnus profile; `bundle.rs`). Its frontmatter and body are content:
     /// the log keeps what the kernel needs to find and guard it.
-    BundleWritten {
-        path: String,
-        version: u32,
-        doc_kind: String,
-        /// `org`, or `user` for a person's own document under `/users/<owner>/`.
-        scope: String,
-        #[serde(default)]
-        owner_user: Option<String>,
-        /// The OKF actor that wrote it (`magnus/<version>`, `human:<id>`).
-        actor: String,
-        #[serde(default)]
-        run: Option<String>,
-        /// The taint of what it was written from (M1): read back with it.
-        label: Label,
-        /// The items it lists in `sources` (their `resource`s): who may see
-        /// it follows from who may read these (K2).
-        #[serde(default)]
-        sources: Vec<String>,
-        /// The person whose run read its sources (K2): an agent's version
-        /// names its run's, a version put back the one it was written
-        /// with; an admin's edit names none and keeps the document's.
-        #[serde(default)]
-        writer: Option<String>,
-        #[serde(default)]
-        frontmatter: Value,
-        #[serde(default)]
-        body: String,
-    },
+    BundleWritten(BundleWrittenPayload),
     /// An admin removed an org document from the bundle (admin console
     /// spec, Knowledge). Its versions stay in the log, to roll back to.
     BundleRemoved {
@@ -1119,34 +706,12 @@ pub enum Ev {
     },
     /// The writer of an org document shared it (#299): principals added
     /// to who may see it, or everyone, and who shared it.
-    BundleShared {
-        path: String,
-        #[serde(default)]
-        add: Vec<String>,
-        #[serde(default)]
-        everyone: bool,
-        by: String,
-    },
+    BundleShared(BundleSharedPayload),
     /// One model call with no tools that read an entry's sources for a typed value.
-    KnowledgeExtraction {
-        run: String,
-        model: String,
-        #[serde(default)]
-        reply: String,
-        usage: magnus_adapter_proto::Usage,
-    },
+    KnowledgeExtraction(KnowledgeExtractionPayload),
     /// An answer written for listening, by a model call with no tools, when
     /// the person first asked to hear it.
-    SpokenWritten {
-        run: String,
-        model: String,
-        #[serde(default)]
-        script: String,
-        usage: magnus_adapter_proto::Usage,
-        /// The character the script was rewritten as (#269).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        character: Option<String>,
-    },
+    SpokenWritten(SpokenWrittenPayload),
     MemoryForgotten {
         id: String,
     },
@@ -1166,14 +731,7 @@ pub enum Ev {
     TeamMission(TeamMissionEvent),
     MemorySuperseded(MemorySupersededPayload),
     MemoryArchived(MemoryArchivedPayload),
-    PrefetchRecorded {
-        run: String,
-        person: String,
-        #[serde(default)]
-        pointers: String,
-        #[serde(default)]
-        label: Label,
-    },
+    PrefetchRecorded(PrefetchRecordedPayload),
 }
 
 #[path = "events_content.rs"]

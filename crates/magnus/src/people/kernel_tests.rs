@@ -58,7 +58,12 @@ async fn an_admin_in_the_servers_own_directory_stops_others_work() {
     assert!(matches!(k.edit_schedule(&lee, "sched_a", &json!({ "every_minutes": 5 }), None).await, Err(Refused::NotFound(_))), "lee changed mo's schedule");
     k.resume_schedule(&mo_of(k), "sched_a", None).await.unwrap();
     // An admin's suspension: only an admin lifts it, and lee is one.
-    k.emit("admin:ana", Ev::SchedulePaused { id: "sched_a".into(), reason: "Suspended".into(), task: None, admin: true, source: None, turn: None }).await.unwrap();
+    k.emit(
+        "admin:ana",
+        Ev::SchedulePaused(crate::events::SchedulePausedPayload { id: "sched_a".into(), reason: "Suspended".into(), task: None, admin: true, source: None, turn: None }),
+    )
+    .await
+    .unwrap();
     assert!(matches!(k.resume_schedule(&mo_of(k), "sched_a", None).await, Err(Refused::Conflict(_))), "mo lifted an admin's suspension");
     k.resume_schedule(&lee, "sched_a", None).await.unwrap();
     assert_eq!(k.cancel_task(&lee, &task, None).await.unwrap(), json!({ "cancelled": task }), "lee could not stop mo's task");

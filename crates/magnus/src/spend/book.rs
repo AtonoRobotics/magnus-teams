@@ -79,11 +79,11 @@ impl Book {
 /// The model a usage event names, as `adapter/model`.
 fn model_of(ev: &Ev) -> Option<&str> {
     match ev {
-        Ev::VerifierReply { model, .. }
-        | Ev::ReviewerReply { model, .. }
-        | Ev::MemoryPass { model, .. }
-        | Ev::SpokenWritten { model, .. }
-        | Ev::KnowledgeExtraction { model, .. } => Some(model.as_str()),
+        Ev::VerifierReply(crate::events::VerifierReplyPayload { model, .. })
+        | Ev::ReviewerReply(crate::events::ReviewerReplyPayload { model, .. })
+        | Ev::MemoryPass(crate::events::MemoryPassPayload { model, .. })
+        | Ev::SpokenWritten(crate::events::SpokenWrittenPayload { model, .. })
+        | Ev::KnowledgeExtraction(crate::events::KnowledgeExtractionPayload { model, .. }) => Some(model.as_str()),
         Ev::Spend(Change::Charged { model, .. }) => Some(model.as_str()),
         _ => None,
     }

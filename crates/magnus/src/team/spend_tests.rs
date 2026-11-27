@@ -46,7 +46,7 @@ async fn stopped(s: &Server, run: &str) -> Run {
 /// A model call's cost charged to `run`, as the loop would record it.
 async fn charge(s: &Server, run: &str, usd: f64) {
     let usage = magnus_adapter_proto::Usage { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: usd };
-    s.k.emit("kernel", Ev::MemoryPass { run: run.into(), model: "m".into(), blocks: vec![], usage }).await.unwrap();
+    s.k.emit("kernel", Ev::MemoryPass(crate::events::MemoryPassPayload { run: run.into(), model: "m".into(), blocks: vec![], usage })).await.unwrap();
 }
 
 /// The run asked to go on, as a person resuming it does.

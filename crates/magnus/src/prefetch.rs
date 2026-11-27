@@ -44,7 +44,7 @@ impl Kernel {
         let Some((pointers, label)) = format_prefetch_pointers(entries, user_prompt) else {
             return Ok(None);
         };
-        self.emit("kernel", Ev::PrefetchRecorded { run: run_id.into(), person: person.into(), pointers: pointers.clone(), label }).await?;
+        self.emit("kernel", Ev::PrefetchRecorded(crate::events::PrefetchRecordedPayload { run: run_id.into(), person: person.into(), pointers: pointers.clone(), label })).await?;
         Ok(Some(pointers))
     }
 
@@ -76,13 +76,18 @@ mod tests {
 
     #[test]
     fn prefetch_event_splits_into_public_content_and_erases_on_forget_person() {
-        let ev = Ev::PrefetchRecorded { run: "r1".into(), person: "alice".into(), pointers: "- channel C01234567\n".into(), label: Label { untrusted: false, private: true } };
+        let ev = Ev::PrefetchRecorded(crate::events::PrefetchRecordedPayload {
+            run: "r1".into(),
+            person: "alice".into(),
+            pointers: "- channel C01234567\n".into(),
+            label: Label { untrusted: false, private: true },
+        });
         let (record, content) = crate::log::split(serde_json::to_value(&ev).unwrap());
         assert!(record.get("pointers").is_none(), "pointers must split into public.content (N5)");
         assert_eq!(content.unwrap().body["pointers"], "- channel C01234567\n");
         // Deleted content still deserializes cleanly because pointers has #[serde(default)].
         let parsed: Ev = serde_json::from_value(record).unwrap();
-        assert!(matches!(parsed, Ev::PrefetchRecorded { pointers, .. } if pointers.is_empty()));
+        assert!(matches!(parsed, Ev::PrefetchRecorded(crate::events::PrefetchRecordedPayload { pointers, .. }) if pointers.is_empty()));
 
         // State::forget_person erases the prefetch record.
         let mut s = State::default();

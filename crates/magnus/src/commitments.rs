@@ -349,7 +349,7 @@ impl Kernel {
         if let Some((same, _)) = words.iter().find(|(_, w)| norm(&w.what) == norm(&what)) {
             return Ok((format!("Not recorded: {same} is already open with the same what. Update that one instead."), true, None));
         }
-        let ev = Ev::CommitmentRecorded {
+        let ev = Ev::CommitmentRecorded(crate::events::CommitmentRecordedPayload {
             id: id.clone(),
             person: run.person.clone(),
             who: who.clone(),
@@ -359,7 +359,7 @@ impl Kernel {
             source,
             quote,
             label: Label { untrusted: run.untrusted, private: run.private },
-        };
+        });
         self.emit("kernel", ev).await?;
         let whose = if who == "magnus" { "you" } else { "they" };
         Ok((format!("Recorded as {id}: {whose} will {what}. It is in your context in every run of theirs until it is done or released."), false, Some(json!({ "id": id }))))
@@ -380,7 +380,11 @@ impl Kernel {
             return Ok((format!("Not changed: {id} is no open commitment of this person's (the open ones: {list})."), true, None));
         }
         let note = input["note"].as_str().map(one_line).filter(|n| !n.is_empty());
-        self.emit("kernel", Ev::CommitmentChanged { id: id.into(), person, what: None, to: None, by: None, status: Some(status.clone()), note }).await?;
+        self.emit(
+            "kernel",
+            Ev::CommitmentChanged(crate::events::CommitmentChangedPayload { id: id.into(), person, what: None, to: None, by: None, status: Some(status.clone()), note }),
+        )
+        .await?;
         Ok((format!("Marked {id} {status}."), false, Some(json!({ "id": id, "status": status }))))
     }
 
@@ -477,7 +481,7 @@ impl Kernel {
         if what.is_none() && to.is_none() && by.is_none() && status.is_none() {
             return Err(Refused::Invalid("nothing to change: give what, to, by or status".into()));
         }
-        let ev = Ev::CommitmentChanged { id: id.into(), person: who.id.clone(), what, to, by, status, note: None };
+        let ev = Ev::CommitmentChanged(crate::events::CommitmentChangedPayload { id: id.into(), person: who.id.clone(), what, to, by, status, note: None });
         self.emit(&format!("person:{}", who.id), ev).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         Ok(json!({ "id": id }))
     }

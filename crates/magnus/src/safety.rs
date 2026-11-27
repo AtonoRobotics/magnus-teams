@@ -264,7 +264,13 @@ impl Kernel {
         let record = |out: &crate::adapters::TurnOut| {
             Some((
                 "reviewer",
-                Ev::ReviewerReply { run: run.id.clone(), purpose: "monitor".into(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() },
+                Ev::ReviewerReply(crate::events::ReviewerReplyPayload {
+                    run: run.id.clone(),
+                    purpose: "monitor".into(),
+                    model: format!("{adapter}/{model}"),
+                    blocks: out.blocks.clone(),
+                    usage: out.usage.clone(),
+                }),
             ))
         };
         Some(match self.paid_call(call, record).await {
@@ -417,7 +423,16 @@ impl Kernel {
             timeout: Some(CHECK_TIMEOUT),
         };
         let record = |out: &crate::adapters::TurnOut| {
-            Some(("reviewer", Ev::ReviewerReply { run: run.to_string(), purpose: purpose.into(), model: spec.to_string(), blocks: out.blocks.clone(), usage: out.usage.clone() }))
+            Some((
+                "reviewer",
+                Ev::ReviewerReply(crate::events::ReviewerReplyPayload {
+                    run: run.to_string(),
+                    purpose: purpose.into(),
+                    model: spec.to_string(),
+                    blocks: out.blocks.clone(),
+                    usage: out.usage.clone(),
+                }),
+            ))
         };
         let out = match self.paid_call(call, record).await {
             Ok(p) => p.out,

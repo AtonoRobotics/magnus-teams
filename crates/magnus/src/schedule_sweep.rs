@@ -100,7 +100,7 @@ impl Kernel {
                     format!("A schedule ended: {title}"),
                     serde_json::json!({ "reason": "schedule_ended", "evidence": { "schedule": sc.id, "why": why } }),
                 );
-                self.tell(vec![("kernel", Ev::ScheduleEnded { id: sc.id.clone(), reason: why, run: None }), ("kernel", notice)]).await;
+                self.tell(vec![("kernel", Ev::ScheduleEnded(crate::events::ScheduleEndedPayload { id: sc.id.clone(), reason: why, run: None })), ("kernel", notice)]).await;
             }
             Step::Hold { schedule: sc, task, why } => {
                 let title = self.schedule_title_for_notice(&sc).await;
@@ -111,8 +111,14 @@ impl Kernel {
                     format!("A schedule paused until you answer its run: {title}"),
                     serde_json::json!({ "reason": "schedule_paused", "evidence": { "schedule": sc.id, "why": why, "task": task } }),
                 );
-                self.tell(vec![("kernel", Ev::SchedulePaused { id: sc.id.clone(), reason: why, task: Some(task), admin: false, source: None, turn: None }), ("kernel", notice)])
-                    .await;
+                self.tell(vec![
+                    (
+                        "kernel",
+                        Ev::SchedulePaused(crate::events::SchedulePausedPayload { id: sc.id.clone(), reason: why, task: Some(task), admin: false, source: None, turn: None }),
+                    ),
+                    ("kernel", notice),
+                ])
+                .await;
             }
             Step::Release { id } => {
                 #[cfg(debug_assertions)]
@@ -124,7 +130,7 @@ impl Kernel {
                 let ended = self.read(|s| s.held_by_person(&id).is_none());
                 let held_pause = self.read(|s| s.arrangements.schedules().get(&id).is_some_and(|x| x.held()));
                 if ended && held_pause {
-                    let _ = self.emit("kernel", Ev::ScheduleResumed { id, source: None, turn: None }).await;
+                    let _ = self.emit("kernel", Ev::ScheduleResumed(crate::events::ScheduleResumedPayload { id, source: None, turn: None })).await;
                 }
             }
             Step::Skip { schedule: sc, task, why } => {
@@ -139,7 +145,11 @@ impl Kernel {
                     format!("A schedule paused: {title}"),
                     serde_json::json!({ "reason": "schedule_paused", "evidence": { "schedule": sc.id, "why": why } }),
                 );
-                self.tell(vec![("kernel", Ev::SchedulePaused { id: sc.id.clone(), reason: why, task: None, admin: false, source: None, turn: None }), ("kernel", notice)]).await;
+                self.tell(vec![
+                    ("kernel", Ev::SchedulePaused(crate::events::SchedulePausedPayload { id: sc.id.clone(), reason: why, task: None, admin: false, source: None, turn: None })),
+                    ("kernel", notice),
+                ])
+                .await;
             }
             Step::Fire { schedule: sc } => self.fire_schedule(sc).await,
         }
@@ -261,7 +271,8 @@ impl Kernel {
             format!("A schedule ended: {title}"),
             serde_json::json!({ "reason": "schedule_ended", "evidence": { "schedule": sc.id, "why": HEARTBEAT_RETIRED } }),
         );
-        self.tell(vec![("kernel", Ev::ScheduleEnded { id: sc.id.clone(), reason: HEARTBEAT_RETIRED.into(), run: None }), ("kernel", notice)]).await;
+        self.tell(vec![("kernel", Ev::ScheduleEnded(crate::events::ScheduleEndedPayload { id: sc.id.clone(), reason: HEARTBEAT_RETIRED.into(), run: None })), ("kernel", notice)])
+            .await;
     }
 }
 

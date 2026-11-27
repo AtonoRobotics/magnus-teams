@@ -131,11 +131,11 @@ impl State {
             | Ev::ModuleSet { .. }
             | Ev::ProviderSet { .. }
             | Ev::DesktopChannelSet { .. }
-            | Ev::ConsoleSettings { .. }
+            | Ev::ConsoleSettings(_)
             | Ev::PolicyDrafted { .. }
-            | Ev::AdminAction { .. }
+            | Ev::AdminAction(_)
             | Ev::ModelSet { .. }
-            | Ev::AdapterVerified { .. } => self.org.fold(e),
+            | Ev::AdapterVerified(_) => self.org.fold(e),
             Ev::SecretSet { .. } | Ev::KillSwitch { .. } | Ev::VaultSealed { .. } | Ev::SecretRevoked { .. } => self.vault.fold(&e.ev, &e.actor, e.at),
             Ev::Computer(c) => self.computers.apply_at(c, e.at),
             Ev::Payment(c) => self.payments.apply(c),
@@ -173,7 +173,7 @@ impl State {
                 self.erasures_pending(e);
             }
             Ev::ConnectorAdded { .. }
-            | Ev::ConnectorSettings { .. }
+            | Ev::ConnectorSettings(_)
             | Ev::AppConnected { .. }
             | Ev::AppDisconnected { .. }
             | Ev::CredentialSet { .. }
@@ -186,27 +186,27 @@ impl State {
                 self.apps.fold(&e.ev, e.at);
                 self.tools.forget_app(name);
             }
-            Ev::ContextReset { .. }
+            Ev::ContextReset(_)
             | Ev::Escalated { .. }
             | Ev::ModelCall { .. }
             | Ev::Notice { .. }
-            | Ev::Intent { .. }
-            | Ev::Decision { .. }
+            | Ev::Intent(_)
+            | Ev::Decision(_)
             | Ev::ToolResult { .. }
-            | Ev::Contract { .. }
+            | Ev::Contract(_)
             | Ev::WorkStarted { .. }
             | Ev::ContractFrozen { .. }
             | Ev::Plan { .. }
-            | Ev::Graded { .. }
-            | Ev::Verification { .. }
+            | Ev::Graded(_)
+            | Ev::Verification(_)
             | Ev::Suspended { .. }
             | Ev::Resumed { .. }
             | Ev::Wait { .. }
             | Ev::BudgetExtended { .. } => work::fold_run(&mut self.runs, e),
             Ev::SubjectBound { .. }
-            | Ev::RightsFromProvider { .. }
+            | Ev::RightsFromProvider(_)
             | Ev::DataAccessSet { .. }
-            | Ev::PersonDataRead { .. }
+            | Ev::PersonDataRead(_)
             | Ev::RolesSet { .. }
             | Ev::SignedIn { .. }
             | Ev::SignedOut { .. }
@@ -222,26 +222,24 @@ impl State {
                 // Daily times follow the person's zone (owner, 2026-11-14).
                 self.arrangements.set_zone(person, self.identity.zone(person));
             }
-            Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
-                self.thread_extras.fold(&e.ev, e.at)
-            }
-            Ev::WatchedSeen { person, app, tool, ids, full } => self.watch.fold_seen(person, app, tool, ids, *full),
+            Ev::ChatHidden { .. } | Ev::Reacted(_) | Ev::DisagreementRecorded(_) | Ev::DisagreementOutcome(_) | Ev::ThreadBranched(_) => self.thread_extras.fold(&e.ev, e.at),
+            Ev::WatchedSeen(crate::events::WatchedSeenPayload { person, app, tool, ids, full }) => self.watch.fold_seen(person, app, tool, ids, *full),
             Ev::WatchPolled { person, app, tool } => self.watch.fold_polled(person, app, tool, e.at),
             Ev::ScheduleSet { .. }
-            | Ev::ScheduleRemoved { .. }
-            | Ev::ScheduleEnded { .. }
+            | Ev::ScheduleRemoved(_)
+            | Ev::ScheduleEnded(_)
             | Ev::ScheduleSkipped { .. }
-            | Ev::SchedulePaused { .. }
-            | Ev::ScheduleChanged { .. }
-            | Ev::ScheduleResumed { .. }
+            | Ev::SchedulePaused(_)
+            | Ev::ScheduleChanged(_)
+            | Ev::ScheduleResumed(_)
             | Ev::ScheduleFailed { .. }
-            | Ev::GrantSet { .. }
+            | Ev::GrantSet(_)
             | Ev::GrantRevoked { .. }
-            | Ev::GrantUsed { .. }
-            | Ev::CommitmentRecorded { .. }
-            | Ev::CommitmentChanged { .. }
+            | Ev::GrantUsed(_)
+            | Ev::CommitmentRecorded(_)
+            | Ev::CommitmentChanged(_)
             | Ev::CommitmentRemoved { .. }
-            | Ev::CardDeclined { .. }
+            | Ev::CardDeclined(_)
             | Ev::CardDeferred { .. }
             | Ev::CardAccepted { .. } => self.arrangements.fold(e, self.identity.preferences()),
             Ev::Trashed { item, person } => {
@@ -270,19 +268,19 @@ impl State {
                     self.thread_extras.hide(thread, item.clone());
                 }
             }
-            Ev::FileUploaded { .. }
-            | Ev::ProjectSet { .. }
+            Ev::FileUploaded(_)
+            | Ev::ProjectSet(_)
             | Ev::Moved { .. }
             | Ev::KnowledgeAdded { .. }
             | Ev::KnowledgeShared { .. }
             | Ev::KnowledgeEndorsed { .. }
-            | Ev::Memory { .. }
+            | Ev::Memory(_)
             | Ev::MemoryForgotten { .. }
-            | Ev::BundleWritten { .. }
-            | Ev::BundleShared { .. }
+            | Ev::BundleWritten(_)
+            | Ev::BundleShared(_)
             | Ev::BundleRemoved { .. } => self.library.fold(e, &self.runs),
             // Each playbook change is a new version, noticed (U5).
-            Ev::Playbook { .. } => {
+            Ev::Playbook(_) => {
                 self.library.fold(e, &self.runs);
                 self.org.note_version(e, "playbook", format!("v{}", self.library.playbook_version()));
             }
@@ -295,8 +293,10 @@ impl State {
                     t.schedule = Some(id.clone());
                 }
             }
-            Ev::ToolPinned { tool, hash, description, input_schema, approved } => self.tools.pinned(tool, hash, description, input_schema, *approved),
-            Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
+            Ev::ToolPinned(crate::events::ToolPinnedPayload { tool, hash, description, input_schema, approved }) => {
+                self.tools.pinned(tool, hash, description, input_schema, *approved)
+            }
+            Ev::ToolChanged(crate::events::ToolChangedPayload { tool, hash, .. }) => self.tools.changed(tool, hash),
             Ev::Tools(c) => self.tools.apply(e.at, c),
             Ev::Evidence(c) => self.evidence.apply(e.at, c),
             Ev::Spend(c) => self.fold_spend(e, c),
@@ -322,29 +322,29 @@ impl State {
                 }
                 work::created(&mut self.tasks, &mut self.runs, e, pb);
             }
-            Ev::ModelReply { run, usage, .. } => {
+            Ev::ModelReply(crate::events::ModelReplyPayload { run, usage, .. }) => {
                 self.charge_grant(e, run, usage.cost_usd);
                 work::fold_run(&mut self.runs, e);
             }
-            Ev::VerifierReply { run, usage, .. }
-            | Ev::ReviewerReply { run, usage, .. }
-            | Ev::MemoryPass { run, usage, .. }
-            | Ev::SpokenWritten { run, usage, .. }
-            | Ev::KnowledgeExtraction { run, usage, .. }
-            | Ev::DraftScoped { run, usage, .. } => {
+            Ev::VerifierReply(crate::events::VerifierReplyPayload { run, usage, .. })
+            | Ev::ReviewerReply(crate::events::ReviewerReplyPayload { run, usage, .. })
+            | Ev::MemoryPass(crate::events::MemoryPassPayload { run, usage, .. })
+            | Ev::SpokenWritten(crate::events::SpokenWrittenPayload { run, usage, .. })
+            | Ev::KnowledgeExtraction(crate::events::KnowledgeExtractionPayload { run, usage, .. })
+            | Ev::DraftScoped(crate::events::DraftScopedPayload { run, usage, .. }) => {
                 self.charge_grant(e, run, usage.cost_usd);
-                if let Ev::DraftScoped { draft, person, threads, participants, .. } = &e.ev {
+                if let Ev::DraftScoped(crate::events::DraftScopedPayload { draft, person, threads, participants, .. }) = &e.ev {
                     self.draft_sources.insert(draft.clone(), DraftSources { person: person.clone(), threads: threads.clone(), participants: participants.clone() });
                 }
                 work::fold_run(&mut self.runs, e);
             }
-            Ev::ModelError { run, usage, .. } => {
+            Ev::ModelError(crate::events::ModelErrorPayload { run, usage, .. }) => {
                 if let Some(u) = usage {
                     self.charge_grant(e, run, u.cost_usd);
                 }
                 work::fold_run(&mut self.runs, e);
             }
-            Ev::Verdict { .. } => work::verdict(&mut self.tasks, &self.runs, e),
+            Ev::Verdict(_) => work::verdict(&mut self.tasks, &self.runs, e),
             // A run's end frees its review and lets its run's record end once.
             Ev::Completed { run, .. } | Ev::Failed { run, .. } => {
                 self.end_cards(run, e.at);
@@ -357,7 +357,7 @@ impl State {
                 }
                 work::fold_run(&mut self.runs, e);
             }
-            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval { .. } | Ev::ApprovalUsed { .. } => self.inbox.fold(e, self.identity.preferences()),
+            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval(_) | Ev::ApprovalUsed { .. } => self.inbox.fold(e, self.identity.preferences()),
             Ev::ReviewWoken { person, reason, .. } => {
                 self.inbox.fold(e, self.identity.preferences());
                 if let Some(id) = reason.strip_prefix("commitment ").and_then(|r| r.strip_suffix(" due")) {
@@ -372,7 +372,7 @@ impl State {
                     r.waiting_item = None;
                 }
             }
-            Ev::Output { .. } => {
+            Ev::Output(_) => {
                 // The run delivered it: a file in its person's library.
                 if let Some(f) = work::output(&mut self.runs, e) {
                     self.library.put_file(f);
@@ -387,7 +387,7 @@ impl State {
             Ev::MemoryArchived(p) => {
                 self.memory_archived.insert(p.id.clone());
             }
-            Ev::PrefetchRecorded { run, person, label, .. } => {
+            Ev::PrefetchRecorded(crate::events::PrefetchRecordedPayload { run, person, label, .. }) => {
                 self.prefetches.insert(run.clone(), (person.clone(), e.seq, *label));
             }
         }

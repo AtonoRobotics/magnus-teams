@@ -181,7 +181,18 @@ pub(crate) async fn add_file(k: &Kernel, p: &Person, b: &Value, thread: Option<S
         return Ok(Err(err(StatusCode::PAYLOAD_TOO_LARGE, format!("files are limited to {} MB each", MAX_FILE / 1024 / 1024))));
     }
     let id = new_id("file");
-    k.emit(&actor(p), Ev::FileUploaded { id: id.clone(), person: p.id.clone(), name: name.into(), media_type: media_type.into(), data_b64: data.into(), thread }).await?;
+    k.emit(
+        &actor(p),
+        Ev::FileUploaded(crate::events::FileUploadedPayload {
+            id: id.clone(),
+            person: p.id.clone(),
+            name: name.into(),
+            media_type: media_type.into(),
+            data_b64: data.into(),
+            thread,
+        }),
+    )
+    .await?;
     Ok(Ok(id))
 }
 
@@ -284,7 +295,8 @@ fn instructions_of(b: &Value) -> Option<String> {
 async fn new_project(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let Some(name) = b["name"].as_str().map(str::trim).filter(|n| !n.is_empty()) else { return err(StatusCode::BAD_REQUEST, "the project needs a name") };
     let id = new_id("proj");
-    match k.emit(&actor(&p), Ev::ProjectSet { id: id.clone(), person: p.id.clone(), name: name.into(), instructions: instructions_of(&b) }).await {
+    match k.emit(&actor(&p), Ev::ProjectSet(crate::events::ProjectSetPayload { id: id.clone(), person: p.id.clone(), name: name.into(), instructions: instructions_of(&b) })).await
+    {
         Ok(_) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
         Err(e) => internal(e),
     }
@@ -341,7 +353,7 @@ async fn set_project(State(k): K, Caller(p): Caller, Path(id): Path<String>, Jso
         None => cur.name,
     };
     let instructions = if b.get("instructions").is_some() { instructions_of(&b) } else { cur.instructions };
-    match k.emit(&actor(&p), Ev::ProjectSet { id: id.clone(), person: p.id.clone(), name, instructions }).await {
+    match k.emit(&actor(&p), Ev::ProjectSet(crate::events::ProjectSetPayload { id: id.clone(), person: p.id.clone(), name, instructions })).await {
         Ok(_) => Json(json!({ "id": id })).into_response(),
         Err(e) => internal(e),
     }

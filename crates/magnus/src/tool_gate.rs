@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(l.refusal("crm__send", "sam"), None);
         // The kinds themselves are never edited: their old bodies parse.
         let ev: Ev = serde_json::from_value(json!({ "kind": "tool_changed", "tool": "t", "hash": "h", "description": "d", "input_schema": {}, "item": "i" })).unwrap();
-        assert!(matches!(ev, Ev::ToolChanged { .. }));
+        assert!(matches!(ev, Ev::ToolChanged(_)));
     }
 
     #[test]

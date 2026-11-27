@@ -100,7 +100,13 @@ impl Kernel {
         let record = |out: &crate::adapters::TurnOut| {
             Some((
                 "reviewer",
-                Ev::ReviewerReply { run: run.id.clone(), purpose: purpose.into(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() },
+                Ev::ReviewerReply(crate::events::ReviewerReplyPayload {
+                    run: run.id.clone(),
+                    purpose: purpose.into(),
+                    model: format!("{adapter}/{model}"),
+                    blocks: out.blocks.clone(),
+                    usage: out.usage.clone(),
+                }),
             ))
         };
         match self.paid_call(call, record).await {

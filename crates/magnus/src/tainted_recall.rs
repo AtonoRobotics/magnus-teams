@@ -132,7 +132,7 @@ mod tests {
             seq: 1,
             at: Utc::now(),
             actor: "kernel".into(),
-            ev: Ev::Playbook {
+            ev: Ev::Playbook(crate::events::PlaybookPayload {
                 item: "pb1".into(),
                 op: "add".into(),
                 person: "p1".into(),
@@ -140,7 +140,7 @@ mod tests {
                 text: Some("Untrusted lesson".into()),
                 addresses: Some("failure".into()),
                 label: Label { untrusted: true, private: false },
-            },
+            }),
         });
         let pb_ver = s.library.playbook_version();
         let cfg = RunConfig {

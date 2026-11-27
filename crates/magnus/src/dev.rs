@@ -236,10 +236,10 @@ fn call_tools(events: &[crate::log::Event]) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for e in events {
         match &e.ev {
-            Ev::Intent { call_id, tool, .. } => {
+            Ev::Intent(crate::events::IntentPayload { call_id, tool, .. }) => {
                 out.entry(call_id.clone()).or_insert_with(|| tool.clone());
             }
-            Ev::ModelReply { blocks, .. } => {
+            Ev::ModelReply(crate::events::ModelReplyPayload { blocks, .. }) => {
                 for b in blocks {
                     if let magnus_adapter_proto::Block::ToolCall { id, name, .. } = b {
                         out.entry(id.clone()).or_insert_with(|| name.clone());
@@ -374,7 +374,7 @@ async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String
                     a.push(json!({ "attempt": attempt, "seq": e.seq, "at": e.at }));
                 }
             }
-            Ev::ModelError { step, attempt, class, message, .. } => {
+            Ev::ModelError(crate::events::ModelErrorPayload { step, attempt, class, message, .. }) => {
                 let st = steps.entry(*step).or_default();
                 let attempts = st.entry("attempts").or_insert(json!([]));
                 if let Some(a) = attempts.as_array_mut() {
@@ -382,7 +382,7 @@ async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String
                 }
                 harness.push(json!({ "seq": e.seq, "step": step, "kind": "model_error", "issuer": "code", "text": format!("{class:?}: {message}") }));
             }
-            Ev::ModelReply { step, blocks, usage, served_model, stop, .. } => {
+            Ev::ModelReply(crate::events::ModelReplyPayload { step, blocks, usage, served_model, stop, .. }) => {
                 let mut text = String::new();
                 let mut calls = vec![];
                 let mut chars = 0usize;
@@ -408,7 +408,7 @@ async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String
                 seen.add("kernel notices", text.len());
                 harness.push(json!({ "seq": e.seq, "step": step, "kind": "notice", "issuer": "code", "text": text }));
             }
-            Ev::Intent { call_id, step_id, tool, input, issuer, .. } => {
+            Ev::Intent(crate::events::IntentPayload { call_id, step_id, tool, input, issuer, .. }) => {
                 // The boundary decides before it records the intent, so the
                 // action may already be listed.
                 let ix = *action_ix.entry(call_id.clone()).or_insert_with(|| {
@@ -421,7 +421,7 @@ async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String
                 a["issuer"] = json!(if issuer == "check" { "code (a check the model wrote)" } else { issuer.as_str() });
                 a["intent_seq"] = json!(e.seq);
             }
-            Ev::Decision { call_id, tool, outcome, stage, reason, rule, .. } => {
+            Ev::Decision(crate::events::DecisionPayload { call_id, tool, outcome, stage, reason, rule, .. }) => {
                 let ix = *action_ix.entry(call_id.clone()).or_insert_with(|| {
                     actions.push(json!({ "call_id": call_id, "tool": tool, "issuer": if call_id.starts_with("check:") { "code (a check the model wrote)" } else if call_id.starts_with("verify:") { "the verifier" } else if call_id.starts_with("preview:") { "the gate (destination preview)" } else if call_id.starts_with("sent:") { "the gate (sent search)" } else { "model" }, "decisions": [], "result": null }));
                     actions.len() - 1
@@ -440,11 +440,11 @@ async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String
                     None => records.push(json!({ "seq": e.seq, "kind": "record_result", "call_id": call_id, "tool": tool, "issuer": who, "result": res })),
                 }
             }
-            Ev::Contract { version, contract, approved_by, .. } => records.push(json!({ "seq": e.seq, "kind": "contract", "version": version, "issuer": who, "body": contract, "approved_by": approved_by })),
+            Ev::Contract(crate::events::ContractPayload { version, contract, approved_by, .. }) => records.push(json!({ "seq": e.seq, "kind": "contract", "version": version, "issuer": who, "body": contract, "approved_by": approved_by })),
             Ev::WorkStarted { .. } => harness.push(json!({ "seq": e.seq, "kind": "work_started", "issuer": who })),
             Ev::ContractFrozen { version, .. } => harness.push(json!({ "seq": e.seq, "kind": "contract_frozen", "issuer": who, "text": format!("version {version}") })),
             Ev::Plan { version, plan, .. } => records.push(json!({ "seq": e.seq, "kind": "plan", "version": version, "issuer": who, "body": plan })),
-            Ev::Verification { criterion, passed, evidence, by, .. } => {
+            Ev::Verification(crate::events::VerificationPayload { criterion, passed, evidence, by, .. }) => {
                 harness.push(json!({ "seq": e.seq, "kind": "verification", "issuer": issuer_of(by), "criterion": criterion, "passed": passed, "evidence": evidence }))
             }
             Ev::Suspended { reason, item, .. } => harness.push(json!({ "seq": e.seq, "kind": "suspended", "issuer": who, "text": reason, "item": item })),
@@ -457,10 +457,10 @@ async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String
             Ev::BudgetExtended { budget, .. } => harness.push(json!({ "seq": e.seq, "kind": "budget_extended", "issuer": who, "text": budget })),
             Ev::ApprovalUsed { call_id, .. } => harness.push(json!({ "seq": e.seq, "kind": "approval_used", "issuer": who, "text": call_id })),
             Ev::Item { item_kind, summary, id, details, .. } => harness.push(json!({ "seq": e.seq, "kind": format!("inbox_{item_kind}"), "issuer": who, "text": if redact && details.get("disagreement").is_some_and(|d| d.is_string()) { json!(crate::tools::REDACTED_CALL) } else { json!(summary) }, "item": id, "reasoning": (item_kind == "approval").then(|| crate::asks::reasoning(details)) })),
-            Ev::Output { name, media_type, .. } => harness.push(json!({ "seq": e.seq, "kind": "output", "issuer": who, "text": format!("{name} ({media_type})") })),
-            Ev::Memory { fact, label, .. } => harness.push(json!({ "seq": e.seq, "kind": "memory_write", "issuer": who, "text": fact, "label": label })),
-            Ev::Playbook { op, item, text, .. } => harness.push(json!({ "seq": e.seq, "kind": "playbook", "issuer": who, "text": format!("{op} {item}: {}", text.clone().unwrap_or_default()) })),
-            Ev::Graded { grader, passed, score, .. } => harness.push(json!({ "seq": e.seq, "kind": "graded", "issuer": who, "text": format!("{grader}: {}", if *passed { "pass" } else { "fail" }), "score": score })),
+            Ev::Output(crate::events::OutputPayload { name, media_type, .. }) => harness.push(json!({ "seq": e.seq, "kind": "output", "issuer": who, "text": format!("{name} ({media_type})") })),
+            Ev::Memory(crate::events::MemoryPayload { fact, label, .. }) => harness.push(json!({ "seq": e.seq, "kind": "memory_write", "issuer": who, "text": fact, "label": label })),
+            Ev::Playbook(crate::events::PlaybookPayload { op, item, text, .. }) => harness.push(json!({ "seq": e.seq, "kind": "playbook", "issuer": who, "text": format!("{op} {item}: {}", text.clone().unwrap_or_default()) })),
+            Ev::Graded(crate::events::GradedPayload { grader, passed, score, .. }) => harness.push(json!({ "seq": e.seq, "kind": "graded", "issuer": who, "text": format!("{grader}: {}", if *passed { "pass" } else { "fail" }), "score": score })),
             _ => {}
         }
     }
@@ -542,7 +542,8 @@ async fn grade(AxState(k): K, Developer(p): Developer, Path(id): Path<String>, B
     let (Some(grader), Some(passed)) = (b["grader"].as_str(), b["passed"].as_bool()) else {
         return refuse(StatusCode::BAD_REQUEST, "grader and passed are required");
     };
-    let ev = Ev::Graded { run: id, grader: grader.into(), passed, score: b["score"].as_f64(), details: b.get("details").cloned().unwrap_or(Value::Null) };
+    let ev =
+        Ev::Graded(crate::events::GradedPayload { run: id, grader: grader.into(), passed, score: b["score"].as_f64(), details: b.get("details").cloned().unwrap_or(Value::Null) });
     Ok(match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
         Err(e) => internal(e),

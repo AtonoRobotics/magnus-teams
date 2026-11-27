@@ -93,7 +93,7 @@ async fn record(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response 
     let (Some(admin), Some(action)) = (text(&b, "admin"), text(&b, "action")) else {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "an audit entry names its admin and action" }))).into_response();
     };
-    let ev = Ev::AdminAction {
+    let ev = Ev::AdminAction(crate::events::AdminActionPayload {
         admin: admin.clone(),
         name: text(&b, "name").unwrap_or_default(),
         action,
@@ -101,7 +101,7 @@ async fn record(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response 
         source: text(&b, "source"),
         before: b.get("before").filter(|v| !v.is_null()).cloned(),
         after: b.get("after").filter(|v| !v.is_null()).cloned(),
-    };
+    });
     match k.emit(&format!("admin:{admin}"), ev).await {
         Ok(e) => Json(json!({ "seq": e.seq })).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),

@@ -123,7 +123,7 @@ fn a_crash_after_sending_resumes_with_get_task_and_the_agent_receives_one_task()
             .await
             .unwrap();
         let task = sent["task"]["id"].as_str().unwrap().to_string();
-        let intent = Ev::Intent {
+        let intent = Ev::Intent(crate::events::IntentPayload {
             run: r.clone(),
             call_id: a.call_id.clone(),
             step_id: a.step_id.clone(),
@@ -131,7 +131,7 @@ fn a_crash_after_sending_resumes_with_get_task_and_the_agent_receives_one_task()
             tool: a.tool.clone(),
             input: a.input.clone(),
             issuer: "model".into(),
-        };
+        });
         let opened =
             Ev::OutsideAgent(Change::TaskOpened { agent: agent.clone(), run: r.clone(), call_id: a.call_id.clone(), key: key.clone(), message_id: format!("magnus-{key}") });
         let started = Ev::OutsideAgent(Change::TaskStarted { key: key.clone(), task: task.clone(), state: WORKING.into() });

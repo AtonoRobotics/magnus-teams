@@ -102,7 +102,10 @@ impl Kernel {
             timeout: None,
         };
         let record = |out: &crate::adapters::TurnOut| {
-            Some(("kernel:memory_pass", Ev::MemoryPass { run: run.id.clone(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() }))
+            Some((
+                "kernel:memory_pass",
+                Ev::MemoryPass(crate::events::MemoryPassPayload { run: run.id.clone(), model: format!("{adapter}/{model}"), blocks: out.blocks.clone(), usage: out.usage.clone() }),
+            ))
         };
         // Past what is left, or on a model it may not use, there is no pass;
         // a failed one is charged and its error said.

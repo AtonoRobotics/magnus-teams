@@ -107,7 +107,7 @@ impl OrgSettings {
             Ev::DesktopChannelSet { channel } => {
                 self.desktop_channel = Some(channel.clone());
             }
-            Ev::ConsoleSettings { idle_minutes, session_hours, allow } => {
+            Ev::ConsoleSettings(crate::events::ConsoleSettingsPayload { idle_minutes, session_hours, allow }) => {
                 self.console_settings = Some(serde_json::json!({ "idle_minutes": idle_minutes, "session_hours": session_hours, "allow": allow }));
             }
             Ev::PolicyDrafted { layer, cedar } => match cedar {
@@ -118,7 +118,7 @@ impl OrgSettings {
                     self.policy_drafts.remove(layer);
                 }
             },
-            Ev::AdminAction { .. } => {
+            Ev::AdminAction(_) => {
                 if let Ok(v) = serde_json::to_value(&e.ev) {
                     self.note_audit(e, v);
                 }
@@ -127,7 +127,7 @@ impl OrgSettings {
                 self.model = Some((adapter.clone(), model.clone()));
                 self.note_version(e, "model", format!("{adapter}/{model}"));
             }
-            Ev::AdapterVerified { adapter_id, version, model, passed, report, .. } => {
+            Ev::AdapterVerified(crate::events::AdapterVerifiedPayload { adapter_id, version, model, passed, report, .. }) => {
                 self.conformance.insert(adapter_id.clone(), (version.clone(), model.clone(), *passed, report.clone()));
             }
             _ => {}

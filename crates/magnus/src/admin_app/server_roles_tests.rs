@@ -94,12 +94,16 @@ async fn a_provider_demotion_takes_effect() {
     let s = server(|_| Router::new()).await;
     let lee = s.k.person("lee").unwrap();
     assert_eq!(s.k.authority(&lee).await, Authority::Admin);
-    s.k.emit("person:lee", Ev::RightsFromProvider { person: "lee".into(), groups: None, roles: Some(vec!["member".into()]) }).await.unwrap();
+    s.k.emit("person:lee", Ev::RightsFromProvider(crate::events::RightsFromProviderPayload { person: "lee".into(), groups: None, roles: Some(vec!["member".into()]) }))
+        .await
+        .unwrap();
     let lee = s.k.person("lee").unwrap();
     assert_eq!(s.k.authority(&lee).await, Authority::Member, "a demotion at the provider did not take");
     let t = s.token("lee").await;
     assert_eq!(s.get(&t, "/v1/admin/standing").await.1["admin"], false, "the demoted admin still administers");
-    s.k.emit("person:lee", Ev::RightsFromProvider { person: "lee".into(), groups: None, roles: Some(vec!["admin".into()]) }).await.unwrap();
+    s.k.emit("person:lee", Ev::RightsFromProvider(crate::events::RightsFromProviderPayload { person: "lee".into(), groups: None, roles: Some(vec!["admin".into()]) }))
+        .await
+        .unwrap();
     assert_eq!(s.k.authority(&s.k.person("lee").unwrap()).await, Authority::Admin);
     s.done().await;
 }

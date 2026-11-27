@@ -454,7 +454,9 @@ impl Kernel {
             return Err(format!("{path}: they may already read it"));
         }
         let add: Vec<String> = groups.iter().map(|g| format!("group:{g}")).collect();
-        self.emit(&format!("person:{person}"), Ev::BundleShared { path: path.into(), add, everyone, by: person.into() }).await.map_err(|e| format!("{e:#}"))?;
+        self.emit(&format!("person:{person}"), Ev::BundleShared(crate::events::BundleSharedPayload { path: path.into(), add, everyone, by: person.into() }))
+            .await
+            .map_err(|e| format!("{e:#}"))?;
         let d = self.read(|s| s.library.bundle().get(path).cloned()).ok_or_else(|| format!("{path}: no such document"))?;
         Ok(serde_json::json!({ "path": path, "version": d.version(), "shared": d.shared, "everyone": d.shared_everyone, "by": person }))
     }
@@ -552,7 +554,7 @@ impl Kernel {
                 sources.push(s);
             }
         }
-        let ev = crate::events::Ev::BundleWritten {
+        let ev = crate::events::Ev::BundleWritten(crate::events::BundleWrittenPayload {
             path: path.into(),
             // Numbered by `emit`, under the write lock.
             version: 0,
@@ -569,7 +571,7 @@ impl Kernel {
             writer,
             frontmatter: fm.clone(),
             body: body.into(),
-        };
+        });
         let e = self.emit("kernel", ev).await.map_err(|e| format!("{e:#}"))?;
         Ok(e.ev.bundle_version())
     }

@@ -59,7 +59,7 @@ impl Apps {
                 }
                 self.connectors.insert(connector.name.clone(), connector.clone());
             }
-            Ev::ConnectorSettings { name, enabled, access_groups, blocked_groups } => {
+            Ev::ConnectorSettings(crate::events::ConnectorSettingsPayload { name, enabled, access_groups, blocked_groups }) => {
                 self.connector_settings.insert(name.clone(), ConnectorSetting { enabled: *enabled, access_groups: access_groups.clone(), blocked_groups: blocked_groups.clone() });
             }
             // The connection itself is in the vault; these are its record.

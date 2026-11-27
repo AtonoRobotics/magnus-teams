@@ -73,7 +73,7 @@ impl Identity {
                     self.subjects.remove(person);
                 }
             },
-            Ev::RightsFromProvider { person, groups, roles } => {
+            Ev::RightsFromProvider(crate::events::RightsFromProviderPayload { person, groups, roles }) => {
                 self.provider_rights.insert(person.clone(), (groups.clone(), roles.clone()));
             }
             Ev::DataAccessSet { private } => self.data_private = *private,

@@ -323,7 +323,7 @@ async fn add_memory(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> Api
     let actor = format!("person:{}", p.id);
     k.emit(
         &actor,
-        Ev::Memory {
+        Ev::Memory(crate::events::MemoryPayload {
             id: id.clone(),
             person: p.id.clone(),
             run: String::new(),
@@ -332,7 +332,7 @@ async fn add_memory(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> Api
             label: crate::tools::Label::PRINCIPAL,
             sources: vec![],
             by: Some("person".into()),
-        },
+        }),
     )
     .await?;
     Ok((StatusCode::CREATED, Json(json!({ "id": id }))).into_response())
@@ -364,8 +364,19 @@ async fn playbook_retire(State(k): K, Caller(p): Caller, Path(id): Path<String>)
         return refuse(StatusCode::NOT_FOUND, "no such playbook lesson");
     }
     let actor = format!("person:{}", p.id);
-    k.emit(&actor, Ev::Playbook { item: id, op: "retire".into(), person: p.id.clone(), run: String::new(), text: None, addresses: None, label: crate::tools::Label::PRINCIPAL })
-        .await?;
+    k.emit(
+        &actor,
+        Ev::Playbook(crate::events::PlaybookPayload {
+            item: id,
+            op: "retire".into(),
+            person: p.id.clone(),
+            run: String::new(),
+            text: None,
+            addresses: None,
+            label: crate::tools::Label::PRINCIPAL,
+        }),
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

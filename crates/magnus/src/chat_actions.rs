@@ -117,7 +117,7 @@ async fn branch(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(Str
     let kept: Vec<Value> = entries[..=at].iter().map(Entry::value).collect();
     let title = first.chars().take(80).collect::<String>();
     let id = new_id("thread");
-    let ev = Ev::ThreadBranched { person: p.id.clone(), thread: id.clone(), from: thread.clone(), upto: entry, entries: kept, title };
+    let ev = Ev::ThreadBranched(crate::events::ThreadBranchedPayload { person: p.id.clone(), thread: id.clone(), from: thread.clone(), upto: entry, entries: kept, title });
     k.emit(&format!("person:{}", p.id), ev).await?;
     // A branch stays in the project its thread is in.
     if let Some(project) = k.read(|s| s.project_of(&thread)) {
@@ -193,14 +193,14 @@ async fn save(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(Strin
     let e = &entries[at];
     use base64::Engine;
     let id = new_id("file");
-    let ev = Ev::FileUploaded {
+    let ev = Ev::FileUploaded(crate::events::FileUploadedPayload {
         id: id.clone(),
         person: p.id.clone(),
         name: e.file_name(),
         media_type: "text/markdown".into(),
         data_b64: base64::engine::general_purpose::STANDARD.encode(e.markdown()),
         thread: Some(thread),
-    };
+    });
     Ok(match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
         Err(e) => internal(e),
@@ -294,7 +294,13 @@ impl Kernel {
             let character = Some(crate::run::character_version());
             Some((
                 "kernel:spoken",
-                Ev::SpokenWritten { run: run.id.clone(), model: format!("{adapter}/{model}"), script: script(&out.blocks), usage: out.usage.clone(), character },
+                Ev::SpokenWritten(crate::events::SpokenWrittenPayload {
+                    run: run.id.clone(),
+                    model: format!("{adapter}/{model}"),
+                    script: script(&out.blocks),
+                    usage: out.usage.clone(),
+                    character,
+                }),
             ))
         };
         // No script past the run's allowance for an extra call (its calls,

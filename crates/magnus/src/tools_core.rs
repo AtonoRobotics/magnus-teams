@@ -199,7 +199,13 @@ impl Kernel {
                 let size = bytes.len();
                 self.emit(
                     "kernel",
-                    Ev::Output { id: id.clone(), run: a.run.clone(), name: name.clone(), media_type, data_b64: base64::engine::general_purpose::STANDARD.encode(bytes) },
+                    Ev::Output(crate::events::OutputPayload {
+                        id: id.clone(),
+                        run: a.run.clone(),
+                        name: name.clone(),
+                        media_type,
+                        data_b64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                    }),
                 )
                 .await?;
                 Ok((format!("Delivered {name} ({size} bytes) from {} to the person.", from.said()), false, Some(json!({ "output_id": id }))))
@@ -224,7 +230,7 @@ impl Kernel {
                 let id = new_id("mem");
                 self.emit(
                     "kernel",
-                    Ev::Memory {
+                    Ev::Memory(crate::events::MemoryPayload {
                         id: id.clone(),
                         person: run.person.clone(),
                         run: a.run.clone(),
@@ -233,7 +239,7 @@ impl Kernel {
                         label,
                         sources,
                         by: (a.issuer == Issuer::Memory).then(|| "memory_pass".to_string()),
-                    },
+                    }),
                 )
                 .await?;
                 Ok((format!("remembered ({id})"), false, None))
@@ -291,7 +297,11 @@ impl Kernel {
                     }
                     _ => return Ok(("op is add, edit or retire.".into(), true, None)),
                 };
-                self.emit("kernel", Ev::Playbook { item: item.clone(), op: op.clone(), person: run.person.clone(), run: a.run.clone(), text, addresses, label }).await?;
+                self.emit(
+                    "kernel",
+                    Ev::Playbook(crate::events::PlaybookPayload { item: item.clone(), op: op.clone(), person: run.person.clone(), run: a.run.clone(), text, addresses, label }),
+                )
+                .await?;
                 Ok((format!("Playbook item {item}: {op} recorded. It applies from the next task."), false, Some(json!({ "item": item }))))
             }
             Op::PlaybookSearch => self.playbook_search(&a.run, &s("query")),

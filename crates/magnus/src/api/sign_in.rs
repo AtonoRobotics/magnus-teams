@@ -392,7 +392,7 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
             // What the provider says the person may do now counts from here
             // on, for every decision about them (E2).
             if rights.groups.is_some() || rights.roles.is_some() {
-                let ev = Ev::RightsFromProvider { person: person.clone(), groups: rights.groups, roles: rights.roles };
+                let ev = Ev::RightsFromProvider(crate::events::RightsFromProviderPayload { person: person.clone(), groups: rights.groups, roles: rights.roles });
                 if let Err(e) = k.emit(&format!("person:{person}"), ev).await {
                     return internal(e);
                 }

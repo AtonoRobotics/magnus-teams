@@ -74,7 +74,7 @@ impl Kernel {
             return Ok(Sent::Changed(again));
         }
         // The person's Send is their approval of exactly this action, once.
-        let approval = Ev::Approval {
+        let approval = Ev::Approval(crate::events::ApprovalPayload {
             id: new_id("appr"),
             item: item.id.clone(),
             person: item.person.clone(),
@@ -86,7 +86,7 @@ impl Kernel {
             reason: Some(crate::asks::NEW_DESTINATION.into()),
             risk: Some(f.risk.as_str().into()),
             destinations: Some(dests),
-        };
+        });
         self.emit(by, approval).await?;
         let key = idempotency_key(&a.run, &a.step_id, &a.tool);
         let verdict = Box::pin(self.execute(a)).await?;

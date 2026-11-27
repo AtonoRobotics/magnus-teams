@@ -406,7 +406,7 @@ impl Kernel {
                 let Some(reason) = reason.map(str::trim).filter(|r| !r.is_empty()) else {
                     return Ok(Err(CardRefusal::Invalid("a decline or dismissal needs the person's reason".into())));
                 };
-                self.emit(&actor, Ev::CardDeclined { card: card.into(), person: Some(person.into()), reason: Some(reason.into()) }).await?;
+                self.emit(&actor, Ev::CardDeclined(crate::events::CardDeclinedPayload { card: card.into(), person: Some(person.into()), reason: Some(reason.into()) })).await?;
                 Ok(Ok(json!({})))
             }
             other => Ok(Err(CardRefusal::Invalid(format!("decision is accept (or confirm), later or decline, not {other}")))),

@@ -25,12 +25,12 @@ fn new_events_are_top_level_and_legacy_events_deserialize_with_defaults() {
             valid_until: Utc::now(),
         }),
         super::Ev::MemoryArchived(super::MemoryArchivedPayload { id: "m3".into(), person: "alice".into(), reason: "tier2_cold".into() }),
-        super::Ev::PrefetchRecorded {
+        super::Ev::PrefetchRecorded(crate::events::PrefetchRecordedPayload {
             run: "r1".into(),
             person: "alice".into(),
             pointers: "- channel C01234567\n".into(),
             label: crate::tools::Label { untrusted: false, private: true },
-        },
+        }),
     ];
     for ev in new_events {
         let v = serde_json::to_value(&ev).unwrap();

@@ -293,7 +293,7 @@ impl Arrangements {
                     self.cards.insert(c.clone(), CardState { answer: Answer::Confirmed(id.clone()), at: e.at, person: Some(person.clone()) });
                 }
             }
-            Ev::GrantSet { id, person, apps, allow, period, max_usd, card, cedar, label, .. } => {
+            Ev::GrantSet(crate::events::GrantSetPayload { id, person, apps, allow, period, max_usd, card, cedar, label, .. }) => {
                 let g = self.grants.entry(id.clone()).or_insert_with(|| Grant {
                     id: id.clone(),
                     person: person.clone(),
@@ -333,12 +333,12 @@ impl Arrangements {
                     g.revoked = Some(e.at);
                 }
             }
-            Ev::GrantUsed { grant, task, run, call_id, tool } => {
+            Ev::GrantUsed(crate::events::GrantUsedPayload { grant, task, run, call_id, tool }) => {
                 if let Some(g) = self.grants.get_mut(grant) {
                     g.actions.push(GrantAction { tool: tool.clone(), task: task.clone(), run: run.clone(), call_id: call_id.clone(), at: e.at });
                 }
             }
-            Ev::CommitmentRecorded { id, person, who, by, source, label, .. } => {
+            Ev::CommitmentRecorded(crate::events::CommitmentRecordedPayload { id, person, who, by, source, label, .. }) => {
                 let by = by.clone().filter(|b| !b.is_empty());
                 self.commitments.entry(id.clone()).or_insert_with(|| Commitment {
                     id: id.clone(),
@@ -355,7 +355,7 @@ impl Arrangements {
                     steps: vec![CommitmentStep { seq: e.seq, status: "open".into(), by }],
                 });
             }
-            Ev::CommitmentChanged { id, person, by, status, .. } => {
+            Ev::CommitmentChanged(crate::events::CommitmentChangedPayload { id, person, by, status, .. }) => {
                 if let Some(c) = self.commitments.get_mut(id).filter(|c| &c.person == person) {
                     if let Some(b) = by {
                         c.by = Some(b.clone()).filter(|b| !b.is_empty());
@@ -372,7 +372,7 @@ impl Arrangements {
                     self.commitments.remove(id);
                 }
             }
-            Ev::CardDeclined { card, person, reason } => {
+            Ev::CardDeclined(crate::events::CardDeclinedPayload { card, person, reason }) => {
                 self.cards.insert(card.clone(), CardState { answer: Answer::Declined(reason.clone()), at: e.at, person: person.clone() });
             }
             Ev::CardDeferred { card, person } => {
@@ -381,11 +381,11 @@ impl Arrangements {
             Ev::CardAccepted { card, person, task } => {
                 self.cards.insert(card.clone(), CardState { answer: Answer::Started(task.clone()), at: e.at, person: Some(person.clone()) });
             }
-            Ev::ScheduleRemoved { id, .. } => {
+            Ev::ScheduleRemoved(crate::events::ScheduleRemovedPayload { id, .. }) => {
                 self.schedules.remove(id);
                 self.quarantine_schemas.remove(id);
             }
-            Ev::ScheduleEnded { id, reason, .. } => {
+            Ev::ScheduleEnded(crate::events::ScheduleEndedPayload { id, reason, .. }) => {
                 // It stays, marked with why: its card says it ended, with
                 // its latest run. Only a cancelled one is gone (#264). The
                 // end is terminal: no pause outlives it.
@@ -401,7 +401,7 @@ impl Arrangements {
                     s.skipped = Some((e.at, task.clone(), reason.clone()));
                 }
             }
-            Ev::SchedulePaused { id, reason, task, admin, .. } => {
+            Ev::SchedulePaused(crate::events::SchedulePausedPayload { id, reason, task, admin, .. }) => {
                 if let Some(s) = self.schedules.get_mut(id) {
                     let cause = match (task, admin) {
                         (_, true) => PauseCause::Admin,
@@ -412,7 +412,7 @@ impl Arrangements {
                     s.settle_pauses();
                 }
             }
-            Ev::ScheduleChanged { id, every_minutes, daily_at, until, max_runs, .. } => {
+            Ev::ScheduleChanged(crate::events::ScheduleChangedPayload { id, every_minutes, daily_at, until, max_runs, .. }) => {
                 if let Some(s) = self.schedules.get_mut(id) {
                     s.every_minutes = *every_minutes;
                     s.daily_at = daily_at.clone();
@@ -423,7 +423,7 @@ impl Arrangements {
                     s.ended = None;
                 }
             }
-            Ev::ScheduleResumed { id, source, .. } => {
+            Ev::ScheduleResumed(crate::events::ScheduleResumedPayload { id, source, .. }) => {
                 if let Some(s) = self.schedules.get_mut(id) {
                     // Each release lifts only its own cause: the kernel's
                     // (no source) a hold on a waiting run, the console an

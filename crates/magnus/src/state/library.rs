@@ -187,7 +187,7 @@ impl Library {
     /// no other kind here.
     pub(crate) fn fold(&mut self, e: &Event, runs: &HashMap<String, Run>) {
         match &e.ev {
-            Ev::FileUploaded { id, person, name, media_type, data_b64, thread } => {
+            Ev::FileUploaded(crate::events::FileUploadedPayload { id, person, name, media_type, data_b64, thread }) => {
                 let f = LibFile {
                     id: id.clone(),
                     person: person.clone(),
@@ -203,14 +203,14 @@ impl Library {
                 };
                 self.files.insert(id.clone(), f);
             }
-            Ev::ProjectSet { id, person, name, instructions } => {
+            Ev::ProjectSet(crate::events::ProjectSetPayload { id, person, name, instructions }) => {
                 let created_at = self.projects.get(id).map_or(e.at, |p| p.created_at);
                 self.projects.insert(id.clone(), Project { id: id.clone(), person: person.clone(), name: name.clone(), instructions: instructions.clone(), created_at });
             }
             Ev::Moved { item, project } => {
                 self.moved.insert(item.clone(), project.clone());
             }
-            Ev::BundleWritten { path, version, doc_kind: kind, scope, owner_user, actor, run, label, sources, writer: named, .. } => {
+            Ev::BundleWritten(crate::events::BundleWrittenPayload { path, version, doc_kind: kind, scope, owner_user, actor, run, label, sources, writer: named, .. }) => {
                 let writer = named.clone().or_else(|| run.as_ref().and_then(|r| runs.get(r)).map(|r| r.person.clone()));
                 let d = self.bundle.entry(path.clone()).or_insert_with(|| BundleDoc {
                     path: path.clone(),
@@ -243,7 +243,7 @@ impl Library {
                 let last = self.bundle_last.entry(path.clone()).or_default();
                 *last = (*last).max(*version);
             }
-            Ev::BundleShared { path, add, everyone, by } => {
+            Ev::BundleShared(crate::events::BundleSharedPayload { path, add, everyone, by }) => {
                 if let Some(d) = self.bundle.get_mut(path) {
                     for p in add {
                         if !d.shared.contains(p) {
@@ -257,7 +257,7 @@ impl Library {
             Ev::BundleRemoved { path } => {
                 self.bundle.remove(path);
             }
-            Ev::Memory { id, person, run, label, sources, by, .. } => self.memory.push(MemoryEntry {
+            Ev::Memory(crate::events::MemoryPayload { id, person, run, label, sources, by, .. }) => self.memory.push(MemoryEntry {
                 id: id.clone(),
                 person: person.clone(),
                 run: run.clone(),
@@ -299,7 +299,7 @@ impl Library {
                     k.version = e.seq;
                 }
             }
-            Ev::Playbook { item, op, person, run, text, addresses, label } => {
+            Ev::Playbook(crate::events::PlaybookPayload { item, op, person, run, text, addresses, label }) => {
                 self.playbook_version += 1;
                 let v = self.playbook_version;
                 match op.as_str() {

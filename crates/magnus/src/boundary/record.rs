@@ -64,7 +64,15 @@ impl Kernel {
     pub(crate) async fn decision(&self, a: &Action, outcome: &str, stage: &str, reason: &str, rule: Option<String>) -> Result<()> {
         self.emit(
             "kernel",
-            Ev::Decision { run: a.run.clone(), call_id: a.call_id.clone(), tool: a.tool.clone(), outcome: outcome.into(), stage: stage.into(), reason: reason.into(), rule },
+            Ev::Decision(crate::events::DecisionPayload {
+                run: a.run.clone(),
+                call_id: a.call_id.clone(),
+                tool: a.tool.clone(),
+                outcome: outcome.into(),
+                stage: stage.into(),
+                reason: reason.into(),
+                rule,
+            }),
         )
         .await?;
         Ok(())

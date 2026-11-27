@@ -189,7 +189,7 @@ impl Kernel {
             Some(run) => self.bundle_write(person, run, &path, &fm, &body).await?,
             None => {
                 crate::bundle::validate(&path, &fm, &body, |_| None)?;
-                let ev = Ev::BundleWritten {
+                let ev = Ev::BundleWritten(crate::events::BundleWrittenPayload {
                     path: path.clone(),
                     version: 0,
                     doc_kind: "user".into(),
@@ -202,7 +202,7 @@ impl Kernel {
                     writer: Some(person.into()),
                     frontmatter: fm,
                     body,
-                };
+                });
                 self.emit(&format!("person:{person}"), ev).await.map_err(|e| format!("{e:#}"))?.ev.bundle_version()
             }
         };

@@ -308,7 +308,14 @@ pub(super) async fn put_adapter(State(k): K, Owner(p): Owner, Path(id): Path<Str
         };
         let report = k.adapters.conformance(&candidate, &model).await;
         let rv = serde_json::to_value(&report).unwrap_or_default();
-        let ev = Ev::AdapterVerified { adapter_id: id.clone(), adapter: report.adapter.clone(), version: report.version.clone(), model, passed: report.passed, report: rv.clone() };
+        let ev = Ev::AdapterVerified(crate::events::AdapterVerifiedPayload {
+            adapter_id: id.clone(),
+            adapter: report.adapter.clone(),
+            version: report.version.clone(),
+            model,
+            passed: report.passed,
+            report: rv.clone(),
+        });
         k.emit(&format!("person:{}", p.id), ev).await?;
         if !report.passed {
             return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "installed": false, "conformance": rv }))).into_response());
@@ -350,7 +357,14 @@ pub(super) async fn conformance(State(k): K, Owner(p): Owner, Path(id): Path<Str
     };
     let report = k.adapters.conformance(&running, &model).await;
     let rv = serde_json::to_value(&report).unwrap_or_default();
-    let ev = Ev::AdapterVerified { adapter_id: id, adapter: report.adapter.clone(), version: report.version.clone(), model, passed: report.passed, report: rv.clone() };
+    let ev = Ev::AdapterVerified(crate::events::AdapterVerifiedPayload {
+        adapter_id: id,
+        adapter: report.adapter.clone(),
+        version: report.version.clone(),
+        model,
+        passed: report.passed,
+        report: rv.clone(),
+    });
     k.emit(&format!("person:{}", p.id), ev).await?;
     Ok(Json(rv).into_response())
 }

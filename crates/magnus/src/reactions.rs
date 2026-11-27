@@ -188,7 +188,11 @@ impl Kernel {
                     return no("position (what you advised) and decision (what they decided instead) are needed".into());
                 };
                 let id = new_id("disagreement");
-                self.emit("kernel", Ev::DisagreementRecorded { id: id.clone(), person: r.person.clone(), run: run.into(), position, decision }).await?;
+                self.emit(
+                    "kernel",
+                    Ev::DisagreementRecorded(crate::events::DisagreementRecordedPayload { id: id.clone(), person: r.person.clone(), run: run.into(), position, decision }),
+                )
+                .await?;
                 Ok((format!("Recorded as {id}. When you learn how it turned out, record that with action outcome and this id."), false, Some(json!({ "id": id }))))
             }
             Some("outcome") => {
@@ -209,7 +213,16 @@ impl Kernel {
                     None => no(format!("there is no disagreement {id}; the open ones are: {}", if open.is_empty() { "none".into() } else { open.join(", ") })),
                     Some((false, _, _)) => no(format!("{id} already has its outcome")),
                     Some((true, position, decision)) => {
-                        self.emit("kernel", Ev::DisagreementOutcome { id: id.clone(), person: r.person.clone(), run: run.into(), outcome: outcome.clone() }).await?;
+                        self.emit(
+                            "kernel",
+                            Ev::DisagreementOutcome(crate::events::DisagreementOutcomePayload {
+                                id: id.clone(),
+                                person: r.person.clone(),
+                                run: run.into(),
+                                outcome: outcome.clone(),
+                            }),
+                        )
+                        .await?;
                         let told = outcome_report(&position, &decision, &outcome);
                         self.emit(
                             "kernel",
@@ -254,7 +267,7 @@ async fn react(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path((thread, en
     if !e.is_magnus() {
         return err(StatusCode::BAD_REQUEST, "only Magnus's messages take a reaction");
     }
-    match k.emit(&format!("person:{}", p.id), Ev::Reacted { person: p.id.clone(), thread, entry, reaction: reaction.clone() }).await {
+    match k.emit(&format!("person:{}", p.id), Ev::Reacted(crate::events::ReactedPayload { person: p.id.clone(), thread, entry, reaction: reaction.clone() })).await {
         Ok(_) => Json(json!({ "reaction": reaction })).into_response(),
         Err(e) => internal(e),
     }

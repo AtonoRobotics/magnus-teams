@@ -70,22 +70,22 @@ impl ThreadExtras {
             Ev::ChatHidden { thread, entries, .. } => {
                 self.hidden.entry(thread.clone()).or_default().extend(entries.iter().cloned());
             }
-            Ev::Reacted { person, thread, entry, reaction } => {
+            Ev::Reacted(crate::events::ReactedPayload { person, thread, entry, reaction }) => {
                 let mine = self.reactions.entry(person.clone()).or_default();
                 mine.entry((thread.clone(), entry.clone())).or_default().push((reaction.clone(), at));
             }
-            Ev::DisagreementRecorded { id, person, position, decision, .. } => {
+            Ev::DisagreementRecorded(crate::events::DisagreementRecordedPayload { id, person, position, decision, .. }) => {
                 let d = Disagreement { id: id.clone(), person: person.clone(), position: position.clone(), decision: decision.clone(), at, outcome: None, outcome_at: None };
                 self.disagreements.insert(id.clone(), d);
             }
-            Ev::DisagreementOutcome { id, outcome, .. } => {
+            Ev::DisagreementOutcome(crate::events::DisagreementOutcomePayload { id, outcome, .. }) => {
                 // The first outcome stands.
                 if let Some(d) = self.disagreements.get_mut(id).filter(|d| d.outcome.is_none()) {
                     d.outcome = Some(outcome.clone());
                     d.outcome_at = Some(at);
                 }
             }
-            Ev::ThreadBranched { person, thread, from, upto, entries, title } => {
+            Ev::ThreadBranched(crate::events::ThreadBranchedPayload { person, thread, from, upto, entries, title }) => {
                 self.branches.insert(thread.clone(), Branch { person: person.clone(), from: from.clone(), upto: upto.clone(), entries: entries.clone(), title: title.clone(), at });
             }
             _ => {}

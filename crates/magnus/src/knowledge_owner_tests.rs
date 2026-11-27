@@ -30,7 +30,7 @@ fn an_entry_only_one_person_may_read_is_theirs() {
 }
 
 fn lesson(item: &str, person: &str, text: &str) -> Ev {
-    Ev::Playbook {
+    Ev::Playbook(crate::events::PlaybookPayload {
         item: item.into(),
         op: "add".into(),
         person: person.into(),
@@ -38,7 +38,7 @@ fn lesson(item: &str, person: &str, text: &str) -> Ev {
         text: Some(text.into()),
         addresses: Some("a failure".into()),
         label: Label::default(),
-    }
+    })
 }
 
 /// Whose each content row says it is.

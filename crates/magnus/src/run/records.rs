@@ -155,7 +155,7 @@ impl Kernel {
                         format!("A schedule ended itself: {title}"),
                         json!({ "reason": "schedule_ended", "evidence": { "schedule": id, "why": reason } }),
                     );
-                    self.emit_all(vec![("model", Ev::ScheduleEnded { id, reason, run: Some(rid.to_string()) }), ("kernel", notice)]).await?;
+                    self.emit_all(vec![("model", Ev::ScheduleEnded(crate::events::ScheduleEndedPayload { id, reason, run: Some(rid.to_string()) })), ("kernel", notice)]).await?;
                     self.result(rid, call_id, "The schedule has ended; no more runs will start. This run goes on.", false).await?;
                 }
                 None => self.result(rid, call_id, "This task was not started by a schedule that is still set. A retry will not help.", true).await?,

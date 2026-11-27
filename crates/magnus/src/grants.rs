@@ -176,7 +176,7 @@ impl Kernel {
     /// Set a grant: the kernel writes its policy from the fields.
     pub async fn set_grant(&self, actor: &str, person: &str, id: &str, f: &Fields, card: Option<String>, label: Option<Label>) -> anyhow::Result<()> {
         let cedar = crate::policy::grant_cedar(person, &f.apps, &f.allow)?;
-        let ev = Ev::GrantSet {
+        let ev = Ev::GrantSet(crate::events::GrantSetPayload {
             id: id.into(),
             person: person.into(),
             title: f.title.clone(),
@@ -187,7 +187,7 @@ impl Kernel {
             card,
             cedar,
             label: label.filter(|l| l.untrusted || l.private),
-        };
+        });
         self.emit(actor, ev).await.map(|_| ())
     }
 

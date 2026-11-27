@@ -266,7 +266,10 @@ impl Kernel {
         let reason = if who.id == sc.person { "Paused by you".to_string() } else { format!("Paused by {}", who.name) };
         let (source, turn_ev) = sources(turn);
         let actor = format!("person:{}", who.id);
-        let mut evs = vec![(actor.as_str(), Ev::SchedulePaused { id: id.into(), reason: reason.clone(), task: None, admin: false, source, turn: turn_ev })];
+        let mut evs = vec![(
+            actor.as_str(),
+            Ev::SchedulePaused(crate::events::SchedulePausedPayload { id: id.into(), reason: reason.clone(), task: None, admin: false, source, turn: turn_ev }),
+        )];
         if who.id != sc.person {
             evs.push((
                 "kernel",
@@ -299,7 +302,7 @@ impl Kernel {
         }
         let (source, turn_ev) = sources(turn);
         let actor = format!("person:{}", who.id);
-        let mut evs = vec![(actor.as_str(), Ev::ScheduleResumed { id: id.into(), source, turn: turn_ev })];
+        let mut evs = vec![(actor.as_str(), Ev::ScheduleResumed(crate::events::ScheduleResumedPayload { id: id.into(), source, turn: turn_ev }))];
         evs.extend(self.clear_schedule_notices(&sc.person, id));
         self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         Ok(())
@@ -313,7 +316,7 @@ impl Kernel {
         let going = if sc.ended.is_some() { vec![] } else { self.schedule_runs_going(id) };
         let (source, turn_ev) = sources(turn);
         let actor = format!("person:{}", who.id);
-        let mut evs = vec![(actor.as_str(), Ev::ScheduleRemoved { id: id.into(), source, turn: turn_ev })];
+        let mut evs = vec![(actor.as_str(), Ev::ScheduleRemoved(crate::events::ScheduleRemovedPayload { id: id.into(), source, turn: turn_ev }))];
         evs.extend(self.clear_schedule_notices(&sc.person, id));
         self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         let (stopped, runs) = self.stop_schedule_runs(who, &going, turn).await;
@@ -330,7 +333,7 @@ impl Kernel {
             return Err(Refused::Conflict("the schedule has already ended".into()));
         }
         let going = self.schedule_runs_going(id);
-        let ended = Ev::ScheduleEnded { id: id.into(), reason: STOPPED_BY_PERSON.into(), run: None };
+        let ended = Ev::ScheduleEnded(crate::events::ScheduleEndedPayload { id: id.into(), reason: STOPPED_BY_PERSON.into(), run: None });
         let actor = format!("person:{}", who.id);
         let mut evs = vec![(actor.as_str(), ended)];
         evs.extend(self.clear_schedule_notices(&sc.person, id));
@@ -406,7 +409,10 @@ impl Kernel {
         }
         let (source, turn_ev) = sources(turn);
         let actor = format!("person:{}", who.id);
-        let mut evs = vec![(actor.as_str(), Ev::ScheduleChanged { id: id.into(), every_minutes, daily_at: daily_at.clone(), until, max_runs, source, turn: turn_ev })];
+        let mut evs = vec![(
+            actor.as_str(),
+            Ev::ScheduleChanged(crate::events::ScheduleChangedPayload { id: id.into(), every_minutes, daily_at: daily_at.clone(), until, max_runs, source, turn: turn_ev }),
+        )];
         evs.extend(self.clear_schedule_notices(&sc.person, id));
         self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         // The zone its daily time is read in, named (`cadence::zone_of`).

@@ -174,7 +174,7 @@ impl Inbox {
                     }
                 }
             }
-            Ev::Approval { id, item, person, task, tool, input_hash, scope, until, reason, risk, destinations } => self.approvals.push(Approval {
+            Ev::Approval(crate::events::ApprovalPayload { id, item, person, task, tool, input_hash, scope, until, reason, risk, destinations }) => self.approvals.push(Approval {
                 id: id.clone(),
                 person: person.clone(),
                 task: task.clone(),

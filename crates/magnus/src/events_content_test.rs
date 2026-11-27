@@ -4,17 +4,28 @@
 #[test]
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
+    let payloads = include_str!("events/payloads.rs");
     let end = src.find("pub const CONTENT").or_else(|| src.find("#[path = \"events_content.rs\"]")).unwrap();
     let src = &src[src.find("pub enum Ev {").unwrap()..end];
     for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "team_mission", "rule", "spend", "evidence", "staged", "outside_agent"].contains(k)) {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
-        let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
-        let body = &src[start..start + src[start..].find("\n    },").unwrap()];
+        let (body, field_prefix) = if let Some(start) = src.find(&format!("\n    {variant} {{")) {
+            (&src[start..start + src[start..].find("\n    },").unwrap()], "        ")
+        } else {
+            let needle = format!("\n    {variant}({variant}Payload),");
+            assert!(src.contains(&needle), "no event kind {kind}");
+            let pstart = payloads.find(&format!("pub struct {variant}Payload {{")).unwrap_or_else(|| panic!("no payload struct for {kind}"));
+            (&payloads[pstart..pstart + payloads[pstart..].find("\n}").unwrap()], "    pub ")
+        };
         for f in *fields {
             let top = f.split('.').next().unwrap();
             assert!(body.contains(&format!(" {top}: ")), "{kind} has no field {top}");
             if !f.contains('.') {
-                assert!(body.contains(&format!("#[serde(default)]\n        {top}: ")), "{kind}.{top} has no default");
+                let indent = if field_prefix.starts_with("    pub") { "    " } else { "        " };
+                assert!(
+                    body.contains(&format!("#[serde(default)]\n{field_prefix}{top}: ")) || body.contains(&format!("#[serde(default)]\n{indent}{top}: ")),
+                    "{kind}.{top} has no default"
+                );
             }
         }
     }
@@ -24,7 +35,7 @@ fn the_content_list_names_real_kinds_and_fields() {
 /// field in any of them has a default.
 #[test]
 fn the_teams_content_fields_all_read_once_deleted() {
-    let src = include_str!("team/mod.rs");
+    let src = include_str!("team/change.rs");
     let src = &src[src.find("pub enum Change {").unwrap()..src.find("/// Scratch for one request").unwrap()];
     let (_, fields) = super::CONTENT.iter().find(|(k, _)| *k == "team").unwrap();
     for f in *fields {

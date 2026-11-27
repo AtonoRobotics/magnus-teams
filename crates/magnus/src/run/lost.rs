@@ -159,7 +159,7 @@ impl crate::kernel::Kernel {
             "You were going in circles: {signal}. Your {} latest replies were taken out of this conversation. {did} Do not repeat that approach: try a different one, or call task_fail if the task cannot be done.",
             to - from
         );
-        self.emit("kernel", crate::events::Ev::ContextReset { run: run.id.clone(), from, to, signal: signal.into(), note }).await?;
+        self.emit("kernel", crate::events::Ev::ContextReset(crate::events::ContextResetPayload { run: run.id.clone(), from, to, signal: signal.into(), note })).await?;
         Ok(())
     }
 }

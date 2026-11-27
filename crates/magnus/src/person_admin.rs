@@ -84,7 +84,7 @@ impl Kernel {
                 };
                 return Err((StatusCode::CONFLICT, why.into()));
             }
-            self.emit(actor, Ev::ScheduleResumed { id: id.into(), source: Some("console".into()), turn: None }).await.map_err(failed)?;
+            self.emit(actor, Ev::ScheduleResumed(crate::events::ScheduleResumedPayload { id: id.into(), source: Some("console".into()), turn: None })).await.map_err(failed)?;
         } else {
             if sc.ended.is_some() {
                 return Err((StatusCode::CONFLICT, "the schedule has ended".into()));
@@ -94,7 +94,14 @@ impl Kernel {
             }
             self.emit(
                 actor,
-                Ev::SchedulePaused { id: id.into(), reason: format!("Suspended by {by}, an admin"), task: None, admin: true, source: Some("console".into()), turn: None },
+                Ev::SchedulePaused(crate::events::SchedulePausedPayload {
+                    id: id.into(),
+                    reason: format!("Suspended by {by}, an admin"),
+                    task: None,
+                    admin: true,
+                    source: Some("console".into()),
+                    turn: None,
+                }),
             )
             .await
             .map_err(failed)?;
@@ -182,7 +189,7 @@ impl Kernel {
         };
         let mut evs = vec![];
         for person in people {
-            evs.push((reader, Ev::PersonDataRead { person: person.clone(), what: what.to_string(), item: item.map(String::from) }));
+            evs.push((reader, Ev::PersonDataRead(crate::events::PersonDataReadPayload { person: person.clone(), what: what.to_string(), item: item.map(String::from) })));
             evs.push((
                 "kernel",
                 self.notice_to(
@@ -219,7 +226,7 @@ impl Kernel {
         }
         let schedules: Vec<String> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person).map(|x| x.id.clone()).collect());
         for id in &schedules {
-            self.emit(actor, Ev::ScheduleRemoved { id: id.clone(), source: Some("console".into()), turn: None }).await.map_err(failed)?;
+            self.emit(actor, Ev::ScheduleRemoved(crate::events::ScheduleRemovedPayload { id: id.clone(), source: Some("console".into()), turn: None })).await.map_err(failed)?;
         }
         // Their brokered connectors' microVMs.
         self.brokered.stop(None, Some(person)).await;

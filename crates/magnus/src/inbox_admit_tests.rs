@@ -26,7 +26,7 @@ async fn charged_run(s: &Server, usd: f64) -> String {
         tokio::time::sleep(POLL_EVERY).await;
     }
     let usage = magnus_adapter_proto::Usage { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: usd };
-    s.k.emit("kernel", Ev::MemoryPass { run: run.clone(), model: "m".into(), blocks: vec![], usage }).await.unwrap();
+    s.k.emit("kernel", Ev::MemoryPass(crate::events::MemoryPassPayload { run: run.clone(), model: "m".into(), blocks: vec![], usage })).await.unwrap();
     run
 }
 

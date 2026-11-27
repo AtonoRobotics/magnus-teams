@@ -382,7 +382,15 @@ impl Kernel {
             timeout: None,
         };
         let record = |out: &crate::adapters::TurnOut| {
-            Some(("kernel:knowledge", Ev::KnowledgeExtraction { run: run.id.clone(), model: format!("{adapter}/{model}"), reply: text(&out.blocks), usage: out.usage.clone() }))
+            Some((
+                "kernel:knowledge",
+                Ev::KnowledgeExtraction(crate::events::KnowledgeExtractionPayload {
+                    run: run.id.clone(),
+                    model: format!("{adapter}/{model}"),
+                    reply: text(&out.blocks),
+                    usage: out.usage.clone(),
+                }),
+            ))
         };
         let reply = match self.paid_call(call, record).await {
             Ok(p) => text(&p.out.blocks),

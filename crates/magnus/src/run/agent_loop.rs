@@ -406,8 +406,19 @@ impl Kernel {
                         .join("\n")
                         .trim()
                         .to_string();
-                    self.emit("model", Ev::ModelReply { run: run_id.into(), step, blocks: t.blocks, state: t.state, usage: t.usage, served_model: t.served_model, stop: t.stop })
-                        .await?;
+                    self.emit(
+                        "model",
+                        Ev::ModelReply(crate::events::ModelReplyPayload {
+                            run: run_id.into(),
+                            step,
+                            blocks: t.blocks,
+                            state: t.state,
+                            usage: t.usage,
+                            served_model: t.served_model,
+                            stop: t.stop,
+                        }),
+                    )
+                    .await?;
                     // Its cost is on the run now: what it held is free for
                     // the monitor's own call.
                     drop(held);
@@ -441,7 +452,11 @@ impl Kernel {
                     return Ok(Flow::Continue);
                 }
                 Err(e) => {
-                    self.emit("kernel", Ev::ModelError { run: run_id.into(), step, attempt, class: e.class, message: e.message.clone(), usage: e.usage.clone() }).await?;
+                    self.emit(
+                        "kernel",
+                        Ev::ModelError(crate::events::ModelErrorPayload { run: run_id.into(), step, attempt, class: e.class, message: e.message.clone(), usage: e.usage.clone() }),
+                    )
+                    .await?;
                     drop(held);
                     let wait = retry_delay(attempt + 1, e.retry_after_s);
                     match e.class {

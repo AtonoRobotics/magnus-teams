@@ -225,7 +225,7 @@ impl Kernel {
         let mut last: HashMap<String, u32> = HashMap::new();
         for ev in evs {
             crate::typed_secrets::mask_event(ev);
-            if let Ev::BundleWritten { path, version, .. } = ev {
+            if let Ev::BundleWritten(crate::events::BundleWrittenPayload { path, version, .. }) = ev {
                 let n = last.get(path.as_str()).copied().unwrap_or_else(|| s.library.bundle_last().get(path.as_str()).copied().unwrap_or(0)) + 1;
                 last.insert(path.clone(), n);
                 *version = n;

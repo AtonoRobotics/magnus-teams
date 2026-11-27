@@ -27,14 +27,14 @@ impl Kernel {
     /// A copy of `bytes` as `name` in `person`'s own library.
     pub(super) async fn keep_in_library(&self, actor: &str, person: &str, name: &str, bytes: &[u8]) -> Result<String> {
         let id = new_id("file");
-        let ev = Ev::FileUploaded {
+        let ev = Ev::FileUploaded(crate::events::FileUploadedPayload {
             id: id.clone(),
             person: person.to_string(),
             name: name.to_string(),
             media_type: crate::boundary::media_type_for(name),
             data_b64: base64::engine::general_purpose::STANDARD.encode(bytes),
             thread: None,
-        };
+        });
         self.emit(actor, ev).await?;
         Ok(id)
     }

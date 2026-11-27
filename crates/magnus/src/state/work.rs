@@ -321,7 +321,7 @@ pub struct DraftSources {
 pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
     let Some(r) = e.ev.run().and_then(|id| runs.get_mut(id)) else { return };
     match &e.ev {
-        Ev::ContextReset { from, to, note, .. } => {
+        Ev::ContextReset(crate::events::ContextResetPayload { from, to, note, .. }) => {
             r.cuts.push(Cut { from: *from, to: *to, note: note.clone() });
             r.lost_since = *to;
         }
@@ -333,22 +333,22 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             r.model_calls += 1;
             r.personal |= context.carried_person();
         }
-        Ev::ModelReply { step, blocks, state, usage, .. } => {
+        Ev::ModelReply(crate::events::ModelReplyPayload { step, blocks, state, usage, .. }) => {
             r.usd += usage.cost_usd;
             r.tokens.add(usage);
             r.replies.push(Reply { step: *step, seq: e.seq, blocks: blocks.clone(), state: state.clone() });
         }
-        Ev::VerifierReply { usage, .. }
-        | Ev::ReviewerReply { usage, .. }
-        | Ev::MemoryPass { usage, .. }
-        | Ev::SpokenWritten { usage, .. }
-        | Ev::KnowledgeExtraction { usage, .. }
-        | Ev::DraftScoped { usage, .. } => {
-            if let Ev::SpokenWritten { script, .. } = &e.ev {
+        Ev::VerifierReply(crate::events::VerifierReplyPayload { usage, .. })
+        | Ev::ReviewerReply(crate::events::ReviewerReplyPayload { usage, .. })
+        | Ev::MemoryPass(crate::events::MemoryPassPayload { usage, .. })
+        | Ev::SpokenWritten(crate::events::SpokenWrittenPayload { usage, .. })
+        | Ev::KnowledgeExtraction(crate::events::KnowledgeExtractionPayload { usage, .. })
+        | Ev::DraftScoped(crate::events::DraftScopedPayload { usage, .. }) => {
+            if let Ev::SpokenWritten(crate::events::SpokenWrittenPayload { script, .. }) = &e.ev {
                 r.spoken = Some(script.clone());
             }
             // What the reviewer module did, not the checks that share its model.
-            if matches!(&e.ev, Ev::ReviewerReply { purpose, .. } if crate::run::reviewer::MODULE_PURPOSES.contains(&purpose.as_str())) {
+            if matches!(&e.ev, Ev::ReviewerReply(crate::events::ReviewerReplyPayload { purpose, .. }) if crate::run::reviewer::MODULE_PURPOSES.contains(&purpose.as_str())) {
                 r.reviewed += 1;
             }
             r.model_calls += 1;
@@ -356,7 +356,7 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             r.usd += usage.cost_usd;
             r.tokens.add(usage);
         }
-        Ev::ModelError { usage, .. } => {
+        Ev::ModelError(crate::events::ModelErrorPayload { usage, .. }) => {
             r.model_errors += 1;
             if let Some(usage) = usage {
                 r.usd += usage.cost_usd;
@@ -364,11 +364,11 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             }
         }
         Ev::Notice { step, text, .. } => r.notices.push((*step, e.seq, text.clone())),
-        Ev::Intent { call_id, key, tool, input, issuer, .. } => {
+        Ev::Intent(crate::events::IntentPayload { call_id, key, tool, input, issuer, .. }) => {
             r.actions += 1;
             r.intents.insert(key.clone(), Intent { call_id: call_id.clone(), tool: tool.clone(), at: e.at, input: input.clone(), issuer: issuer.clone(), result: None });
         }
-        Ev::Decision { call_id, tool, outcome, stage, rule, .. } => {
+        Ev::Decision(crate::events::DecisionPayload { call_id, tool, outcome, stage, rule, .. }) => {
             r.decisions.push(DecisionRec { seq: e.seq, call_id: call_id.clone(), tool: tool.clone(), stage: stage.clone(), outcome: outcome.clone(), rule: rule.clone() });
         }
         Ev::ToolResult { call_id, key, status, text, is_error, label, data, sources, check, .. } => {
@@ -393,7 +393,7 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
                 }
             }
         }
-        Ev::Contract { version, contract, approved_by, .. } => {
+        Ev::Contract(crate::events::ContractPayload { version, contract, approved_by, .. }) => {
             r.contract = Some(contract.clone());
             r.contract_version = *version;
             r.verified.clear();
@@ -412,8 +412,8 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             r.plan = Some(plan.clone());
             r.plan_version = *version;
         }
-        Ev::Graded { grader, passed, score, details, .. } => r.grades.push((grader.clone(), *passed, *score, details.clone())),
-        Ev::Verification { criterion, passed, evidence, by, .. } => {
+        Ev::Graded(crate::events::GradedPayload { grader, passed, score, details, .. }) => r.grades.push((grader.clone(), *passed, *score, details.clone())),
+        Ev::Verification(crate::events::VerificationPayload { criterion, passed, evidence, by, .. }) => {
             if !passed {
                 r.checks_failed += 1;
             }
@@ -564,7 +564,7 @@ pub(super) fn created(tasks: &mut BTreeMap<String, Task>, runs: &mut HashMap<Str
 
 /// A person's verdict on their task; anyone's on a trial's.
 pub(super) fn verdict(tasks: &mut BTreeMap<String, Task>, runs: &HashMap<String, Run>, e: &Event) {
-    let Ev::Verdict { task, person, verdict, note } = &e.ev else { return };
+    let Ev::Verdict(crate::events::VerdictPayload { task, person, verdict, note }) = &e.ev else { return };
     let trial = tasks.get(task).and_then(|t| runs.get(&t.run_id)).is_some_and(|r| r.experiment.is_some());
     if let Some(t) = tasks.get_mut(task).filter(|t| &t.person == person || trial) {
         t.verdict = Some(Verdict { verdict: verdict.clone(), note: note.clone(), at: e.at });
@@ -574,7 +574,7 @@ pub(super) fn verdict(tasks: &mut BTreeMap<String, Task>, runs: &HashMap<String,
 /// A file a run delivered: on the run, and the library's record of it,
 /// with the run's taint, for the router to put in the person's library.
 pub(super) fn output(runs: &mut HashMap<String, Run>, e: &Event) -> Option<LibFile> {
-    let Ev::Output { id, run, name, media_type, data_b64 } = &e.ev else { return None };
+    let Ev::Output(crate::events::OutputPayload { id, run, name, media_type, data_b64 }) = &e.ev else { return None };
     let r = runs.get_mut(run)?;
     r.outputs.push((id.clone(), name.clone(), media_type.clone(), data_b64.len() * 3 / 4));
     Some(LibFile {
@@ -621,11 +621,11 @@ impl State {
         match ev {
             Ev::KnowledgeAdded { readers, .. } => return crate::knowledge_owner::entry_owner(readers).map(String::from),
             // An org document is nobody's; a person's own is theirs.
-            Ev::BundleWritten { owner_user, .. } => return owner_user.clone(),
+            Ev::BundleWritten(crate::events::BundleWrittenPayload { owner_user, .. }) => return owner_user.clone(),
             Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.inbox.items().get(id).map(|i| i.person.clone()),
             Ev::Team(c) => return self.team.content_owner(c),
             Ev::TeamMission(m) => return self.missions.content_owner(m),
-            Ev::ScheduleEnded { id, .. } => return self.arrangements.schedules().get(id).map(|s| s.person.clone()),
+            Ev::ScheduleEnded(crate::events::ScheduleEndedPayload { id, .. }) => return self.arrangements.schedules().get(id).map(|s| s.person.clone()),
             _ => {}
         }
         if let Some(p) = serde_json::to_value(ev).ok().and_then(|v| v["person"].as_str().map(String::from)) {

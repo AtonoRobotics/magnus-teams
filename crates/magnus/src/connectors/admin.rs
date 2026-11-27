@@ -271,7 +271,12 @@ impl Kernel {
         let groups = access_groups.or(had.access_groups);
         let blocked = blocked_groups.or(had.blocked_groups);
         let enabled = enabled.unwrap_or(on);
-        self.emit(actor, Ev::ConnectorSettings { name: name.to_string(), enabled, access_groups: groups.clone(), blocked_groups: blocked.clone() }).await.map_err(failed)?;
+        self.emit(
+            actor,
+            Ev::ConnectorSettings(crate::events::ConnectorSettingsPayload { name: name.to_string(), enabled, access_groups: groups.clone(), blocked_groups: blocked.clone() }),
+        )
+        .await
+        .map_err(failed)?;
         Ok(json!({ "name": name, "enabled": enabled, "access_groups": groups.unwrap_or(c.access_groups), "blocked_groups": blocked.unwrap_or(c.blocked_groups) }))
     }
 

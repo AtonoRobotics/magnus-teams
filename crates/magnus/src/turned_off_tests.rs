@@ -38,7 +38,7 @@ async fn a_held_schedule_stays_paused_for_a_person_turned_off_and_back() {
     assert_eq!(k.read(|s| s.tasks.values().filter(|t| t.schedule.as_deref() == Some("sc1")).count()), 1, "the schedule fired");
 
     // Their resume lifts it.
-    k.emit("person:mo", Ev::ScheduleResumed { id: "sc1".into(), source: Some("button".into()), turn: None }).await.unwrap();
+    k.emit("person:mo", Ev::ScheduleResumed(crate::events::ScheduleResumedPayload { id: "sc1".into(), source: Some("button".into()), turn: None })).await.unwrap();
     assert!(schedule().next_due().is_some(), "their resume left it paused");
     s.done().await;
 }

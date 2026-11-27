@@ -50,7 +50,16 @@ impl Kernel {
         self.emit_all(vec![
             (
                 "kernel",
-                Ev::Memory { id: new_id.clone(), person: run.person.clone(), run: run.id.clone(), fact: new_fact, topic, label: run_label, sources, by: Some("reconciler".into()) },
+                Ev::Memory(crate::events::MemoryPayload {
+                    id: new_id.clone(),
+                    person: run.person.clone(),
+                    run: run.id.clone(),
+                    fact: new_fact,
+                    topic,
+                    label: run_label,
+                    sources,
+                    by: Some("reconciler".into()),
+                }),
             ),
             (
                 "kernel",

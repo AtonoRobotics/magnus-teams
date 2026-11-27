@@ -395,7 +395,7 @@ impl Kernel {
         if !resend {
             self.emit(
                 "kernel",
-                Ev::Intent {
+                Ev::Intent(crate::events::IntentPayload {
                     run: a.run.clone(),
                     call_id: a.call_id.clone(),
                     step_id: a.step_id.clone(),
@@ -403,7 +403,7 @@ impl Kernel {
                     tool: a.tool.clone(),
                     input: a.input.clone(),
                     issuer: a.issuer.as_str().into(),
-                },
+                }),
             )
             .await?;
         }

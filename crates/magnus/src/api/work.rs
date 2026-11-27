@@ -493,7 +493,7 @@ pub(super) async fn verdict(State(k): K, Caller(p): Caller, Path(id): Path<Strin
     if !run.status.terminal() {
         return refuse(StatusCode::CONFLICT, "the task has not ended");
     }
-    let ev = Ev::Verdict { task: task.task_id.clone(), person: p.id.clone(), verdict: v.into(), note };
+    let ev = Ev::Verdict(crate::events::VerdictPayload { task: task.task_id.clone(), person: p.id.clone(), verdict: v.into(), note });
     Ok(match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
         Err(e) => internal(e),

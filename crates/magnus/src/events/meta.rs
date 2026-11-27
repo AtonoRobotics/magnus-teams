@@ -134,50 +134,51 @@ impl ContextRef {
 impl Ev {
     /// The version a document was written as (0 for any other event).
     pub fn bundle_version(&self) -> u32 {
-        let Ev::BundleWritten { version, .. } = self else { return 0 };
+        let Ev::BundleWritten(crate::events::BundleWrittenPayload { version, .. }) = self else { return 0 };
         *version
     }
 
     pub fn run(&self) -> Option<&str> {
+        use super::payloads::*;
         use Ev::*;
         match self {
             TaskCreated { run, .. }
             | ModelCall { run, .. }
-            | ModelReply { run, .. }
-            | ModelError { run, .. }
+            | ModelReply(ModelReplyPayload { run, .. })
+            | ModelError(ModelErrorPayload { run, .. })
             | Notice { run, .. }
             | Handback { run, .. }
-            | Intent { run, .. }
-            | Decision { run, .. }
+            | Intent(IntentPayload { run, .. })
+            | Decision(DecisionPayload { run, .. })
             | ToolResult { run, .. }
-            | Contract { run, .. }
+            | Contract(ContractPayload { run, .. })
             | WorkStarted { run }
             | ContractFrozen { run, .. }
             | Plan { run, .. }
-            | Playbook { run, .. }
-            | Graded { run, .. }
-            | Verification { run, .. }
-            | ContextReset { run, .. }
+            | Playbook(PlaybookPayload { run, .. })
+            | Graded(GradedPayload { run, .. })
+            | Verification(VerificationPayload { run, .. })
+            | ContextReset(ContextResetPayload { run, .. })
             | Escalated { run, .. }
-            | VerifierReply { run, .. }
-            | ReviewerReply { run, .. }
+            | VerifierReply(VerifierReplyPayload { run, .. })
+            | ReviewerReply(ReviewerReplyPayload { run, .. })
             | Suspended { run, .. }
             | Resumed { run }
             | Completed { run, .. }
             | Failed { run, .. }
             | Cancelled { run, .. }
             | ApprovalUsed { run, .. }
-            | GrantUsed { run, .. }
+            | GrantUsed(GrantUsedPayload { run, .. })
             | Wait { run, .. }
             | BudgetExtended { run, .. }
-            | Memory { run, .. }
-            | MemoryPass { run, .. }
-            | SpokenWritten { run, .. }
-            | KnowledgeExtraction { run, .. }
-            | DraftScoped { run, .. }
+            | Memory(MemoryPayload { run, .. })
+            | MemoryPass(MemoryPassPayload { run, .. })
+            | SpokenWritten(SpokenWrittenPayload { run, .. })
+            | KnowledgeExtraction(KnowledgeExtractionPayload { run, .. })
+            | DraftScoped(DraftScopedPayload { run, .. })
             | ReviewWoken { run, .. }
-            | Output { run, .. } => Some(run),
-            Item { run, .. } | ScheduleEnded { run, .. } | Tools(crate::tool_gate::Change::Screened { run, .. }) => run.as_deref(),
+            | Output(OutputPayload { run, .. }) => Some(run),
+            Item { run, .. } | ScheduleEnded(ScheduleEndedPayload { run, .. }) | Tools(crate::tool_gate::Change::Screened { run, .. }) => run.as_deref(),
             Evidence(c) => Some(c.run()),
             _ => None,
         }

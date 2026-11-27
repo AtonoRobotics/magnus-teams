@@ -240,7 +240,7 @@ impl Kernel {
                 evs.push((&actor, resolve(Some(scope.clone()))));
                 evs.push((
                     &actor,
-                    Ev::Approval {
+                    Ev::Approval(crate::events::ApprovalPayload {
                         id: new_id("appr"),
                         item: item.id.clone(),
                         person: item.person.clone(),
@@ -252,7 +252,7 @@ impl Kernel {
                         reason: rule,
                         risk: item.details["risk"].as_str().map(String::from),
                         destinations: Some(dests),
-                    },
+                    }),
                 ));
                 let (answered, step) = self.read(|st| st.runs.get(&run).map_or((false, 0), |r| (r.results.contains_key(&call_id), r.replies.len() as u32)));
                 if !edited_keys.is_empty() {
@@ -305,13 +305,13 @@ impl Kernel {
                 for c in item.details["criteria"].as_array().cloned().unwrap_or_default() {
                     evs.push((
                         &actor,
-                        Ev::Verification {
+                        Ev::Verification(crate::events::VerificationPayload {
                             run: run.clone(),
                             criterion: c["id"].as_str().unwrap_or_default().into(),
                             passed: true,
                             evidence: json!({ "reviewed_by": p.id, "note": text }),
                             by: actor.clone(),
-                        },
+                        }),
                     ));
                 }
                 evs.extend(reply(&run, &call_id, "The person reviewed the work and accepted it.", false, Label::PRINCIPAL));

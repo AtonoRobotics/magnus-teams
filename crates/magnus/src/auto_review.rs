@@ -149,8 +149,17 @@ impl Kernel {
             Standing::Schedule(id) => self.decision(a, "allow", "approval", &format!("covered by the confirmed schedule {id}"), rule.clone()).await,
             Standing::Grant(g) => {
                 self.decision(a, "allow", "approval", &format!("covered by the grant {g}"), rule.clone()).await?;
-                self.emit("kernel", crate::events::Ev::GrantUsed { grant: g, task: run.task.clone(), run: a.run.clone(), call_id: a.call_id.clone(), tool: a.tool.clone() })
-                    .await?;
+                self.emit(
+                    "kernel",
+                    crate::events::Ev::GrantUsed(crate::events::GrantUsedPayload {
+                        grant: g,
+                        task: run.task.clone(),
+                        run: a.run.clone(),
+                        call_id: a.call_id.clone(),
+                        tool: a.tool.clone(),
+                    }),
+                )
+                .await?;
                 Ok(())
             }
         }

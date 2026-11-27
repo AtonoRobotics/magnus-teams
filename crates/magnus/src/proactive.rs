@@ -398,28 +398,44 @@ impl crate::kernel::Kernel {
             }
             let window = self.read(|s| s.watch.window(person, app, remote).cloned());
             let Some(window) = window else {
-                let _ =
-                    self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
+                let _ = self
+                    .emit(
+                        &format!("person:{person}"),
+                        crate::events::Ev::WatchedSeen(crate::events::WatchedSeenPayload { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }),
+                    )
+                    .await;
                 continue;
             };
             let fresh: Vec<&String> = ids.iter().filter(|id| !window.iter().any(|w| w.contains(*id))).collect();
             if fresh.is_empty() {
                 // No news, but the read still counts: the window is the
                 // last two reads, whatever they held (#414).
-                let _ =
-                    self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
+                let _ = self
+                    .emit(
+                        &format!("person:{person}"),
+                        crate::events::Ev::WatchedSeen(crate::events::WatchedSeenPayload { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }),
+                    )
+                    .await;
                 continue;
             }
             let n = fresh.len();
             let triage = crate::ambient_watch::triage_watched_diff(app, remote, n, data);
             if !triage.actionable || triage.urgency == crate::ambient_watch::Urgency::Ignore {
-                let _ =
-                    self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
+                let _ = self
+                    .emit(
+                        &format!("person:{person}"),
+                        crate::events::Ev::WatchedSeen(crate::events::WatchedSeenPayload { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }),
+                    )
+                    .await;
                 continue;
             }
             if self.review_wake_items(person, app, n, triage.urgency == crate::ambient_watch::Urgency::High).await {
-                let _ =
-                    self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
+                let _ = self
+                    .emit(
+                        &format!("person:{person}"),
+                        crate::events::Ev::WatchedSeen(crate::events::WatchedSeenPayload { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }),
+                    )
+                    .await;
             }
         }
     }

@@ -110,8 +110,14 @@ impl Kernel {
                 format!("A schedule paused: {title}"),
                 serde_json::json!({ "reason": "schedule_paused", "evidence": { "schedule": sc.id, "why": told } }),
             );
-            self.tell(vec![("kernel", Ev::SchedulePaused { id: sc.id.clone(), reason: told.to_string(), task: None, admin: false, source: None, turn: None }), ("kernel", notice)])
-                .await;
+            self.tell(vec![
+                (
+                    "kernel",
+                    Ev::SchedulePaused(crate::events::SchedulePausedPayload { id: sc.id.clone(), reason: told.to_string(), task: None, admin: false, source: None, turn: None }),
+                ),
+                ("kernel", notice),
+            ])
+            .await;
         }
         ended
     }
