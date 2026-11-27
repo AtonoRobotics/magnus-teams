@@ -27,13 +27,23 @@ pub fn token_overlap_similarity(a: &str, b: &str) -> f32 {
     inter / union
 }
 
+/// Words that turn a fact around. "Don't" splits into "don" and "t", so
+/// "t" stands for every "n't".
+const NEGATIONS: &[&str] = &[
+    "not", "no", "never", "nor", "none", "nothing", "nobody", "neither", "without", "cannot", "t", "dont", "doesnt", "didnt", "isnt", "arent", "wasnt", "werent", "wont", "cant",
+    "shouldnt", "wouldnt", "longer",
+];
+
 /// Whether `fact` repeats `existing`: the same words whatever the case,
 /// spacing or punctuation, at any length, or a near duplicate when long
-/// enough for word overlap to mean anything.
+/// enough for word overlap to mean anything. A fact that says no where the
+/// other says yes is never a near duplicate, however many words they share:
+/// "The person never wants ..." corrects "The person wants ...".
 pub fn same_fact(fact: &str, existing: &str) -> bool {
     let words = |s: &str| s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect::<Vec<_>>();
+    let negations = |w: &[String]| w.iter().filter(|w| NEGATIONS.contains(&w.as_str())).count();
     let (a, b) = (words(fact), words(existing));
-    !a.is_empty() && (a == b || (a.len() >= 4 && token_overlap_similarity(fact, existing) >= DEDUP_TOKEN_OVERLAP_THRESHOLD))
+    !a.is_empty() && (a == b || (a.len() >= 4 && negations(&a) == negations(&b) && token_overlap_similarity(fact, existing) >= DEDUP_TOKEN_OVERLAP_THRESHOLD))
 }
 
 /// Why `fact` may not be remembered, if it may not: memory keeps short
@@ -66,6 +76,25 @@ mod tests {
     fn near_duplicates_are_found_by_word_overlap() {
         assert!(same_fact("User prefers concise bullet summaries in status emails", "User prefers concise bullet summaries in all status emails"), "one word more");
         assert!(!same_fact("User prefers concise summaries", "Office moved to Austin Texas"));
+    }
+
+    #[test]
+    fn a_fact_that_says_no_where_the_other_says_yes_is_a_correction() {
+        let wants = "The person wants a weekly project progress summary by email";
+        assert!(
+            token_overlap_similarity(wants, "The person never wants a weekly project progress summary by email") >= DEDUP_TOKEN_OVERLAP_THRESHOLD,
+            "the words alone look the same"
+        );
+        for corrected in [
+            "The person never wants a weekly project progress summary by email",
+            "The person doesn't want a weekly project progress summary by email",
+            "The person no longer wants a weekly project progress summary by email",
+        ] {
+            assert!(!same_fact(corrected, wants), "{corrected}");
+            assert!(!same_fact(wants, corrected), "{corrected}");
+        }
+        let never = "The person never wants a weekly project progress summary by email";
+        assert!(same_fact("The person never wants a weekly project progress summary by any email", never), "the same no, a word more, is still one fact");
     }
 
     #[test]
