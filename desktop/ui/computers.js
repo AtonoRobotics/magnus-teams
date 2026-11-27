@@ -391,6 +391,7 @@ function fullScreen(frame) {
 function takeOver(body, id, grant, view, strip) {
   const preview = $("#preview", body), canvas = $("#display", body), ctx = canvas.getContext("2d");
   view.holding = true;
+  if (typeof UIStore !== "undefined") UIStore.patch({ takeoverHeld: true });
   view.c = { ...view.c, status: "running", controller: App.me?.id || view.c.controller, waking: null };
   let link, ended = false;
   const inputAbort = typeof AbortController === "function" ? new AbortController() : null;
@@ -406,6 +407,7 @@ function takeOver(body, id, grant, view, strip) {
   const showLive = live => { view.live = live; canvas.hidden = !live; preview.hidden = live; };
   const failed = message => {
     detachCanvas();
+    if (typeof UIStore !== "undefined") UIStore.patch({ takeoverHeld: false });
     const p = $("#display-error", body);
     if (p) { p.hidden = false; p.textContent = message; }
     showLive(false);
@@ -444,6 +446,7 @@ function takeOver(body, id, grant, view, strip) {
     const go = asked ? await readyToHandBack(id) : await closesNothing(id);
     if (!go && asked) { ended = false; return false; }
     detachCanvas();
+    if (typeof UIStore !== "undefined") UIStore.patch({ takeoverHeld: false });
     window.removeEventListener("hashchange", gone);
     view.leave = null;
     link.close();

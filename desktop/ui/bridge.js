@@ -163,8 +163,21 @@ const webBridge = {
   },
   live(task, onText) {
     const es = new EventSource(`/v1/tasks/${encodeURIComponent(task)}/live`);
-    es.onmessage = e => { try { onText(JSON.parse(e.data).text); } catch { /* ignore */ } };
-    return () => es.close();
+    if (typeof UIStore !== "undefined") UIStore.setLiveWriting(task, true);
+    es.onmessage = e => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (typeof UIStore !== "undefined") {
+          if (msg.task && msg.task.id) UIStore.setTask(msg.task);
+          else if (msg.status || msg.status_line || msg.plan) UIStore.setTask({ ...(UIStore.getTask(task) || { id: task }), ...msg, id: task });
+        }
+        if (msg.text !== undefined) onText(msg.text);
+      } catch { /* ignore */ }
+    };
+    return () => {
+      if (typeof UIStore !== "undefined") UIStore.setLiveWriting(task, false);
+      es.close();
+    };
   },
   // A browser shows the system's notifications only once the person has
   // allowed them, which it asks only from their own click (askToNotify).

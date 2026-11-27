@@ -149,14 +149,22 @@ const AuroraReasoning = (() => {
     if (!r.chosen) r.open = false;
   }
 
-  /** Reads each running answer's task, one read at a time per answer. */
+  /** Reads each running answer's task, reusing fresh UIStore snapshots to avoid duplicate polling. */
   async function poll() {
     if (!on() || typeof Server === "undefined" || !Server.tasks?.get) return;
     for (const r of kept.values()) {
       if (r.loading || r.phase === "done" || r.phase === "stopped" || !r.el.isConnected) continue;
+      if (typeof UIStore !== "undefined" && UIStore.isTaskFresh(r.task)) {
+        const cached = UIStore.getTask(r.task);
+        if (cached) { learn(r, cached); draw(r); continue; }
+      }
       r.loading = true;
-      try { learn(r, await Server.tasks.get(r.task)); draw(r); }
-      catch { /* the next read tries again */ }
+      try {
+        const t = await Server.tasks.get(r.task);
+        if (typeof UIStore !== "undefined" && t) UIStore.setTask(t);
+        learn(r, t);
+        draw(r);
+      } catch { /* the next read tries again */ }
       finally { r.loading = false; }
     }
   }
@@ -269,6 +277,15 @@ const AuroraReasoning = (() => {
   let queued = 0;
   const soon = () => { if (!queued) queued = requestAnimationFrame(() => { queued = 0; if (on()) mount(); else off(); }); };
   function init() {
+    if (typeof UIStore !== "undefined") {
+      UIStore.subscribe("tasksById", tasks => {
+        if (!on()) return;
+        for (const r of kept.values()) {
+          const t = tasks[r.task];
+          if (t && r.el.isConnected && r.phase !== "done" && r.phase !== "stopped") { learn(r, t); draw(r); }
+        }
+      });
+    }
     if (typeof AuroraCore !== "undefined") {
       AuroraCore.onDom(soon);
       AuroraCore.onState(() => { if (on()) say(); });

@@ -1288,6 +1288,14 @@ async function refresh() {
     if (projects) App.projects = projects;
     if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
     if (health) App.health = health;
+    if (typeof UIStore !== "undefined") {
+      if (App.tasks) UIStore.setTasks(App.tasks);
+      UIStore.patch({
+        route: location.hash || "",
+        asks: Array.isArray(App.asks) ? App.asks : [],
+        connectedApps: (App.connectors || []).filter(c => c.connected).map(c => c.name || c.id).filter(Boolean),
+      });
+    }
     lastRefreshMs = Date.now();
     sidebar();
     banners();

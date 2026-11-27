@@ -22,6 +22,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("aurora-core.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-core.js")),
     ("aurora-boxes.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-boxes.js")),
     ("aurora-stage.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-stage.js")),
+    ("ui-store.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/ui-store.js")),
     ("aurora-reasoning.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-reasoning.js")),
     ("aurora-alerts.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-alerts.js")),
     ("aurora-explore.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-explore.js")),

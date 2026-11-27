@@ -52,10 +52,11 @@ const AuroraCore = (() => {
   /** @type {Set<() => void>} */
   const mainListeners = new Set();
 
-  /** Reads the canonical 9-state status from the page. */
+  /** Reads the canonical 9-state status from UIStore (or DOM fallback in isolated tests). */
   function detect() {
     if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "control";
+    if (typeof UIStore !== "undefined" && UIStore.hasState()) return UIStore.derivePhase();
     if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .detail-body[data-panel="needs"] .ask-answers, .aurora-reason[data-phase="needs"]')) return "waiting";
 
     const pills = [...document.querySelectorAll(".aurora-reason")].filter(p => p.isConnected);
@@ -202,6 +203,7 @@ const AuroraCore = (() => {
     if (on()) { refreshState(); wake(); queueMain(); }
     else { stopClock(); refreshState(); }
   });
+  if (typeof UIStore !== "undefined") UIStore.subscribe("*", () => { if (on()) queueState(); });
 
   if (document.body) attach();
   else document.addEventListener("DOMContentLoaded", attach);
