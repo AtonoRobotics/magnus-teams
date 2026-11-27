@@ -545,7 +545,7 @@ function nav() {
   const initial=esc((App.me?.name || "?").trim().charAt(0).toUpperCase());
   // In Nova the person's initial is the way to Settings, as in its mockup.
   const avatar=nova ? `<a href="#/settings" class="avatar" aria-label="Settings" title="Companion · Settings">${initial}</a>` : `<span class="avatar" aria-hidden="true">${initial}</span>`;
-  return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
+  return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update" title="Restart to update">${icon("download")}<span class="update-label">Restart to update</span></button></div>` : ""}
     <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon(I.new)}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon(I.inbox)}<span class="nav-label">${esc(L.inbox)}</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">${esc(L.briefing)}</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon(I.explore)}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon(I.apps)}<span class="nav-label">${esc(L.apps)}</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
@@ -3402,13 +3402,15 @@ async function restartToUpdate() {
   if (restartingUpdate) return;
   restartingUpdate = true;
   const btns = $$("[data-act=restart-update]");
-  for (const b of btns) { b.disabled = true; b.textContent = "Restarting…"; }
+  // The rail shows the button as its icon: only its words change.
+  const say = (/** @type {HTMLElement} */ b, t) => { const l = b.querySelector(".update-label"); if (l) l.textContent = t; else b.textContent = t; };
+  for (const b of btns) { b.disabled = true; say(b, "Restarting…"); }
   toast("Installing the update; Magnus restarts in a moment.", 10000);
   try {
     await Magnus.updateInstall();
   } catch (e) {
     restartingUpdate = false;
-    for (const b of btns) { b.disabled = false; b.textContent = "Restart to update"; }
+    for (const b of btns) { b.disabled = false; say(b, "Restart to update"); }
     toast(`The update did not install: ${e.message}`);
     refreshUpdate();
   }

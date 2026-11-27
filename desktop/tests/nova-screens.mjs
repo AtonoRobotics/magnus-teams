@@ -102,6 +102,17 @@ try {
       const at = await page.evaluate(() => location.hash);
       check(`${mode}: the rail goes from ${order[i - 1][1]} down to ${order[i][1]}`, () => assert.equal(at, order[i][1], `the point held ${hit}`));
     }
+    // A waiting update shows on the rail as one icon button, not its words
+    // broken a few letters to a line (the installed app, 2026-11-26).
+    await page.evaluate(() => { App.update = { ready: { version: "9.9.9" } }; sidebar(); });
+    await page.waitForTimeout(300);
+    const upd = await page.evaluate(() => {
+      const b = document.querySelector(".shell > nav.side .update-ready button"), r = b?.getBoundingClientRect();
+      return { w: Math.round(r?.width || 0), h: Math.round(r?.height || 0), words: !!b?.querySelector(".update-label")?.getBoundingClientRect().height };
+    });
+    if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-update.png`) });
+    check(`${mode}: a waiting update is one icon on the rail`, () => assert.ok(upd.w > 0 && upd.w <= 44 && upd.h <= 44 && !upd.words, JSON.stringify(upd)));
+    await page.evaluate(() => { App.update = null; sidebar(); });
     // Inbox opens beside the latest conversation, as the mockup's stage does.
     await go("#/inbox");
     f = await frame();

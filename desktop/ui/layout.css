@@ -204,7 +204,12 @@ body.short-viewport nav.side #side { overflow: visible; flex: none; min-height: 
 body.short-viewport nav.side .nav-tree { overflow: visible; flex: none; }
 nav.side #find { flex: none; }
 body[data-navigation=compact] .update-ready > span { display: none; }
-body[data-navigation=compact] .update-ready button { min-width: 44px; min-height: 44px; padding: 4px; font-size: 12px; overflow-wrap: anywhere; }
+/* The rail is too narrow for the words: the button is its icon, with the
+   words as its label. */
+body[data-navigation=compact] .update-ready { padding: 0; border: 0; background: none; justify-items: center; }
+body[data-navigation=compact] .update-ready button { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
+body[data-navigation=compact] .update-ready .update-label { display: none; }
+.update-ready button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .detail-body h3 { font-size: 16px; }
 
 /* Shared shape, identifiable input boundaries and a consistent focus ring. */

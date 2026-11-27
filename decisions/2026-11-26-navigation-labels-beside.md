@@ -12,6 +12,9 @@
   as sentences and a list (`desktop/ui/release-notes.js`). Lines wrapped for
   a terminal are joined, "- " lines are items, and trailers such as
   Co-Authored-By are left out.
+- **A waiting update on the rail.** On the compact rail, "Restart to update"
+  is one icon button, with its words as the label. The sidebar keeps the
+  words.
 
 ## Reason
 Checked in the installed app at 0.2.6-test.357 on 2026-11-26:
@@ -23,3 +26,5 @@ Checked in the installed app at 0.2.6-test.357 on 2026-11-26:
 - The app's own conversation list showed "1. Product Review … Magnus is **".
 - What's new broke every sentence where the commit message wrapped and
   ended with the Co-Authored-By line.
+- At test.358 the rail drew "Restart to update" in a box wider than the
+  rail, its words broken a few letters to a line.
