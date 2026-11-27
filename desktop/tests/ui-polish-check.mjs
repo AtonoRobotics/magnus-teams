@@ -221,7 +221,7 @@ const baseCss = read("base.css");
 for (const tok of ["--z-base:", "--z-sticky:", "--z-drawer:", "--z-flyout:", "--z-notice:", "--z-toast:", "--z-menu:", "--z-banner:", "--z-tooltip:"]) {
   assert.ok(baseCss.includes(tok), `base.css defines ${tok}`);
 }
-assert.equal((baseCss.match(/@media \(any-pointer: coarse\)/g) || []).length, 1, "base.css consolidates coarse-pointer media queries into one block");
+assert.equal((baseCss.match(/@media \(pointer: coarse\)/g) || []).length, 1, "base.css consolidates coarse-pointer media queries into one block");
 assert.match(read("layout.css"), /#toasts \{[^}]*z-index: var\(--z-toast\)/, "toasts use --z-toast");
 assert.match(read("admin.css"), /#stop-banner \{[^}]*z-index: var\(--z-banner\)/, "stop banner uses --z-banner");
 assert.match(read("aurora-rail.js"), /Workspace\.openDrawer\(\)/, "aurora-rail uses Workspace.openDrawer()");

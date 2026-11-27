@@ -132,7 +132,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea, select { border-colo
 button, .button, .icon-btn, input, textarea, select { border-radius: var(--r-sm); }
 :is(a, button, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
 .button:focus-within { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   a.glimpse { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; max-width: 100%; }
   button, .icon-btn, a.icon-btn, summary { min-width: 44px; min-height: 44px; }
   input:not([type="checkbox"]):not([type="radio"]), select { min-width: 44px; min-height: 44px; }

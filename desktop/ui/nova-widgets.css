@@ -188,7 +188,7 @@ html[data-style="nova"] .aurora-reason-steps > li[data-state="done"] .aurora-rea
   transform: none;
 }
 
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   html[data-style="nova"] .aurora-reason-toggle {
     min-height: 44px;
   }
@@ -488,7 +488,7 @@ html[data-style="nova"] .stage-bento-overflow:hover {
   border-color: var(--line-strong);
 }
 
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   html[data-style="nova"] :is(.stage-tile-stop, .stage-bento-overflow) {
     min-height: 44px;
   }
@@ -566,7 +566,7 @@ html[data-style="nova"] .conv-more-menu .conv-more-del {
   border-radius: var(--r-sm);
 }
 
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   html[data-style="nova"] .conv-more-menu :is(.computer-chip, .shared-promote-btn, .conv-more-del) {
     min-height: 44px;
   }

@@ -140,9 +140,9 @@ try {
   await until(() => /** @type {HTMLDialogElement} */ (document.querySelector("#navigation-drawer")).open, "opening to pin");
   await page.getByRole("button", { name: "Pin the sidebar", exact: true }).click();
   await until(() => document.body.dataset.navigation === "expanded" && !document.querySelector("#navigation-drawer")?.contains(document.querySelector("nav.side")), "pinning");
-  await settled(228, "the pinned sidebar's width");
+  await settled(216, "the pinned sidebar's width");
   s = await state();
-  assert.ok(s.sidebar === "pinned" && s.navWidth === 228 && !s.drawerOpen, `pinned beside the stage: ${JSON.stringify(s)}`);
+  assert.ok(s.sidebar === "pinned" && s.navWidth === 216 && !s.drawerOpen, `pinned beside the stage: ${JSON.stringify(s)}`);
   assert.equal(await page.getByRole("button", { name: "Unpin the sidebar", exact: true }).getAttribute("aria-pressed"), "true");
   await shot("3-pinned");
   await page.reload();

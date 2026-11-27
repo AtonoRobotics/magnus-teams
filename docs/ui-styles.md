@@ -58,9 +58,10 @@ Some values are accessibility floors. A compact design does not go below
 them:
 
 - Text people read stays at 13px or more. Uppercase labels stay at 11px or more.
-- Anything you click or tap is at least 44px on a touch screen
-  (`@media (any-pointer: coarse)`). A smaller size applies only with a
-  mouse (`@media (pointer: fine)`).
+- Anything you tap is at least 44px where touch is the main pointer, a
+  phone or tablet (`@media (pointer: coarse)`). A laptop with a touchscreen
+  and a trackpad keeps the mockup's compact sizes, 32px or more
+  (decisions/2026-11-27-compact-nova.md).
 - Inputs and the composer keep a visible boundary (`--line-strong`).
 - Every control shows the focus ring (`--focus`) when reached by keyboard.
 - High-contrast mode (`@media (forced-colors: active)`) keeps system

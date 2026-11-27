@@ -188,7 +188,7 @@ assert.match(app, /label: "Undo"[\s\S]{0,120}Server\.trash\.restore/, "Trash toa
 assert.match(asksJs, /class="ask-tier"/, "approval cards display risk-tier impact badge");
 assert.match(rail, /function syncBadge\(\)/, "Aurora left rail syncs active-work/approval badge");
 assert.match(stage, /aurora-verified-pill/, "completed answers show Verified pill when receipts exist");
-assert.match(chatCss, /button\.send \{ width: 36px; height: 36px;/, "composer Send/Stop button harmonized to 36px");
+assert.match(chatCss, /button\.send \{ width: 32px; height: 32px;/, "composer Send/Stop button is the mockup's 32px (decisions/2026-11-27-compact-nova.md)");
 assert.match(auroraCss, /button\.send\.is-stop \{/, "Aurora styles Stop square with high contrast");
 assert.match(pagesCss, /\.lclose \{ width: 36px; height: 36px;/, "Apps close button harmonized to 36px on desktop");
 

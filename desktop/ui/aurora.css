@@ -507,7 +507,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.aurora-hel
   transform: translateY(-1px);
 }
 
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.aurora-hello-chip {
     min-height: 44px;
   }

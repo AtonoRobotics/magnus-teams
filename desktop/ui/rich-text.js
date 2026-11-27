@@ -220,6 +220,17 @@ const RichText = (() => {
     root._richInteractiveWired = true;
     root.addEventListener("click", async e => {
       const t = /** @type {HTMLElement} */ (e.target);
+      const copyBtn = t.closest?.(".table-copy");
+      if (copyBtn) {
+        const tbl = copyBtn.closest("figure")?.querySelector("table");
+        if (tbl && typeof copyText === "function") {
+          e.preventDefault();
+          const tsv = [...tbl.querySelectorAll("tr")].map(tr => [...tr.querySelectorAll("th, td")].map(c => (c.textContent || "").trim()).join("\t")).join("\n");
+          try { await copyText(tsv); if (typeof toast === "function") toast("Table copied."); }
+          catch (err) { if (typeof toast === "function") toast(err.message); }
+        }
+        return;
+      }
       const csvBtn = t.closest?.("[data-table-csv]");
       if (csvBtn) {
         const tbl = csvBtn.closest(".markdown-table, figure")?.querySelector("table");

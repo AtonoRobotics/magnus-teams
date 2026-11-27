@@ -139,7 +139,7 @@ dl.kv dd { margin: 0; }
 .lhead p { margin: 0; font-size: 15px; color: var(--muted); }
 .lclose { width: 36px; height: 36px; border-radius: var(--r-pill); border: 1px solid var(--btn-border); background: var(--button-bg); color: var(--fg2); }
 .lclose:hover { color: var(--fg); border-color: var(--line-strong); }
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   .lclose { width: 44px; height: 44px; }
 }
 .lbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
@@ -236,7 +236,7 @@ dl.kv dd { margin: 0; }
    schedules in conversation), and a result quoting what was asked. */
 .card-acts { display: flex; gap: 12px; align-items: center; padding: 4px 12px 8px 44px; }
 .tcard .card-acts { padding-top: 0; }
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   
   .ghead > a, .feed-row > a, .t td > a:not([data-prose-link]) { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; max-width: 100%; }
   /* Every app action, link or button, is the same 44px box with its mark
@@ -266,7 +266,7 @@ dl.kv dd { margin: 0; }
   font-variant-numeric: tabular-nums;
 }
 /* Activity view switcher */
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   .activity-views a { min-height: 44px; }
 }
 .rule-advanced > summary { cursor: pointer; padding: 4px 0; }
@@ -375,7 +375,7 @@ dialog.settings-modal::backdrop {
   .settings-nav-group { width: 100%; padding: 4px 6px 2px; }
   .settings-nav button { width: auto; }
 }
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   .settings-nav button { min-height: 44px; }
 }
 /* Apps, Files & Admin Obsidian theme alignment */
@@ -609,7 +609,7 @@ dialog.settings-modal::backdrop {
   .explore-ideas-list { grid-template-columns: 1fr; }
   .mobile-approve-shell { padding: 12px; }
 }
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   .explore-app, #explore-search { min-height: 44px; }
   .trow-del { min-width: 44px; min-height: 44px; }
   .mobile-approve-shell button, .mobile-approve-shell a.button { min-height: 44px; }

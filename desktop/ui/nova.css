@@ -130,16 +130,16 @@ html[data-style="nova"] body[data-nova-intro="on"] .aurora-say-state { display: 
 html[data-style="nova"]:is(:not([data-aurora-avatar-state]), [data-aurora-avatar-state="ready"], [data-aurora-avatar-state="idle"]) .aurora-say-state:not([data-told]) { display: none; }
 /* Magnus signs its answer as in the mockup: its face, its name, then the
    rest quietly in mono. */
-html[data-style="nova"] .msg.magnus > .byline { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+html[data-style="nova"] .msg.magnus > .byline { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 html[data-style="nova"] .msg.magnus > .byline .by-who { color: var(--fg); font-size: 12px; font-weight: 600; }
 html[data-style="nova"] .msg.magnus > .byline .by-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 html[data-style="nova"] .hello-hero { align-items: center; text-align: center; justify-content: center; max-width: 720px; margin: 0 auto; padding: 0 12px 12px; gap: 10px; }
 html[data-style="nova"] .hello-head { align-items: center; gap: 10px; }
-html[data-style="nova"] .hello-title { font-size: 34px; font-weight: 500; letter-spacing: -0.03em; }
+html[data-style="nova"] .hello-title { font-size: 30px; font-weight: 500; letter-spacing: -0.03em; }
 
-html[data-style="nova"] .msg.magnus { font-size: 15px; line-height: 1.64; max-width: 68ch; }
+html[data-style="nova"] .msg.magnus { font-size: 14px; line-height: 1.6; max-width: 68ch; }
 /* The person's words are a bubble at the right, as in the mockup. */
-html[data-style="nova"] .msg.me { background: var(--surface); border: 0; border-radius: 18px; padding: 10px 16px; width: fit-content; max-width: min(80%, 560px); margin-left: auto; font-size: 14.5px; }
+html[data-style="nova"] .msg.me { background: var(--surface); border: 0; border-radius: 16px; padding: 8px 14px; width: fit-content; max-width: min(80%, 560px); margin-left: auto; font-size: 14px; }
 html[data-style="nova"] .msg.me.editing { width: auto; max-width: none; }
 html[data-style="nova"] .say { border-radius: var(--r-composer); background: var(--bubble); border: 1px solid var(--hair); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24); }
 html[data-style="nova"] .say:focus-within { border-color: var(--line-strong); }
@@ -165,14 +165,14 @@ html[data-style="nova"] nav.side a.primary-nav.on { background: var(--seg-on); c
 .nova-intro-grid { display: grid; grid-template-columns: minmax(0, 44%) minmax(0, 56%); gap: 24px; align-items: center; }
 .nova-launchpads { display: flex; flex-direction: column; gap: 6px; }
 .nova-launch-head { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 0 10px 2px; }
-.nova-launch-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border-radius: var(--r-md); border: 0; background: transparent; color: var(--fg2); font-size: 13.5px; text-align: left; cursor: pointer; }
+.nova-launch-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: var(--r-md); border: 0; background: transparent; color: var(--fg2); font-size: 13px; text-align: left; cursor: pointer; }
 .nova-launch-btn:hover { background: var(--row-sel); color: var(--fg); }
 
 .nova-prism-card { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 html[data-style="nova"] .nova-prism-card::before { content: ""; position: absolute; inset: -12px; z-index: -1; border-radius: var(--r-xl); background: conic-gradient(from 140deg at 50% 50%, #3b82f6, #a855f7, #f43f5e, #f59e0b, #10b981, #3b82f6); filter: blur(26px); opacity: 0.32; pointer-events: none; }
 html[data-style="nova"][data-motion="full"] .nova-prism-card::before { animation: novaPrismShift 14s linear infinite; }
 
-.nova-prism-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 15px 16px; border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); color: var(--fg); text-align: left; text-decoration: none; cursor: pointer; transition: transform .22s var(--ease), border-color .18s var(--ease); }
+.nova-prism-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px 14px; border-radius: var(--r-lg); border: 1px solid var(--hair); background: var(--surface); color: var(--fg); text-align: left; text-decoration: none; cursor: pointer; transition: transform .22s var(--ease), border-color .18s var(--ease); }
 .nova-prism-tile:hover { transform: translateY(-2px); border-color: var(--line-strong); text-decoration: none; }
 .nova-prism-wide { grid-column: 1 / -1; background: linear-gradient(135deg, #f8fafc, #e2e8f0); color: #0f172a; border-color: transparent; }
 .nova-prism-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; }
@@ -357,7 +357,7 @@ html[data-style="nova"] .card {
   border-color: transparent;
   border-radius: var(--r-lg);
   background: var(--surface);
-  padding: 18px 20px;
+  padding: 14px 16px;
 }
 
 html[data-style="nova"] .appearance .seg {
@@ -555,7 +555,7 @@ html[data-style="nova"] #lib-sections .lcard .ctile.has-logo { padding: 8px; }
 html[data-style="nova"] #lib-sections .lcard .lc-name { grid-column: 2; grid-row: 1; align-self: end; }
 html[data-style="nova"] #lib-sections .lcard .lc-name h3 { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0; }
 html[data-style="nova"] #lib-sections .lcard .lc-sum { grid-column: 2; grid-row: 2; align-self: start; font-size: 12px; line-height: 16px; display: block; white-space: nowrap; text-overflow: ellipsis; }
-html[data-style="nova"] #lib-sections .lcard :is(.lc-by, .lc-ab-row, .lc-foot) { display: none; }
+html[data-style="nova"] #lib-sections .lcard :is(.lc-by, .lc-ab-row, .lc-foot, .lc-rev) { display: none; }
 html[data-style="nova"] #lib-sections .lcard .lc-act { grid-column: 3; grid-row: 1 / 3; width: 32px; height: 32px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--fg2); }
 html[data-style="nova"] #lib-sections .lcard .lc-act svg { width: 18px; height: 18px; }
 html[data-style="nova"] #lib-sections .lcard .lc-act.ok { color: var(--ok); }
@@ -687,22 +687,22 @@ html[data-style="nova"] .nav-inbox-count {
 .conv-more-del:hover { background: var(--bad-soft); }
 
 /* ---------- 7b. Morning Briefing & Quiet Routines (#/briefing) ---------- */
-.nova-briefing-page { max-width: 840px; margin: 0 auto; padding: 36px 28px 64px; display: flex; flex-direction: column; gap: 20px; }
+.nova-briefing-page { max-width: 784px; margin: 0 auto; padding: 28px 24px 48px; display: flex; flex-direction: column; gap: 16px; }
 .nova-brief-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .nova-brief-head > div:first-child { min-width: 0; }
 .nova-brief-head .small.muted { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-text); }
 .nova-brief-head > .row { flex: none; }
 .nova-brief-head h1 { margin: 4px 0 0; font-size: 22px; font-weight: 400; letter-spacing: -0.01em; }
-.nova-brief-summary p { margin: 0; line-height: 1.55; }
-.nova-brief-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
-.nova-brief-head button[data-brief-dnd] { min-height: 32px; padding: 4px 14px; border-radius: var(--r-pill); border: 1px solid var(--hair); background: var(--seg-on); color: var(--fg); font-size: 13px; font-weight: 500; }
+.nova-brief-summary { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.nova-brief-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.nova-brief-head button[data-brief-dnd] { min-height: 30px; padding: 3px 14px; border-radius: var(--r-pill); border: 1px solid var(--hair); background: var(--seg-on); color: var(--fg); font-size: 13px; font-weight: 500; }
 .nova-brief-head button[data-brief-dnd]:hover { border-color: var(--line-strong); background: var(--raised); }
-.nova-brief-metrics > .card { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; }
-.nova-metric-val { font-family: var(--mono); font-size: 22px; font-weight: 600; line-height: 1.2; }
+html[data-style="nova"] .nova-brief-metrics > .card { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; }
+.nova-metric-val { font-family: var(--mono); font-size: 20px; font-weight: 600; line-height: 1.2; }
 .nova-brief-sec { display: flex; flex-direction: column; gap: 12px; }
 .nova-brief-sec h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .nova-routine-list { display: flex; flex-direction: column; gap: 10px; }
-.nova-routine-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border-radius: var(--r-md); border: 1px solid var(--hair); background: var(--surface); }
+.nova-routine-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 14px; border-radius: var(--r-md); border: 1px solid var(--hair); background: var(--surface); }
 .nova-routine-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 
 @media (max-width: 960px) {
@@ -739,7 +739,7 @@ body[data-navigation="compact"] .nav-inbox .nav-inbox-count { position: absolute
   pointer-events: none;
 }
 
-@media (any-pointer: coarse) {
+@media (pointer: coarse) {
   .nova-wait-close {
     width: 44px;
     height: 44px;

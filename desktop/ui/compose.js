@@ -288,7 +288,8 @@ const Compose = (() => {
       case "list": return frame(c, c.ordered ? `<ol>${c.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol>` : `<ul>${c.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>`);
       case "table": {
         const head = c.columns.some(h => String(h).trim()) ? `<thead><tr>${c.columns.map((h, idx) => `<th data-sort-col="${idx}" aria-sort="none">${esc(h)}</th>`).join("")}</tr></thead>` : "";
-        const cell = (v, i) => `<td class="${typeof v === "number" || (i > 0 && /^[-+]?[$€£]?[\d,.]+%?$/.test(String(v).trim())) ? "num" : ""}">${fmt(v)}</td>`;
+        // A cell reads as prose: a link shows its words, not its Markdown source.
+        const cell = (v, i) => `<td class="${typeof v === "number" || (i > 0 && /^[-+]?[$€£]?[\d,.]+%?$/.test(String(v).trim())) ? "num" : ""}">${typeof v === "number" ? fmt(v) : markdownInline(String(v ?? ""))}</td>`;
         return frame(c, `<div class="tw"><div class="table-acts"><button type="button" class="table-btn table-copy">Copy</button><button type="button" class="table-btn table-csv table-csv-btn" data-table-csv>CSV</button></div><table>${head}<tbody>${c.rows.map(r => `<tr${/^total\b/i.test(String(r[0])) ? ` class="total"` : ""}>${r.map(cell).join("")}</tr>`).join("")}</tbody></table></div>`);
       }
       case "stat": {
@@ -419,9 +420,14 @@ const Compose = (() => {
 .ui-native .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 5px 0 10px; }
 .ui-native .key.s0 { background: var(--s0); } .ui-native .key.s1 { background: var(--s1); } .ui-native .key.s2 { background: var(--s2); } .ui-native .key.s3 { background: var(--s3); } .ui-native .key.s4 { background: var(--s4); } .ui-native .key.s5 { background: var(--s5); }
 .ui-native .chart-tooltip { position: absolute; top: 10px; right: 12px; padding: 4px 9px; border-radius: var(--r-sm, 6px); background: var(--fg); color: var(--surface); font-size: 12px; font-weight: 500; pointer-events: none; }
-.ui-native .tw { overflow-x: auto; padding: 10px 14px; }
-.ui-native table { border-collapse: collapse; width: 100%; font-size: 14px; }
-.ui-native th, .ui-native td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--hair, var(--line)); }
+.ui-native .tw { overflow-x: auto; padding: 8px 12px; }
+.ui-native table { border-collapse: collapse; width: 100%; font-size: 13px; line-height: 1.45; }
+/* A row is as tall as its text: cells start at the top, and a link or code
+   breaks anywhere, so a long address cannot push the table past its card. */
+.ui-native th, .ui-native td { text-align: left; vertical-align: top; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--hair, var(--line)); }
+.ui-native td :is(a, code) { overflow-wrap: anywhere; }
+.ui-native .table-acts { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 2px; }
+.ui-native .table-btn { font-size: 11.5px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-sm, 6px); background: var(--surface); color: var(--muted); cursor: pointer; min-height: 0; }
 .ui-native th { color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
 .ui-native td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .ui-native .cmp td.best { font-weight: 650; color: var(--accent-text); }
@@ -440,7 +446,7 @@ const Compose = (() => {
 .source-idx { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 99px; background: var(--raised); color: var(--accent-text); font-size: 10.5px; font-weight: 600; flex: none; }
 .source-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
 .source-dom { color: var(--muted); font-size: 11.5px; }
-@media (any-pointer: coarse) { .markdown .code-head button { min-height: 44px; min-width: 44px; } }
+@media (pointer: coarse) { .markdown .code-head button { min-height: 44px; min-width: 44px; } }
 `;
   const CSS = `
     :root { --bar: var(--accent); --s0: var(--accent); --s1:#c2410c; --s2:#0f766e; --s3:#7c3aed; --s4:#a16207; --s5:#be123c; }
@@ -464,9 +470,10 @@ const Compose = (() => {
     figure > svg { padding: 12px 16px; box-sizing: border-box; }
     .cap { color: var(--muted); font-size: 13px; }
     figure > .cap { padding-bottom: 12px; }
-    .tw { overflow-x: auto; padding: 14px 16px; }
-    table { border-collapse: collapse; width: 100%; font-size: 15px; }
-    th, td { text-align: left; padding: 4px 12px 4px 0; color: var(--fg2); }
+    .tw { overflow-x: auto; padding: 8px 12px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; line-height: 1.45; }
+    th, td { text-align: left; vertical-align: top; padding: 4px 10px 4px 0; color: var(--fg2); }
+    td :is(a, code, [data-prose-url]) { overflow-wrap: anywhere; }
     th:last-child, td:last-child { padding-right: 0; }
     th { color: var(--muted); font-weight: 600; font-size: 13px; padding-bottom: 8px; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

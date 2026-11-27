@@ -156,7 +156,7 @@
     off: "No animation. Everything changes instantly.",
   };
   const LAYOUT_BOUNDS = {
-    navExpandedWidthPx: 228,
+    navExpandedWidthPx: 216,
     navCompactWidthPx: 64,
     mobileMaxWidthPx: 760,
     splitMinAvailablePx: 936,

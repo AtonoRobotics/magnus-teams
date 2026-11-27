@@ -34,7 +34,6 @@ const NovaPages = (() => {
       // The person's own routines that still run: a system schedule (the
       // retired heartbeat) or an ended one is not a routine to run.
       const scheds = (App.schedules || []).filter(s => !s.deleted && !s.ended && !s.system);
-      const activeTasks = (App.tasks || []).filter(t => typeof ENDED !== "undefined" ? !ENDED.includes(t.status) : t.status === "running");
       let brief = null, spend = null, commitments = [], suggestions = [];
       try {
         if (typeof Server !== "undefined" && Server.call) {
@@ -116,7 +115,7 @@ const NovaPages = (() => {
 
       const summary = briefSummary(brief);
       const summaryHtml = summary
-        ? `<div class="card nova-brief-summary"><p>${esc(summary)}</p></div>`
+        ? `<p class="nova-brief-summary">${esc(summary)}</p>`
         : "";
 
       paint(main, `<div class="nova-briefing-page">
@@ -124,17 +123,16 @@ const NovaPages = (() => {
           <div>
             <span class="small muted">Executive Morning Briefing</span>
             <h1>${esc(headline)}</h1>
+            ${summaryHtml}
           </div>
           <div class="row">
             <button type="button" class="small" data-brief-dnd aria-pressed="${dnd ? "true" : "false"}">${dnd ? "Turn notifications back on" : "Snooze notifications 2h"}</button>
-            ${pending.length ? `<a class="button primary" href="#/inbox">Review ${pending.length} waiting</a>` : `<a class="button primary" href="#/chat/new">New conversation</a>`}
+            ${pending.length ? `<a class="button primary small" href="#/inbox">Review ${pending.length} waiting</a>` : ""}
           </div>
         </header>
-        ${summaryHtml}
         <div class="nova-brief-metrics">
           <div class="card"><span class="small muted">Pending Decisions</span><strong class="nova-metric-val">${pending.length}</strong><span class="small muted">${pending.length ? "Waiting for your approval" : "Queue clear"}</span></div>
           <div class="card"><span class="small muted">Quiet Routines</span><strong class="nova-metric-val">${scheds.length}</strong><span class="small muted">Run silently in background</span></div>
-          <div class="card"><span class="small muted">Active Tasks</span><strong class="nova-metric-val">${activeTasks.length}</strong><span class="small muted">${activeTasks.length ? "Working now" : "Standing by"}</span></div>
           ${spendCard}
         </div>
         ${approvalsHtml}
