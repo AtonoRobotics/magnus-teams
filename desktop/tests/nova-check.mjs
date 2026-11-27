@@ -119,6 +119,9 @@ for (const c of ["aurora-reason", "aurora-reason-toggle", "aurora-reason-steps",
 // 9. Light mode: the stage is --main (white), not the rail's grey.
 assert.match(ui("theme.js"), /NOVA_LIGHT = \{[\s\S]*?main: "#FFFFFF"/, "Nova light --main is the white stage");
 assert.match(ui("nova.css"), /html\[data-style="nova"\] body \{\s*background: var\(--main\);/, "Nova paints the stage with --main");
+// The compact rail is see-through in both modes, as the mockup draws it
+// (owner, 2026-11-26): in light it reads as the white stage.
+assert.doesNotMatch(ui("nova.css"), /\[data-mode="light"\] body\[data-navigation=compact\] \.shell > nav\.side/, "no light-only fill on the compact rail");
 
 // 10. New Chat: the composed two-column grid never applies to the intro.
 const stageCss = ui("nova-stage.css");

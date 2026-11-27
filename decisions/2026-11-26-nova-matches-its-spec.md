@@ -15,7 +15,9 @@ and `docs/nova-greenfield-mockup.html`. These fixes follow from it:
 - **New Chat.** The intro's order holds even when stage boxes show:
   companion and title, composer, then the showcase, centred. The title is
   "Where should we start?", as in the mockup.
-- **Light mode.** The stage is white and the rail and sidebar stay #F4F6FA.
+- **Light mode.** The stage is white. The compact rail is see-through in
+  both modes, as the mockup draws it, so in light it reads as the white
+  stage (owner, 2026-11-26); the expanded sidebar stays #F4F6FA.
 - **Batch approval.**
   - ⌘K's "Approve all" sends the ids as `Server.inbox.batch` takes them. It
     was refused every time.

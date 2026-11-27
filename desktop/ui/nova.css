@@ -96,12 +96,6 @@ html[data-style="nova"] nav.side .brand .logo > svg {
     box-shadow: none;
   }
 
-  /* In light the rail is the soft neutral #F4F6FA (--bg) beside the white
-     stage; in dark --bg is the stage itself, so the rail stays see-through. */
-  html[data-style="nova"][data-mode="light"] body[data-navigation=compact] .shell > nav.side {
-    background: var(--bg);
-  }
-
   html[data-style="nova"] body[data-navigation=expanded] .shell > nav.side {
     background: var(--side);
     border: 0;
