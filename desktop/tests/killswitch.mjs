@@ -57,7 +57,7 @@ await step("sign in", async () => {
 // what it revoked and sealed is Admin › Overview's.
 const bar = () => page.locator("#detail [data-admin-kill]");
 const report = async () => {
-  await page.getByRole("link", { name: "Admin" }).first().click();
+  await page.evaluate(() => { location.hash = "#/admin"; }); // Admin is in Settings; the navigation has no entry
   await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Overview" }).click();
 };
 

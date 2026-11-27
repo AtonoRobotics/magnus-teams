@@ -168,7 +168,7 @@ await step("a connector opens to what Magnus can do with it and what it asks for
 // The organisation's connectors are administration: Admin › Connectors.
 // Who may connect each is set there; nothing asks for an app's setup.
 await step("the owner's Connectors in Admin are the catalog's apps, and ask for no setup", async () => {
-  await page.getByRole("link", { name: "Admin" }).first().click();
+  await page.evaluate(() => { location.hash = "#/admin"; }); // Admin is in Settings; the navigation has no entry
   await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Connectors" }).click();
   await page.locator('tr[data-connector="google-gmail"]').getByText("catalog").waitFor({ timeout: T });
   const said = await page.locator("main").innerText();

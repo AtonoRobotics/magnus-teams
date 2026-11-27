@@ -26,6 +26,11 @@ const AuroraRail = (() => {
   let picked = false;
 
   const rail = () => on() && document.body.dataset.navigation === "compact";
+  // Nova's sidebar opens beside the stage, as its mockup draws it, not over
+  // it: the rail's button and Ctrl+B keep it open (the pin's preference),
+  // and its collapse, the pin, puts the rail back.
+  const docks = () => document.documentElement.dataset.style === "nova";
+  const dock = (/** @type {boolean} */ keep) => { Theme.set({ sidebar: keep ? "pinned" : "rail" }); label(); };
   const pinned = () => typeof Theme !== "undefined" && Theme.prefs().sidebar === "pinned";
 
   /** Its two controls, put once in the part of the sidebar app.js draws once. */
@@ -55,6 +60,15 @@ const AuroraRail = (() => {
     if (!pin) return;
     const kept = pinned();
     pin.setAttribute("aria-pressed", String(kept));
+    if (docks()) {
+      pin.innerHTML = SIDEBAR;
+      pin.setAttribute("aria-label", "Collapse the sidebar");
+      pin.title = "Collapse the sidebar (Ctrl+B)";
+      $(".aurora-rail-open")?.removeAttribute("aria-haspopup");
+      return;
+    }
+    pin.innerHTML = PIN;
+    $(".aurora-rail-open")?.setAttribute("aria-haspopup", "dialog");
     pin.setAttribute("aria-label", kept ? "Unpin the sidebar" : "Pin the sidebar");
     pin.title = kept ? "Unpin the sidebar: show it only when asked for" : "Pin the sidebar: keep it open beside the conversation";
   }
@@ -93,7 +107,15 @@ const AuroraRail = (() => {
 
   document.addEventListener("click", e => {
     const t = /** @type {HTMLElement} */ (e.target);
-    if (t.closest?.(".aurora-rail-open")) { if (open) hide(); else show(); return; }
+    if (t.closest?.(".aurora-rail-open")) {
+      if (open) hide();
+      else if (docks()) {
+        dock(true);
+        // A window too narrow to keep it beside the stage slides it over.
+        requestAnimationFrame(() => { if (document.body.dataset.navigation === "compact") show(); });
+      } else show();
+      return;
+    }
     if (t.closest?.(".aurora-rail-pin")) {
       Theme.set({ sidebar: pinned() ? "rail" : "pinned" });
       label();
@@ -105,6 +127,7 @@ const AuroraRail = (() => {
 
   document.addEventListener("keydown", e => {
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "b") return;
+    if (docks() && on() && !open && !document.querySelector("dialog[open]")) { e.preventDefault(); dock(!pinned()); return; }
     if (!on() || (!rail() && !open) || document.querySelector("dialog[open]:not(#navigation-drawer)")) return;
     e.preventDefault();
     if (open) hide(); else show();

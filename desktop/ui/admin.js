@@ -1,5 +1,6 @@
 // Administration in the app (spec rev 141, Administration): owners and admins
-// see an Admin entry in the navigation, an Admin view with its sections, the
+// find Admin in Settings (#/admin opens it there; the navigation has no entry
+// of its own, decisions/2026-11-26-admin-lives-in-settings.md), its sections, the
 // kill switch always in the app's top bar wherever they are, and a step-up
 // sheet whenever the server asks for the admin's password again. Everyone
 // sees a banner while a kill switch that affects them is on, naming who
@@ -119,19 +120,11 @@ async function adminPoll() {
   if ($("[data-admin-kill]")) drawKillControl();
 }
 
-/** The Admin entry in the navigation, for owners and admins.
- * @param {string} route */
-function adminNavItem(route) {
-  if (!AdminState.standing?.admin) return "";
-  const on = route.startsWith("#/admin");
-  return `<a class="primary-nav${on ? " on" : ""}" href="#/admin" data-admin-nav ${on ? 'aria-current="page"' : ""} aria-label="Admin" title="Admin">${icon("shield")}<span class="nav-label">Admin</span></a>`;
-}
-
 /** After sign-in: whether this person administers, and the stops banner. */
 async function adminStart() {
   adminStop();
   AdminState.standing = await Server.admin.standing({ background: true }).catch(() => null);
-  if (AdminState.standing?.admin) { sidebar(); showKillControl(); }
+  if (AdminState.standing?.admin) showKillControl();
   AdminState.poll = setInterval(adminPoll, ADMIN_STOPS_POLL_MS);
   await adminPoll();
 }

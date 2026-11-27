@@ -48,9 +48,56 @@ html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .aurora-
   display: inline-grid;
 }
 
-html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .rail-tree,
-html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .sect:has(> a[href="#/trash"]) {
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .rail-tree {
   display: none;
+}
+
+/* The mockup's sidebar ends with its Projects and Recent lists: no Workspace
+   group under them. Admin is in Settings, and Trash is a page Quick Jump
+   (⌘K) opens. */
+html[data-style="nova"] nav.side .sect:has(> a[href="#/trash"]) {
+  display: none;
+}
+
+/* The rail's order is the mockup's: companion, New conversation, Inbox,
+   Projects, Briefing, Explore, Apps; then, at the foot, the sidebar, search
+   and the person's initial, which opens Settings. */
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .aurora-rail-open {
+  order: 2;
+  margin-top: auto;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .rail-search {
+  order: 3;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .foot {
+  order: 4;
+  margin-top: 0;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .who {
+  padding: 6px 0 2px;
+  background: transparent;
+  border: 0;
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .who > .icon-btn {
+  display: none;
+}
+
+html[data-style="nova"] nav.side .who > a.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
 }
 
 html[data-style="nova"] body[data-navigation=compact] .shell > nav.side a:hover {
@@ -68,8 +115,45 @@ html[data-style="nova"] body[data-navigation=expanded] nav.side .aurora-rail-pin
   display: inline-grid;
 }
 
+/* Docked, the sidebar is the mockup's: its header collapses it back to the
+   rail, Quick Jump (⌘K) and the person sit at its foot, the person's initial
+   opens Settings, and no search field or icon row crowds it. */
 html[data-style="nova"] body[data-navigation=expanded] nav.side .aurora-rail-pin[aria-pressed="true"] {
-  color: var(--accent-text);
+  color: var(--muted);
+}
+
+html[data-style="nova"] body[data-navigation=expanded] .shell > nav.side #find,
+html[data-style="nova"] body[data-navigation=expanded] nav.side .who > .icon-btn {
+  display: none;
+}
+
+html[data-style="nova"] nav.side .nav-quick-jump {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+html[data-style="nova"] nav.side .nav-quick-jump .nav-label {
+  flex: 1;
+  text-align: left;
+}
+
+html[data-style="nova"] nav.side .nav-quick-jump .kbd {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+html[data-style="nova"] body[data-navigation=compact] .shell > nav.side .nav-quick-jump {
+  display: none;
 }
 
 html[data-style="nova"] body[data-navigation=expanded] nav.side .brand-name {
@@ -251,14 +335,64 @@ html[data-style="nova"] .model-chip-menu > label.model select {
   }
 }
 
-html[data-style="nova"] .aurora-page-bar {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-sticky);
+/* The top bar across every screen (nova-frame.js), as the mockup draws it:
+   a 52px row over the stage and the right panel, beside the rail. Where the
+   window is narrow, the workspace bar that switches regions keeps the row. */
+html[data-style="nova"] .nova-frame-bar {
+  display: none;
+}
+
+@media (min-width: 761px) {
+  html[data-style="nova"] body:not([data-navigation=drawer]):not([data-workspace=single]) .shell {
+    grid-template-rows: 52px minmax(0, 1fr) auto;
+  }
+
+  html[data-style="nova"] body:not([data-navigation=drawer]):not([data-workspace=single]) .shell > .workspace-bar {
+    display: none;
+  }
+
+  html[data-style="nova"] body:not([data-navigation=drawer]):not([data-workspace=single]) .shell > .nova-frame-bar {
+    position: relative;
+    z-index: 2;
+    grid-row: 1;
+    grid-column: 2 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--hair);
+  }
+}
+
+html[data-style="nova"] .nova-frame-where {
   display: flex;
-  justify-content: flex-end;
-  height: 0;
-  overflow: visible;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+html[data-style="nova"] .nova-page-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+html[data-style="nova"] .nova-frame-spend {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+@media (max-width: 960px) {
+  html[data-style="nova"] :is(.nova-frame-sep, .nova-frame-spend) {
+    display: none;
+  }
 }
 
 html[data-style="nova"] .aurora-page-close {

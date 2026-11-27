@@ -452,6 +452,8 @@ const UI = {
   pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
   play: '<polygon points="6 4 20 12 6 20 6 4"/>',
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/>',
+  layers: '<path d="m12 2 10 5-10 5L2 7Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
   brain: '<path d="M9.5 2a3.5 3.5 0 0 0-3.2 4.9A3.5 3.5 0 0 0 5 13.5 3.5 3.5 0 0 0 8.5 17H9v3a1 1 0 0 0 2 0V4.5A2.5 2.5 0 0 0 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 13 4.5V20a1 1 0 0 0 2 0v-3h.5a3.5 3.5 0 0 0 3.5-3.5 3.5 3.5 0 0 0-1.3-6.6A3.5 3.5 0 0 0 14.5 2Z"/>',
 };
 const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0 0 24 24" aria-hidden="true">${UI[k]}</svg>`;
@@ -459,7 +461,11 @@ const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0
 function displayTitle(title) {
   const t = String(title || "").trim();
   if (!t || t.startsWith("This turn is not a message from the person")) return "Automated check";
-  return t;
+  // A title is the first words of a message, which may be Markdown: it is
+  // shown as the words, without the marks.
+  const plain = t.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/^#{1,6}\s+|^\s*(?:[-*+>]|\d+\.)\s+/gm, "")
+    .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2").replace(/(^|[\s(])[*_](\S(?:.*?\S)?)[*_](?=[\s).,!?:;]|$)/g, "$1$2").replace(/\s+/g, " ").trim();
+  return plain || t;
 }
 
 function navigationTree() {
@@ -524,19 +530,23 @@ function navigationTree() {
 }
 function nav() {
   const route=location.hash || "#/home";
-  const adminNav=adminNavItem(route);
   const onApps=route.startsWith("#/library");
   const pending=typeof needsMe === "function" ? needsMe().length : 0;
   // Nova names the rail's places as its spec does (§4.1).
   const nova=document.documentElement.dataset.style==="nova";
   const L=nova ? { inbox: "Inbox / Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills" } : { inbox: "Inbox", briefing: "Briefing", apps: "Apps" };
+  // and draws them with its mockup's icons: a pencil, an inbox tray, a grid
+  // for Explore and layers for Apps.
+  const I=nova ? { new: "pencil", inbox: "inbox", explore: "grid", apps: "layers" } : { new: "plus", inbox: "need", explore: "sparkles", apps: "grid" };
+  const initial=esc((App.me?.name || "?").trim().charAt(0).toUpperCase());
+  // In Nova the person's initial is the way to Settings, as in its mockup.
+  const avatar=nova ? `<a href="#/settings" class="avatar" aria-label="Settings" title="Companion · Settings">${initial}</a>` : `<span class="avatar" aria-hidden="true">${initial}</span>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon("need")}<span class="nav-label">${esc(L.inbox)}</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">${esc(L.briefing)}</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">${esc(L.apps)}</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon(I.new)}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon(I.inbox)}<span class="nav-label">${esc(L.inbox)}</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">${esc(L.briefing)}</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon(I.explore)}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon(I.apps)}<span class="nav-label">${esc(L.apps)}</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
-    ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
     <div class="sect"><a href="#/trash" aria-label="Trash" title="Trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span class="nav-label">Trash</span></a></div>
-    <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings/appearance" class="icon-btn companion-theme-nav${route==="#/settings/appearance" ? " on" : ""}" aria-label="Appearance" title="Theme & accent">${icon("palette")}</a><a href="#/settings" class="icon-btn${route.startsWith("#/settings") && route!=="#/settings/appearance" ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
+    <div class="foot">${nova ? `<button type="button" class="nav-quick-jump" data-quick-jump title="Quick Jump (⌘K)">${icon("search")}<span class="nav-label">Quick Jump</span><kbd class="kbd" aria-hidden="true">⌘K</kbd></button>` : ""}<div class="who">${avatar}<div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings/appearance" class="icon-btn companion-theme-nav${route==="#/settings/appearance" ? " on" : ""}" aria-label="Appearance" title="Theme & accent">${icon("palette")}</a><a href="#/settings" class="icon-btn${route.startsWith("#/settings") && route!=="#/settings/appearance" ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
 function sidebar() {
   paint($("#side"),nav());
@@ -775,6 +785,7 @@ function shell() {
   Workspace.install();
   $("nav.side").addEventListener("click", async e => {
     if (e.target.closest("[data-act=restart-update]")) return restartToUpdate();
+    if (e.target.closest("[data-quick-jump]")) return Workspace.openPalette();
     if (e.target.closest("[data-act=sign-out]")) {
       MessageDrafts.clear();
       await endSession();
@@ -1364,17 +1375,17 @@ function convHead(thread, project) {
   const nCount = typeof Notices !== "undefined" && Array.isArray(Notices.history) ? Notices.history.length : 0;
   const noticeBtn = `<div class="notice-center-wrap"><button type="button" class="icon-btn stage-dock-btn${dnd ? " muted" : ""}" data-toggle-notices aria-expanded="false" aria-controls="notice-center" title="${dnd ? "Notifications snoozed (click to open)" : "Notifications & Do Not Disturb"}" aria-label="${dnd ? "Notifications snoozed" : `Notifications${nCount ? `, ${nCount} recent` : ""}`}">${icon("bell")}${!dnd && nCount ? `<span class="stage-dock-badge" aria-hidden="true">${Math.min(nCount, 99)}</span>` : ""}</button><div id="notice-center" class="notice-center card" role="region" aria-label="Notifications" hidden></div></div>`;
   const sidebarBtn = `<button type="button" class="icon-btn stage-dock-btn" data-toggle-inspector aria-pressed="${Panel.what ? "true" : "false"}" title="${Panel.what ? "Close workspace sidebar" : "Open workspace details (Tasks, Routines, Approvals, Files, Apps)"}" aria-label="${Panel.what ? "Close workspace sidebar" : `Open workspace sidebar${pending ? `, ${pending} waiting` : ""}`}">${icon("sidebar")}${pending && !Panel.what && document.documentElement.dataset.style !== "nova" ? `<span class="stage-dock-badge" aria-hidden="true">${pending}</span>` : ""}</button>`;
-  // Nova's bar is de-cluttered (spec §4.2): besides its quick controls, the
-  // bell and the sidebar toggle, everything sits in the ••• menu.
+  // Nova's head is de-cluttered (spec §4.2): besides the bell and the
+  // sidebar toggle, everything sits in the ••• menu. Its quick controls are
+  // in the top bar above it (nova-frame.js).
   const nova = document.documentElement.dataset.style === "nova";
   const chip = computerChip(App.computers);
   const inMenu = nova ? `${chip}${shareBtn}` : "";
   const moreMenu = thread
     ? `<details class="conv-more"><summary class="icon-btn" title="More conversation actions" aria-label="More conversation actions">&bull;&bull;&bull;</summary><div class="conv-more-menu card">${inMenu}${move}<button type="button" class="conv-more-del" data-trash="${esc(thread)}" data-then="#/home">${icon("trash")}<span>Delete conversation</span></button></div></details>`
     : nova && chip ? `<details class="conv-more"><summary class="icon-btn" title="More actions" aria-label="More actions">&bull;&bull;&bull;</summary><div class="conv-more-menu card">${chip}</div></details>` : "";
-  const quick = nova && typeof NovaUx !== "undefined" ? NovaUx.topBarHtml() : "";
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${quick}${nova ? "" : `${chip}${shareBtn}`}${moreMenu}${noticeBtn}${sidebarBtn}</div>`);
+    <div class="row">${nova ? "" : `${chip}${shareBtn}`}${moreMenu}${noticeBtn}${sidebarBtn}</div>`);
 }
 
 async function showNewChat(main, project) {

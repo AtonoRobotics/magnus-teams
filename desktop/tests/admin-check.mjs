@@ -20,7 +20,8 @@ const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
 const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 assert.ok(scripts.includes("admin.js") && scripts.indexOf("admin.js") > scripts.indexOf("app.js"), "index.html loads admin.js after app.js");
 assert.match(page, /<link rel="stylesheet" href="admin\.css">/, "index.html loads admin.css");
-assert.match(app, /adminNavItem\(route\)/, "the navigation has the Admin entry");
+assert.doesNotMatch(app + admin, /adminNavItem|data-admin-nav/, "the navigation has no Admin entry: Settings holds Admin (#/admin opens it)");
+assert.match(admin, /openSettingsModal\(`admin:\$\{which \|\| "overview"\}`\)/, "#/admin opens Settings on its Admin sections");
 assert.match(app, /\n  shell\(\);\n  adminStart\(\);\n/, "signing in asks whether the person administers, and starts the stops banner");
 assert.match(app, /\n  adminStop\(\);\n/, "signing out forgets it");
 assert.ok(!/The kill switch is on\./.test(app), "the conversation no longer has a banner of its own that names no one");
@@ -71,19 +72,6 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
   vm.runInContext(admin, ctx);
   vm.runInContext("stepUp = async () => { globalThis.stepUps++; return globalThis.stepUpAnswer; }", ctx);
   return ctx;
-}
-
-// The entry shows for admins only.
-{
-  const member = harness({ admin: false });
-  await vm.runInContext("adminStart()", member);
-  assert.equal(vm.runInContext('adminNavItem("#/home")', member), "", "a member sees the Admin entry");
-  const a = harness();
-  await vm.runInContext("adminStart()", a);
-  const item = vm.runInContext('adminNavItem("#/admin/people")', a);
-  assert.match(item, /href="#\/admin"/);
-  assert.match(item, /aria-current="page"/, "the entry is current inside Admin");
-  assert.ok(a.calls.some(c => c[0] === "sidebar"), "the navigation is drawn again once the person is known to administer");
 }
 
 // The kill switch is always in the admin's top bar: the app's own bar, on

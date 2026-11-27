@@ -325,27 +325,6 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 @keyframes lpulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 html[data-motion="full"] .nav-dot.run { animation: lpulse 1.8s ease-in-out infinite; }
 html[data-style="prism"] nav.side .new-chat.primary-nav { border-radius: var(--r-pill); }
-/* Collapsible Workspace group in sidebar */
-nav.side .nav-workspace > summary.nav-group-head {
-  list-style: none;
-  cursor: pointer;
-  padding: 6px 8px 4px;
-  min-height: 28px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  user-select: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-nav.side .nav-workspace > summary.nav-group-head::after { content: "▸"; font-size: 11px; }
-nav.side .nav-workspace[open] > summary.nav-group-head::after { content: "▾"; }
-nav.side .nav-workspace > summary.nav-group-head::-webkit-details-marker { display: none; }
-nav.side .nav-workspace-items { display: flex; flex-direction: column; gap: 2px; }
-body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head { display: none; }
 /* Right Side Panel Segmented Tab Bar across Obsidian, Obsidian 2, Prism, Studio, and Aurora */
 .panel-tabs {
   display: flex;

@@ -410,7 +410,7 @@ html[data-style="nova"] .shell > aside.detail:has(> .stage-artifact) {
 
 @media (min-width: 761px) {
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) {
-    grid-template-rows: 0 minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr) auto;
   }
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="compact"]) {
     grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(380px, 34vw, 460px);

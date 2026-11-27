@@ -84,7 +84,7 @@ if (!provider) await step("sign in", async () => {
 await step("connect Claude", async () => {
   // Connecting the server's model provider is administration: Admin › Models.
   const models = async () => {
-    await page.getByRole("link", { name: "Admin" }).first().click();
+    await page.evaluate(() => { location.hash = "#/admin"; }); // Admin is in Settings; the navigation has no entry
     await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Models" }).click();
   };
   await models();

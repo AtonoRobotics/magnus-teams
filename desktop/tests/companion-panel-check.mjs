@@ -57,7 +57,6 @@ const ctx = {
   load: () => false,
   displayTitle: s => String(s || "Untitled"),
   guideNavItem: () => "",
-  adminNavItem: () => "",
   isDev: () => false,
   STATE: t => t.status || "done",
   WAITING: { approval: "waiting approval" },

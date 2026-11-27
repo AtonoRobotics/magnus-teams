@@ -581,3 +581,110 @@ html[data-style="nova"] .conv-more-menu .conv-more-del {
     background: CanvasText;
   }
 }
+
+/* Apps & Skills reads as its mockup draws it: a centred 840px column, a quiet
+   22px title with no rule under it, and no close of its own, since the rail
+   is the way out. */
+html[data-style="nova"] .libpage:not(.cpage) {
+  max-width: 840px;
+  padding-top: 12px;
+}
+
+html[data-style="nova"] .libpage > .lhead {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+html[data-style="nova"] .libpage > .lhead h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+html[data-style="nova"] .libpage > .lhead p {
+  font-size: 13px;
+}
+
+html[data-style="nova"] .libpage > .lhead > .lclose {
+  display: none;
+}
+
+/* The list of projects has the same quiet head as Apps: its gradient band is
+   for a project's own page, as in the mockup. */
+html[data-style="nova"] .project-page:has(> .project-create-bar) {
+  max-width: 840px;
+  padding-top: 12px;
+}
+
+html[data-style="nova"] .project-page:has(> .project-create-bar) > .project-page-head {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+html[data-style="nova"] .project-page:has(> .project-create-bar) > .project-page-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* The right panel's head is one 52px row, level with the conversation's
+   head, as the mockup draws it: the tabs as a segmented pill, then Close;
+   the tab in use names the panel, so no title row sits above them. */
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 52px minmax(0, 1fr) auto;
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > .panel-tabs {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: center;
+  justify-self: end;
+  max-width: 100%;
+  margin: 0 0 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > .panel-tabs > :is(a, button) {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > .artifact-top {
+  grid-row: 1;
+  grid-column: 2;
+  gap: 6px;
+  padding: 0 12px 0 6px;
+  border-bottom: 0;
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > .artifact-top > .artifact-title {
+  display: none;
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > .artifact-top > .artifact-close {
+  min-height: 28px;
+  padding: 3px 11px;
+  font-size: 12px;
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > .artifact-content {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  min-height: 0;
+  border-top: 1px solid var(--hair);
+}
+
+html[data-style="nova"] .stage-artifact:has(> .panel-tabs) > :not(.panel-tabs, .artifact-top, .artifact-content) {
+  grid-row: 3;
+  grid-column: 1 / -1;
+}

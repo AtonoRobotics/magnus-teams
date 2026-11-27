@@ -100,36 +100,6 @@ const NovaUx = (() => {
       </div>`;
       slot.insertAdjacentElement("afterend", wrap);
     }
-
-    syncTopBar();
-  }
-
-  function syncTopBar() {
-    if (!isNova() || typeof Theme === "undefined") {
-      document.querySelectorAll(".nova-topbar-ctrls").forEach(el => el.remove());
-      return;
-    }
-    const row = document.querySelector(".conv-head > .row");
-    if (!row) return;
-    const key = topBarKey();
-    const ctrls = row.querySelector(".nova-topbar-ctrls");
-    if (ctrls?.getAttribute("data-key") === key) return;
-    // convHead paints the controls with the bar (topBarHtml), so a repaint
-    // never drops them; this only follows a change of companion or mode.
-    if (ctrls) ctrls.outerHTML = topBarHtml();
-    else row.insertAdjacentHTML("afterbegin", topBarHtml());
-  }
-
-  const topBarKey = () => `${document.documentElement.dataset.avatar || "pip"}:${document.documentElement.dataset.mode || "dark"}`;
-  // Nova's quick controls in the top bar (spec §4.2): companion segmented
-  // pill and the Light / Dark toggle.
-  function topBarHtml() {
-    if (!isNova()) return "";
-    const curAvatar = document.documentElement.dataset.avatar || "pip";
-    const curMode = document.documentElement.dataset.mode || "dark";
-    const avatars = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Orb"], ["prism", "Prism"]];
-    return `<div class="nova-topbar-ctrls" data-key="${topBarKey()}"><div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${curAvatar === id ? "on" : ""}" data-nova-set-avatar="${id}" aria-pressed="${curAvatar === id}">${label}</button>`).join("")}</div>
-      <button type="button" class="nova-top-pill" data-nova-toggle-mode>${curMode === "dark" ? "Light" : "Dark"}</button></div>`;
   }
 
   function syncCompanionStudio() {
@@ -289,18 +259,6 @@ const NovaUx = (() => {
       if (copyEl) copyEl.textContent = tip.body;
       return;
     }
-    const avBtn = t.closest?.("[data-nova-set-avatar]");
-    if (avBtn && typeof Theme !== "undefined") {
-      Theme.set({ avatar: avBtn.getAttribute("data-nova-set-avatar") || "pip" });
-      syncTopBar();
-      return;
-    }
-    if (t.closest?.("[data-nova-toggle-mode]") && typeof Theme !== "undefined") {
-      const cur = Theme.effective(Theme.prefs(), Theme.os()).mode;
-      Theme.set({ mode: cur === "dark" ? "light" : "dark" });
-      syncTopBar();
-      return;
-    }
     if (t.closest?.("[data-nova-tip-close]")) {
       tipDismissedFor = location.hash || "#/home";
       document.querySelector(".nova-wait-tips")?.remove();
@@ -347,5 +305,5 @@ const NovaUx = (() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", queueSync);
   else queueSync();
 
-  return { sync, topBarHtml, WORKING_TIPS };
+  return { sync, WORKING_TIPS };
 })();

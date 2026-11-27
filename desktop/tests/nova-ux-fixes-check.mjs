@@ -79,11 +79,27 @@ assert.match(pages, /prompt_preview/, "a dry run says what the routine would ask
 assert.doesNotMatch(pages, /brief\?\.summary/, "no field the server never sends");
 
 // 3. Top bar: in Nova, Share and the computer chip are in the ••• menu, and
-// the quick controls are painted with the bar.
+// the quick controls are in the top bar across every screen (nova-frame.js),
+// which also says where the person is and this month's spend.
+const frame = read("nova-frame.js");
 assert.match(app, /const inMenu = nova \? `\$\{chip\}\$\{shareBtn\}` : "";/, "Nova puts Share and the computer chip in the menu");
-assert.match(app, /\$\{quick\}\$\{nova \? "" : `\$\{chip\}\$\{shareBtn\}`\}/, "Nova's bar shows neither outside the menu");
-assert.match(app, /NovaUx\.topBarHtml\(\)/, "convHead paints Nova's quick controls");
-assert.match(ux, /return \{ sync, topBarHtml, WORKING_TIPS \};/);
+assert.match(app, /<div class="row">\$\{nova \? "" : `\$\{chip\}\$\{shareBtn\}`\}/, "Nova's head shows neither outside the menu");
+assert.doesNotMatch(app + ux, /topBarHtml/, "the conversation head no longer paints the quick controls");
+assert.match(frame, /data-nova-set-avatar/, "the top bar has the companion pill");
+assert.match(frame, /data-nova-toggle-mode/, "the top bar has Light / Dark");
+assert.match(frame, /Spend this month: /, "the top bar shows the month's spend, the only period the server keeps");
+assert.match(read("aurora-pages.js"), /dataset\.style === "nova"\) \{ mine\?\.remove\(\); return; \}/, "Nova pages get no lone close");
+assert.match(read("index.html"), /<script src="nova-frame\.js"><\/script>/, "the app loads the top bar");
+assert.match(read("nova-shell.css"), /\.shell > \.nova-frame-bar \{[^}]*grid-row: 1;[^}]*grid-column: 2 \/ -1;/, "the bar is the shell's first row, beside the rail");
+
+// Titles are words: a conversation started with Markdown is named without it.
+{
+  const src = app.slice(app.indexOf("function displayTitle("), app.indexOf("function navigationTree("));
+  const displayTitle = new Function(`${src}; return displayTitle;`)();
+  assert.equal(displayTitle("**Plan** the offsite"), "Plan the offsite");
+  assert.equal(displayTitle("# Read [the doc](https://x.test) now"), "Read the doc now");
+  assert.equal(displayTitle("snake_case_name stays"), "snake_case_name stays");
+}
 
 // 4. One inbox count in Nova: not on the sidebar toggle, and the rail's
 // sidebar button counts only running work.
