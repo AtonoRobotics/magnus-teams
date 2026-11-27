@@ -105,8 +105,9 @@ pub struct Config {
     /// The facts the agreements state about whoever runs the server; all required.
     #[serde(default)]
     pub legal: crate::legal::Settings,
+    /// `[memory]`, the retired memory engine's: still read, so a deployed config loads, and ignored.
     #[serde(default)]
-    pub memory: crate::memory_index::MemoryConfig,
+    pub memory: Option<toml::Value>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

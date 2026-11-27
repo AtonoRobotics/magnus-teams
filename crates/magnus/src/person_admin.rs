@@ -286,7 +286,6 @@ impl Kernel {
         for run in &runs {
             self.sandboxes.release_inputs(run);
         }
-        crate::memory::erasure::erase_person_if_present(&self.cfg.database.url, &self.cfg.memory, person).await.map_err(failed)?;
         self.emit(actor, Ev::PersonErased { person: person.to_string() }).await.map_err(failed)?;
         // Not complete while a backup still holds anything of theirs, their
         // content or their login: the backups left are recorded and tried

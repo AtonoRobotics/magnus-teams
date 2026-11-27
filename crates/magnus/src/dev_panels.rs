@@ -114,6 +114,8 @@ pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult
         panels.push(panel("cache_hit_rate", "Prompt cache hit rate", num(rate), "of input tokens", ids(&|r| r.tokens.input > 0), vec![]));
 
         let mut mem: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        // Every write the window's runs made, archived ones too: a count of
+        // what was written, by label, that serves no fact.
         let memory: Vec<_> = s.library.memory().iter().filter(|m| seen.contains(m.run.as_str())).collect();
         for m in &memory {
             let l = match (m.label.untrusted, m.label.private) {

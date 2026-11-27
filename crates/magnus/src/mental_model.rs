@@ -48,33 +48,27 @@ pub fn format_clean_model(clean_bullets: &[String]) -> String {
 impl Kernel {
     /// Unified provenance-backed memory summary (`GET /v1/memory/summary`, W3.2):
     /// separates clean always-on facts/playbook from untrusted on-demand items,
-    /// exposing recalled `fact` and `topic` alongside `at`, `run`, `label`, and `archived`.
+    /// exposing recalled `fact` and `topic` alongside `at`, `run` and `label`.
+    /// Only current memory: an archived or superseded fact is history in the
+    /// log, never served (decision 2026-11-27, one memory store).
     pub async fn memory_summary_json(&self, person: &str) -> Value {
-        let recalled: std::collections::HashMap<String, (String, Option<String>)> =
-            self.remembered(person, |_| true).await.unwrap_or_default().into_iter().map(|r| (r.entry.id, (r.fact, r.topic))).collect();
+        let recalled = self.remembered(person, |_| true).await.unwrap_or_default();
         self.read(|s| {
             let mut clean_facts = Vec::new();
             let mut untrusted_facts = Vec::new();
-            let mut archived_facts = Vec::new();
-            for m in s.library.memory().iter().filter(|m| m.person == person) {
-                if s.memory_superseded.contains_key(&m.id) {
-                    continue;
-                }
-                let (fact, topic) = recalled.get(&m.id).cloned().unwrap_or_default();
+            for r in recalled {
+                let m = r.entry;
                 let entry = json!({
                     "id": m.id,
-                    "fact": fact,
-                    "topic": topic,
+                    "fact": r.fact,
+                    "topic": r.topic,
                     "run": m.run,
                     "by": m.by.as_deref().unwrap_or("model"),
                     "at": m.at,
                     "label": m.label,
                     "sources": m.sources,
-                    "archived": s.memory_archived.contains(&m.id),
                 });
-                if s.memory_archived.contains(&m.id) {
-                    archived_facts.push(entry);
-                } else if m.label.untrusted {
+                if m.label.untrusted {
                     untrusted_facts.push(entry);
                 } else {
                     clean_facts.push(entry);
@@ -98,7 +92,6 @@ impl Kernel {
                 "person": person,
                 "clean_facts": clean_facts,
                 "untrusted_facts": untrusted_facts,
-                "archived_facts": archived_facts,
                 "playbook": playbook,
             })
         })

@@ -77,6 +77,11 @@ pub(crate) async fn server_with(more: &str, extra: impl FnOnce(Arc<Kernel>) -> R
     for id in ["sam", "ana", "lee", "mo"] {
         k.accounts.set_password(id, PASSWORD).await.unwrap();
     }
+    serve(k, extra, db, dir).await
+}
+
+/// The app's API (and `extra`) for `k` on a loopback port.
+async fn serve(k: Arc<Kernel>, extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>>, db: String, dir: tempfile::TempDir) -> Server {
     let app = crate::api::router(k.clone(), Transport::Plain).merge(extra(k.clone()).layer(axum::Extension(Transport::Plain)).with_state(k.clone()));
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", l.local_addr().unwrap());
@@ -85,6 +90,37 @@ pub(crate) async fn server_with(more: &str, extra: impl FnOnce(Arc<Kernel>) -> R
 }
 
 impl Server {
+    /// This server restarted: a second one booted on a copy of its log and
+    /// content (the first keeps its hold on its own), with `change` run on
+    /// the copy before the boot, to age what it holds, say. Its accounts
+    /// start again from the config's people.
+    pub(crate) async fn restarted(&self, change: &str) -> Server {
+        let (url, db) = database().await;
+        let to = crate::log::connect(&url).await.unwrap();
+        let from = self.store().await;
+        for r in from.query("SELECT seq, at, kind, actor, run_id, body FROM public.events ORDER BY seq", &[]).await.unwrap() {
+            let (seq, at, kind, actor, run, body): (i64, chrono::DateTime<Utc>, String, String, Option<String>, Value) =
+                (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+            let sql = "INSERT INTO public.events (seq, at, kind, actor, run_id, body) OVERRIDING SYSTEM VALUE VALUES ($1, $2, $3, $4, $5, $6)";
+            to.execute(sql, &[&seq, &at, &kind, &actor, &run, &body]).await.unwrap();
+        }
+        for r in from.query("SELECT seq, salt, body, person FROM public.content ORDER BY seq", &[]).await.unwrap() {
+            let (seq, salt, body, person): (i64, Vec<u8>, Value, Option<String>) = (r.get(0), r.get(1), r.get(2), r.get(3));
+            to.execute("INSERT INTO public.content (seq, salt, body, person) VALUES ($1, $2, $3, $4)", &[&seq, &salt, &body, &person]).await.unwrap();
+        }
+        to.batch_execute("SELECT setval(pg_get_serial_sequence('public.events', 'seq'), (SELECT max(seq) FROM public.events))").await.unwrap();
+        if !change.is_empty() {
+            to.batch_execute(change).await.unwrap();
+        }
+        to.batch_execute(&crate::log::content_walls_sql("postgres")).await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = self.k.cfg.clone();
+        cfg.database.url = url;
+        cfg.appliance.state_dir = dir.path().join("state");
+        let k = Kernel::boot(cfg).await.unwrap();
+        serve(k, |_| Router::new(), db, dir).await
+    }
+
     pub(crate) async fn done(self) {
         let admin = crate::log::connect(&pg()).await.unwrap();
         admin.batch_execute(&format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db)).await.unwrap();

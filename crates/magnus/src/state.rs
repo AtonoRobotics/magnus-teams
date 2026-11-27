@@ -116,7 +116,18 @@ impl State {
     /// `person`'s current memory, oldest first: in the library (not trashed
     /// or forgotten), not archived, not superseded. What recall searches.
     pub fn current_memory(&self, person: &str) -> Vec<MemoryEntry> {
-        self.library.memory().iter().filter(|m| m.person == person && !self.memory_archived.contains(&m.id) && !self.memory_superseded.contains_key(&m.id)).cloned().collect()
+        self.library.memory().iter().filter(|m| m.person == person && !self.memory_retired(&m.id)).cloned().collect()
+    }
+
+    /// Whether memory `id` is archived or superseded: kept in the log as
+    /// history and never served, wherever it is (library or trash).
+    pub fn memory_retired(&self, id: &str) -> bool {
+        self.memory_archived.contains(id) || self.memory_superseded.contains_key(id)
+    }
+
+    /// Whether `id` is one of `person`'s current memories.
+    pub fn is_current_memory(&self, person: &str, id: &str) -> bool {
+        !self.memory_retired(id) && self.library.memory().iter().any(|m| m.id == id && m.person == person)
     }
 
     pub fn apply(&mut self, e: &Event) {

@@ -205,6 +205,11 @@ impl Kernel {
         }
         // Whoever owned a workspace when Team Admin came in is one (once).
         k.seed_team_admins().await?;
+        // Memory filed before the memory update is history, never served (once).
+        let archived = k.archive_memory_before(crate::memory_fresh_start::MEMORY_FRESH_START).await?;
+        if archived > 0 {
+            tracing::info!("archived {archived} memories filed before the memory update");
+        }
         // A lane's watcher lived in the process before; follow its lanes again.
         k.resume_lanes().await;
         // The search index catches up with the log (a restore, a missed

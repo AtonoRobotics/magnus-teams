@@ -239,7 +239,7 @@ async function memorySection(el) {
   let notes = [];
   const draw = async () => {
     const [memRes, pbRes, rel, cmtRes] = await Promise.all([
-      Server.memory.summary().catch(() => ({ clean_facts: [], untrusted_facts: [], archived_facts: [] })),
+      Server.memory.summary().catch(() => ({ clean_facts: [], untrusted_facts: [] })),
       Server.memory.playbook().catch(() => ({ playbook: [] })),
       Server.memory.relationship().catch(() => ({ notes: [] })),
       Server.memory.commitments().catch(() => ({ commitments: [] })),

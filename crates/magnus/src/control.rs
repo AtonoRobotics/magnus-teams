@@ -175,7 +175,7 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
         let mut failed: Vec<&crate::state::Run> = s.runs.values().filter(|r| r.status == Status::Failed).collect();
         failed.sort_by_key(|a| std::cmp::Reverse(a.ended_at));
         let knowledge = s.library.knowledge().values().filter(|e| e.at > day && !e.author.starts_with("person:")).count();
-        let memory = s.library.memory().iter().filter(|m| m.at > day).count();
+        let memory = s.library.memory().iter().filter(|m| m.at > day && !s.memory_retired(&m.id)).count();
         // Agents' changes to the org context bundle (admin console spec,
         // Overview: "agent knowledge changes in the last 24 hours").
         let bundle = s.library.bundle().values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).filter(|v| v.2 > day && !v.3.starts_with("human:")).count();

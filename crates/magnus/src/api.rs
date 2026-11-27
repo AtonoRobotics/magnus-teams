@@ -590,9 +590,10 @@ async fn explore_scan(State(k): K, Caller(p): Caller) -> ApiResult {
     }
 }
 
-/// Forget one of the person's own memories.
+/// Forget one of the person's own current memories. An archived one is not
+/// theirs to see, so it is not found.
 async fn forget(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
-    if !k.read(|s| s.library.memory().iter().any(|m| m.id == id && m.person == p.id)) {
+    if !k.read(|s| s.is_current_memory(&p.id, &id)) {
         return refuse(StatusCode::NOT_FOUND, "no such memory");
     }
     Ok(crate::trash::trashed(k.trash(&p.id, rights(&p).moderates_shared_knowledge(), &id).await))

@@ -49,7 +49,8 @@ impl Kernel {
     /// Put a trashed item back. False when it is not in the person's trash.
     pub async fn restore(&self, person: &str, item: &str) -> Result<bool> {
         let _one = changing().lock().await;
-        if !self.read(|s| s.trash.get(item).is_some_and(|t| t.person == person)) {
+        // An archived memory in the trash is not listed, nor put back.
+        if !self.read(|s| s.trash.get(item).is_some_and(|t| t.person == person && !t.memory().is_some_and(|m| s.memory_retired(&m.id)))) {
             return Ok(false);
         }
         self.emit(&format!("person:{person}"), Ev::Restored { item: item.into() }).await?;
@@ -153,7 +154,10 @@ async fn list(State(k): K, Caller(p): Caller) -> ApiResult {
     let keep = chrono::Duration::days(k.trash_keep_days() as i64);
     // A trashed memory's title is its fact, and a task's, a message's or a
     // conversation's is what the person asked: recalled for the person.
-    let seqs: Vec<i64> = k.read(|s| s.trash.items().values().filter(|t| t.person == p.id).filter_map(|t| t.memory().map(|m| m.seq)).collect());
+    // An archived memory is history, never served: not listed, though it
+    // is removed with the rest when its time comes.
+    let shown = |s: &crate::state::State, t: &crate::state::trash::Trashed| t.person == p.id && !t.memory().is_some_and(|m| s.memory_retired(&m.id));
+    let seqs: Vec<i64> = k.read(|s| s.trash.items().values().filter(|t| shown(s, t)).filter_map(|t| t.memory().map(|m| m.seq)).collect());
     let facts = match k.recall.content(&p.id, &seqs).await {
         Ok(c) => c,
         Err(e) => return Ok(crate::api::internal(e)),
@@ -167,7 +171,7 @@ async fn list(State(k): K, Caller(p): Caller) -> ApiResult {
         s.trash
             .items()
             .iter()
-            .filter(|(_, t)| t.person == p.id)
+            .filter(|(_, t)| shown(s, t))
             .map(|(id, t)| {
                 let title = match (t.memory(), t.title_from) {
                     (Some(m), _) => facts.get(&m.seq).and_then(|c| c["fact"].as_str()).unwrap_or_default().to_string(),
@@ -252,7 +256,7 @@ impl crate::state::State {
             _ => match () {
                 _ if self.library.files().get(item).is_some_and(|f| f.person == person) => true,
                 _ if self.library.projects().get(item).is_some_and(|p| p.person == person) => true,
-                _ if self.library.memory().iter().any(|m| m.id == item && m.person == person) => {
+                _ if self.is_current_memory(person, item) => {
                     // Deleting a memory deletes where it was written in its
                     // run, so the run must have ended (invariant 3).
                     let run = self.library.memory().iter().find(|m| m.id == item).map(|m| m.run.clone()).unwrap_or_default();

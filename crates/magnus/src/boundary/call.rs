@@ -196,15 +196,8 @@ impl Kernel {
             .enumerate()
             .filter_map(|(rank, (seq, content))| {
                 let m = crate::recall::Remembered::from_content(by_seq.remove(&seq)?, &content)?;
-                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / crate::memory::retrieve::SECONDS_PER_DAY;
-                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate {
-                    id: m.entry.id.clone(),
-                    fts_rank: Some(rank),
-                    vec_rank: None,
-                    untrusted: m.entry.label.untrusted,
-                    age_days,
-                    access_count: 0,
-                });
+                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / crate::memory_index::SECONDS_PER_DAY;
+                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate { fts_rank: rank, untrusted: m.entry.label.untrusted, age_days });
                 Some((score, m))
             })
             .collect();

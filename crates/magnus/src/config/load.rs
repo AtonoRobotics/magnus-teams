@@ -8,7 +8,6 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)?;
         cfg.path = path.canonicalize()?;
         cfg.outcomes.check()?;
-        cfg.memory.check()?;
         if cfg.legal.is_set() {
             cfg.legal.check()?;
         } else {
@@ -16,6 +15,9 @@ impl Config {
         }
         if cfg.admin.is_some() {
             tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
+        }
+        if cfg.memory.is_some() {
+            tracing::warn!("{}: [memory] configured the retired memory engine and is ignored; memory is searched where it is kept", path.display());
         }
         cfg.images.as_ref().map(|i| i.check(&cfg.adapters)).transpose()?;
         if let Some(usd) = cfg.knowledge.embeddings.as_ref().and_then(|e| e.usd_per_mtok).filter(|u| !u.is_finite() || *u < 0.0) {
@@ -236,6 +238,21 @@ mod tests {
         );
         std::fs::write(&p, text).unwrap();
         assert!(Config::load(&p).unwrap().admin.is_some());
+    }
+
+    /// The memory engine is gone, and a config written for it still loads:
+    /// its `[memory]` section, any of the keys it read, is ignored. Even
+    /// values it would have refused (decision 2026-11-27).
+    #[test]
+    fn the_retired_memory_engines_section_still_loads() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("magnus.toml");
+        let memory = "[memory]\nmode = \"legacy\"\npersonal_embeddings = true\nembedding_dim = 0\nhnsw_iterative_scan = \"strict_order\"\nmax_lessons_per_scope = 0\ntenant_id = \"\"\n[memory.person_modes]\nalice = \"v2\"\n";
+        let text = format!(
+            "[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}{memory}"
+        );
+        std::fs::write(&p, text).unwrap();
+        assert!(Config::load(&p).unwrap().memory.is_some());
     }
 
     /// A brokered connector's calls carry no idempotency key, so it is

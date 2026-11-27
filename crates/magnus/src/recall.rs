@@ -136,11 +136,12 @@ impl Remembered {
 }
 
 impl crate::kernel::Kernel {
-    /// A person's remembered facts that `keep` selects, newest last, each
-    /// with what it says recalled for them. A fact the content store does
-    /// not give them (deleted, or not theirs) is left out.
+    /// A person's current remembered facts that `keep` selects, newest
+    /// last, each with what it says recalled for them. Archived and
+    /// superseded facts are never served (`State::current_memory`), nor a
+    /// fact the content store does not give them (deleted, or not theirs).
     pub async fn remembered(&self, person: &str, keep: impl Fn(&crate::state::MemoryEntry) -> bool) -> Result<Vec<Remembered>> {
-        let entries: Vec<crate::state::MemoryEntry> = self.read(|s| s.library.memory().iter().filter(|m| m.person == person && keep(m)).cloned().collect());
+        let entries: Vec<crate::state::MemoryEntry> = self.read(|s| s.current_memory(person).into_iter().filter(|m| keep(m)).collect());
         let seqs: Vec<i64> = entries.iter().map(|m| m.seq).collect();
         let content = self.recall.content(person, &seqs).await?;
         Ok(entries.into_iter().filter_map(|entry| content.get(&entry.seq).and_then(|c| Remembered::from_content(entry, c))).collect())
