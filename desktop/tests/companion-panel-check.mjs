@@ -215,7 +215,8 @@ assert.match(tl, /<ul class="tlist tl-stack">/);
 assert.match(tl, /<span class="tl-brand" aria-hidden="true"><svg class="ctile-svg"/);
 
 const nv = ctx.needsView([]);
-assert.match(nv, /companion-sec-head"><span>Approvals<\/span>/);
+// Nova heads the queue as its mockup does: the queue, how many wait, the keys.
+assert.match(nv, /companion-sec-head appr-queue-head"><span>Approval queue<\/span><span class="count">\d+ waiting<\/span><span class="appr-keys" aria-hidden="true"><kbd>A<\/kbd>allow <kbd>D<\/kbd>decline<\/span>/);
 assert.doesNotMatch(nv, /brand SVGs/);
 assert.match(nv, /class="gbox companion-guard"/);
 assert.match(nv, /class="appr-history".*class="appr-ic mail has-logo".*<svg class="ctile-svg".*class="gbox appr-payload-box"/s);

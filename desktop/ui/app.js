@@ -2200,8 +2200,12 @@ function needsView(composed) {
       </div></div>
     </div>`).join("")}</div></section>` : "";
   const guardrails = guardrailsRow();
-  if (!open.length && !staged.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
-  return `${open.length ? `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>${batchBar}${list([...now, ...later])}` : ""}${stagedHtml}${guardrails}${historyHtml}`;
+  // Nova heads the queue as its mockup does: the queue, how many wait, and
+  // the keys that decide (A allows, D declines: nova-ux.js).
+  const nova = document.documentElement.dataset.style === "nova";
+  const queueHead = n => nova ? `<div class="companion-sec-head appr-queue-head"><span>Approval queue</span><span class="count"${n ? "" : " data-none"}>${n} waiting</span>${n ? `<span class="appr-keys" aria-hidden="true"><kbd>A</kbd>allow <kbd>D</kbd>decline</span>` : ""}</div>` : `<div class="companion-sec-head"><span>Approvals</span><span class="count">${n}</span></div>`;
+  if (!open.length && !staged.length) return `${nova ? queueHead(0) : ""}<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
+  return `${open.length ? `${queueHead(open.length)}${batchBar}${list([...now, ...later])}` : ""}${stagedHtml}${guardrails}${historyHtml}`;
 }
 
 // ---------- The panel beside the conversation ----------

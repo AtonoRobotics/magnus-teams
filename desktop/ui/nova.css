@@ -49,8 +49,10 @@ html[data-style="nova"] .aurora-field-canvas {
   pointer-events: none;
 }
 
+/* The mockup's canvas is flat carbon with drifting points (the field
+   canvas); the aurora wash behind it is not Nova's. */
 html[data-style="nova"] .aurora-bg-canvas {
-  opacity: 0.22;
+  display: none;
 }
 
 html[data-style="nova"] .shell {
@@ -105,8 +107,8 @@ html[data-style="nova"] nav.side .brand .logo > svg {
   }
 
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
-    border-left: 1px solid var(--hair);
-    background: var(--panel);
+    border-left: 0;
+    background: transparent;
   }
 }
 
@@ -123,13 +125,21 @@ html[data-style="nova"] nav.side .new-chat.primary-nav {
 html[data-style="nova"] .hello-banner,
 html[data-style="nova"] .hello-hero :is(.hello-sub, .aurora-hello-chips, .hello-caps, .hero-tabs, .hello-cards, .hello-pillars),
 html[data-style="nova"] body[data-nova-intro="on"] .aurora-say-state { display: none; }
+/* At rest the mockup says nothing over the composer: Magnus's state shows
+   only while it works, waits or has just said something. */
+html[data-style="nova"]:is(:not([data-aurora-avatar-state]), [data-aurora-avatar-state="ready"], [data-aurora-avatar-state="idle"]) .aurora-say-state:not([data-told]) { display: none; }
+/* Magnus signs its answer as in the mockup: its face, its name, then the
+   rest quietly in mono. */
+html[data-style="nova"] .msg.magnus > .byline { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+html[data-style="nova"] .msg.magnus > .byline .by-who { color: var(--fg); font-size: 12px; font-weight: 600; }
+html[data-style="nova"] .msg.magnus > .byline .by-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 html[data-style="nova"] .hello-hero { align-items: center; text-align: center; justify-content: center; max-width: 720px; margin: 0 auto; padding: 0 12px 12px; gap: 10px; }
 html[data-style="nova"] .hello-head { align-items: center; gap: 10px; }
 html[data-style="nova"] .hello-title { font-size: 34px; font-weight: 500; letter-spacing: -0.03em; }
 
 html[data-style="nova"] .msg.magnus { font-size: 15px; line-height: 1.64; max-width: 68ch; }
 /* The person's words are a bubble at the right, as in the mockup. */
-html[data-style="nova"] .msg.me { background: var(--surface); border-radius: 18px; padding: 10px 16px; width: fit-content; max-width: min(80%, 560px); margin-left: auto; }
+html[data-style="nova"] .msg.me { background: var(--surface); border: 0; border-radius: 18px; padding: 10px 16px; width: fit-content; max-width: min(80%, 560px); margin-left: auto; font-size: 14.5px; }
 html[data-style="nova"] .msg.me.editing { width: auto; max-width: none; }
 html[data-style="nova"] .say { border-radius: var(--r-composer); background: var(--bubble); border: 1px solid var(--hair); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24); }
 html[data-style="nova"] .say:focus-within { border-color: var(--line-strong); }

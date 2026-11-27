@@ -653,7 +653,7 @@ html[data-style="nova"] .conv-more-menu {
 }
 
 html[data-style="nova"] aside.detail {
-  background: var(--panel);
+  background: transparent;
 }
 
 html[data-style="nova"] aside.detail .detail-head {
@@ -701,6 +701,47 @@ html[data-style="nova"] aside.detail details {
 
 html[data-style="nova"] aside.detail button {
   border-radius: var(--r-pill);
+}
+
+/* The Approvals tab opens on the mockup's queue head: "Approval queue", an
+   amber count of what waits, and the keys that decide at the right. */
+html[data-style="nova"] aside.detail .appr-queue-head {
+  justify-content: flex-start;
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+
+html[data-style="nova"] aside.detail .appr-queue-head .count {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  color: var(--warn);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+html[data-style="nova"] aside.detail .appr-queue-head .count[data-none] {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--muted);
+}
+
+html[data-style="nova"] aside.detail .appr-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+html[data-style="nova"] aside.detail .appr-keys kbd {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  font: inherit;
 }
 
 html[data-style="nova"] nav.side .nav-tree a,

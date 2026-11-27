@@ -51,15 +51,15 @@ const reader = sandbox.teamReader(state, null);
 // One's own message: the same entry, bubble and controls in both.
 const mine = draw(personal, { id: "e1", kind: "message", text: "Hello", at: "t" });
 const mineTeam = draw(team, sandbox.teamEntry(served({ id: "m1", sender: "sam", text: "Hello", thread: null, at: "t" }), reader));
-assert.match(mine, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline">You · at<\/div><div class="msg-body"><p>Hello<\/p><\/div><\/div>/, "the personal chat's own message changed");
-assert.match(mineTeam, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline"><span class="team-avatar"[^]*<\/span>You · at<\/div><div class="msg-body"><p>Hello<\/p><\/div><\/div>/, "a team message of one's own is not the personal chat's");
+assert.match(mine, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline"><span class="by-who">You<\/span><span class="by-meta"> · at<\/span><\/div><div class="msg-body"><p>Hello<\/p><\/div><\/div>/, "the personal chat's own message changed");
+assert.match(mineTeam, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline"><span class="team-avatar"[^]*<\/span><span class="by-who">You<\/span><span class="by-meta"> · at<\/span><\/div><div class="msg-body"><p>Hello<\/p><\/div><\/div>/, "a team message of one's own is not the personal chat's");
 assert.equal(skeleton(mineTeam.replace(/<span class="team-avatar"[^]*?<\/span>/, "")).replace(/<div class="msg-actions[^]*$/, ""), skeleton(mine).replace(/<div class="msg-actions[^]*$/, ""), "one's own message is drawn two ways");
 
 // Magnus's answer: the same, with the requester named in a team.
 const answer = draw(personal, { id: "e2", kind: "answer", text: "Done", at: "t", task_id: "t1" });
 const answerTeam = draw(team, sandbox.teamEntry(served({ id: "a1", sender: "agent", requester: "dana", task: "t1", text: "Done", thread: null, at: "t" }), reader));
-assert.match(answer, /^<div class="entry them"[^>]*><div class="msg magnus" data-answer data-task="t1"><div class="small faint byline">Magnus · at<\/div><div class="answer-body"><p>Done<\/p><\/div><\/div><div class="msg-actions small"/, "the personal chat's answer changed");
-assert.match(answerTeam, /^<div class="entry them"[^>]*><div class="msg magnus" data-answer data-task="t1"><div class="small faint byline">[^]*Magnus · for Dana · at<\/div><div class="answer-body"><p>Done<\/p><\/div><\/div><div class="msg-actions small"/, "a team answer is not the personal chat's");
+assert.match(answer, /^<div class="entry them"[^>]*><div class="msg magnus" data-answer data-task="t1"><div class="small faint byline"><span class="by-who">Magnus<\/span><span class="by-meta"> · at<\/span><\/div><div class="answer-body"><p>Done<\/p><\/div><\/div><div class="msg-actions small"/, "the personal chat's answer changed");
+assert.match(answerTeam, /^<div class="entry them"[^>]*><div class="msg magnus" data-answer data-task="t1"><div class="small faint byline">[^]*<span class="by-who">Magnus<\/span><span class="by-meta"> · for Dana · at<\/span><\/div><div class="answer-body"><p>Done<\/p><\/div><\/div><div class="msg-actions small"/, "a team answer is not the personal chat's");
 // Both answers' controls are the one module's row and menu.
 for (const html of [answer, answerTeam]) assert.match(html, /class="icon menu-trigger" data-menu="message-menu-/, "an answer's controls are not the one row and menu");
 

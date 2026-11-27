@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const { chromium } = createRequire(import.meta.url)(join(root, "browser/node_modules/playwright-core"));
@@ -127,8 +127,40 @@ try {
       const close = document.querySelector("aside.detail .artifact-close")?.getBoundingClientRect();
       return { tabs: mid(document.querySelector("aside.detail .panel-tabs")), head: mid(document.querySelector("section.conv > .conv-head")), title: !!title && title.getBoundingClientRect().height > 0, fits: !!last && !!close && last.right <= close.left };
     });
+    if (process.env.NOVA_DUMP && shots && mode === "dark") {
+      const dump = await page.evaluate(() => {
+        const cut = (/** @type {?Element} */ e) => (e?.outerHTML || "").replace(/<svg[\s\S]*?<\/svg>/g, "<svg/>").slice(0, 24000);
+        const st = (/** @type {string} */ sel) => { const e = document.querySelector(sel); if (!e) return null; const c = getComputedStyle(e), r = e.getBoundingClientRect(); return { sel, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), bg: c.backgroundColor, bgi: c.backgroundImage.slice(0, 80), border: `${c.borderLeftWidth} ${c.borderLeftColor} / ${c.borderTopWidth} ${c.borderTopColor}`, radius: c.borderRadius, font: `${c.fontSize} ${c.fontWeight} ${c.lineHeight}`, pad: c.padding, color: c.color }; };
+        return { shell: getComputedStyle(document.querySelector(".shell") || document.body).gridTemplateColumns, body: { ...document.body.dataset }, styles: [".shell > main", "section.conv", "section.conv > .conv-head", ".msg.me", ".msg.me .body", ".msg.magnus", ".msg.magnus .meta", "#workspace-splitter", "aside.detail", ".stage-artifact", ".stage-artifact > .panel-tabs", ".stage-artifact > .artifact-content", ".aurora-say-state", ".composer-slot .say"].map(st), conv: cut(document.querySelector("section.conv")), detail: cut(document.querySelector("aside.detail")) };
+      });
+      writeFileSync(join(shots, "dump.json"), JSON.stringify(dump, null, 1));
+    }
     check(`${mode}: the panel's tabs sit level with the conversation's head, with no title row`, () => assert.ok(Math.abs(panel.tabs - panel.head) <= 4 && !panel.title, JSON.stringify(panel)));
     check(`${mode}: every panel tab shows beside Close`, () => assert.equal(panel.fits, true, JSON.stringify(panel)));
+    // The chat and the panel as the mockup's stage draws them (2026-11-26).
+    const look = await page.evaluate(() => {
+      const cs = (/** @type {string} */ sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e) : null; };
+      const w = (/** @type {string} */ sel) => document.querySelector(sel)?.getBoundingClientRect().width || 0;
+      const clear = (/** @type {?CSSStyleDeclaration} */ c) => !!c && /rgba\(0, 0, 0, 0\)|transparent/.test(c.backgroundColor);
+      const state = document.querySelector(".aurora-say-state");
+      return {
+        panelClear: clear(cs("aside.detail")) && clear(cs("aside.detail .stage-artifact")),
+        panelShare: Math.round(100 * w("aside.detail") / (w("aside.detail") + w(".shell > main") + w("#workspace-splitter"))),
+        queue: document.querySelector("aside.detail .appr-queue-head")?.textContent || "",
+        wash: cs(".aurora-bg-canvas")?.display || "none",
+        bubbleRim: cs(".msg.me")?.borderTopWidth || "",
+        faces: document.querySelectorAll("#thread .msg.magnus > .byline > .aurora-avatar").length,
+        lastSigned: !![...document.querySelectorAll("#thread .msg.magnus > .byline")].pop()?.querySelector(":scope > .aurora-avatar"),
+        name: cs("#thread .msg.magnus > .byline .by-who")?.fontWeight || "",
+        idle: state ? /** @type {HTMLElement} */ (state).offsetHeight : 0,
+      };
+    });
+    check(`${mode}: the panel is the stage's own canvas, about 46% wide`, () => assert.ok(look.panelClear && look.panelShare >= 40 && look.panelShare <= 50, JSON.stringify(look)));
+    check(`${mode}: Approvals opens on the queue head`, () => assert.match(look.queue, /^Approval queue\d+ waiting/, JSON.stringify(look)));
+    check(`${mode}: no aurora wash behind the stage`, () => assert.equal(look.wash, "none"));
+    check(`${mode}: the person's bubble has no rim`, () => assert.equal(look.bubbleRim, "0px"));
+    check(`${mode}: Magnus signs its latest answer with its face and name`, () => assert.ok(look.faces === 1 && look.lastSigned && Number(look.name) >= 600, JSON.stringify(look)));
+    check(`${mode}: at rest nothing is said over the composer`, () => assert.equal(look.idle, 0, JSON.stringify(look)));
     await go("#/tasks");
     if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-tasks.png`) });
     // The sidebar opens beside the stage, as in the mockup, not over it, and

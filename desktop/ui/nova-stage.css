@@ -408,12 +408,23 @@ html[data-style="nova"] .shell > aside.detail:has(> .stage-artifact) {
   box-shadow: none;
 }
 
+/* Between the conversation and the panel the mockup draws one hairline over
+   the same canvas, and the head's line runs on across; the splitter keeps
+   its width to be dragged. */
+html[data-style="nova"] #workspace-splitter {
+  background: linear-gradient(var(--hair), var(--hair)) 0 52px / 100% 1px no-repeat, linear-gradient(to right, transparent 0 7px, var(--hair) 7px 8px, transparent 8px 100%);
+}
+
+html[data-style="nova"] #workspace-splitter:is(:hover, :focus-visible) {
+  background: linear-gradient(var(--hair), var(--hair)) 0 52px / 100% 1px no-repeat, linear-gradient(to right, transparent 0 7px, var(--accent) 7px 9px, transparent 9px 100%);
+}
+
 @media (min-width: 761px) {
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) {
     grid-template-rows: 52px minmax(0, 1fr) auto;
   }
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell:has(> aside.detail > .stage-artifact[data-canvas-size="compact"]) {
-    grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(380px, 34vw, 460px);
+    grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(340px, calc((100% - var(--nav-width) - var(--splitter-width, 16px)) * 0.46), 640px);
   }
   html[data-style="nova"] body[data-workspace=split]:not([data-navigation=drawer]):not([data-splitter-custom]) .shell > aside.detail:has(> .stage-artifact[data-canvas-size="compact"]) {
     min-width: 0;
@@ -435,7 +446,7 @@ html[data-style="nova"] .stage-artifact {
   flex-direction: column;
   border-radius: 0;
   border: 0;
-  background: var(--panel);
+  background: transparent;
   box-shadow: none;
   overflow: hidden;
 }
@@ -471,7 +482,7 @@ html[data-style="nova"] .artifact-close {
 
 html[data-style="nova"] .artifact-close:hover { border-color: var(--line-strong); background: var(--raised); }
 
-html[data-style="nova"] .stage-artifact > .artifact-content { padding: 14px 18px 24px; }
+html[data-style="nova"] .stage-artifact > .artifact-content { padding: 20px; }
 
 html[data-style="nova"] .stage-decision .decision-kind {
   margin: 0 0 4px;

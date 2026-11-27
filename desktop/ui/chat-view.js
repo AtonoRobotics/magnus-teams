@@ -90,7 +90,7 @@ const ChatView = (() => {
     const agent = e.kind !== "message";
     const who = agent ? (several(conv) ? conv.agentName || "Magnus" : "Magnus") : mine(e, conv) ? "You" : conv.name(e.sender);
     const face = several(conv) && typeof avatar === "function" ? avatar(who === "You" ? conv.name(conv.me) : who, agent) : "";
-    return `<div class="small faint byline">${face}${esc(who)}${extra} · ${esc(when(e.at))}${e.edited ? " · edited" : ""}${e.pinned ? " · pinned" : ""}</div>`;
+    return `<div class="small faint byline">${face}<span class="by-who">${esc(who)}</span><span class="by-meta">${extra} · ${esc(when(e.at))}${e.edited ? " · edited" : ""}${e.pinned ? " · pinned" : ""}</span></div>`;
   }
 
   /** Mentions marked, in a conversation of several people. @param {string} html @param {ChatConversation} conv */

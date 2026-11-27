@@ -103,7 +103,7 @@ assert.match(asked, /3 replies/);
 assert.match(asked, /data-chat-work="t1"/, "the agent's work does not show on the asking message");
 assert.doesNotMatch(asked, /data-msg-act="edit"/, "someone else's message can be edited");
 const answer = draw({ id: "agent:t1", sender: "agent", requester: "dana", text: "Done. **Three** themes.", thread: "m1", at: "2026-11-09T10:31:00Z" });
-assert.match(answer, /class="msg magnus"[^]*Magnus · for Dana/, "the agent's answer does not say who asked");
+assert.match(answer, /class="msg magnus"[^]*Magnus<\/span><span class="by-meta"> · for Dana/, "the agent's answer does not say who asked");
 assert.match(answer, /<p>Done/, "the agent's answer is not rich content");
 const mine = draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", edited: true, may: { edit: true, share: true, delete: true } });
 assert.match(mine, /class="entry me"[^]*class="msg me"[^]*You/, "my own message is not drawn as the personal chat draws mine");
