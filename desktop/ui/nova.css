@@ -57,6 +57,8 @@ html[data-style="nova"] .shell {
 }
 
 html[data-style="nova"] .shell > main {
+  position: relative;
+  z-index: 1;
   background: transparent;
 }
 

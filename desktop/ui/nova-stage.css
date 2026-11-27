@@ -12,31 +12,6 @@ html[data-style="nova"] body:not([data-workspace="single"][data-region="work"]) 
   overflow: visible;
 }
 
-@media (min-width: 761px) {
-  /* One frame holds the work: the page or conversation, and the canvas
-     beside it (decisions/2026-11-21-aurora-composition.md). It spans the
-     columns they share, so it stays still while they trade room inside it;
-     what sits in it is drawn over it. Placed by the grid but out of its
-     flow, it takes no part in sizing the columns. It is denser glass rather
-     than blurred: a blur the size of the window cost a quarter of the frame
-     rate (51 to 38 fps on Strix Beta), and text reads better on a calm
-     surface. The smaller islands on it keep their blur. */
-  html[data-style="nova"] body:not([data-navigation=drawer]) .shell::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    grid-row: 2;
-    grid-column: 2 / -1;
-    z-index: 0;
-    margin-left: 12px;
-    border-radius: var(--r-xl);
-    border: 1px solid var(--hair);
-    background: var(--surface);
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    pointer-events: none;
-  }
-}
-
 html[data-style="nova"] section.conv:has(> .stage-bento) > #banners > .banner-row {
   display: none;
 }
@@ -46,15 +21,6 @@ html[data-style="nova"] .shell > main:has(> section.conv) > section.conv {
   height: auto;
   min-height: 0;
   overflow: hidden;
-}
-
-@media (max-width: 760px) {
-  html[data-style="nova"] .shell > main:has(> section.conv) > section.conv {
-    border-radius: var(--r-xl);
-    border: 1px solid var(--hair);
-    background: var(--surface);
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  }
 }
 
 html[data-style="nova"] .stage-bento {

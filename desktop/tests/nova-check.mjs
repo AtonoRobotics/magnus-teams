@@ -90,5 +90,6 @@ assert.match(novaCss, /\.stage-tile\[data-tier="financial"\]/, "nova.css must st
 for (const sheet of ["aurora.css", "aurora-widgets.css", "aurora-stage.css", "aurora-rail.css", "aurora-compact.css"]) {
   assert.doesNotMatch(ui(sheet), /data-style="nova"/, `${sheet} must not style Nova`);
 }
+assert.doesNotMatch(ui("nova-stage.css"), /\.shell::before/, "nova-stage.css must not paint an opaque .shell::before overlay over main");
 
 console.log("nova theme & overhaul check ok");
