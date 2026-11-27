@@ -12,7 +12,7 @@ use std::time::Duration;
 
 /// How often people's sign-in sessions are checked with the identity
 /// provider, and turned-off accounts with their hold.
-const SESSIONS_EVERY: Duration = Duration::from_secs(300);
+const SESSIONS_EVERY_SECS: Duration = Duration::from_secs(300);
 
 impl Kernel {
     /// Hold the work of accounts turned off outside the kernel (the
@@ -22,7 +22,7 @@ impl Kernel {
     pub fn watch_sessions(self: &Arc<Self>) {
         let k = self.clone();
         tokio::spawn(async move {
-            let mut t = tokio::time::interval(SESSIONS_EVERY);
+            let mut t = tokio::time::interval(SESSIONS_EVERY_SECS);
             loop {
                 t.tick().await;
                 k.hold_disabled_accounts().await;

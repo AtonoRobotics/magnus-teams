@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const SIGN_IN_WINDOW: Duration = Duration::from_secs(10 * 60);
+const SIGN_IN_WINDOW_SECS: Duration = Duration::from_secs(10 * 60);
 const MAX_SIGN_INS: usize = 256;
 const MIN_CARD_DIGITS: usize = 12;
 const MAX_CARD_DIGITS: usize = 19;
@@ -36,7 +36,7 @@ pub(crate) struct SignIns(Mutex<HashMap<String, SignIn>>);
 impl SignIns {
     fn record(&self, state: String, sign_in: SignIn) -> bool {
         let mut pending = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        pending.retain(|_, s| s.at.elapsed() < SIGN_IN_WINDOW);
+        pending.retain(|_, s| s.at.elapsed() < SIGN_IN_WINDOW_SECS);
         if pending.len() >= MAX_SIGN_INS {
             return false;
         }
@@ -45,7 +45,7 @@ impl SignIns {
     }
 
     fn take(&self, state: &str) -> Option<SignIn> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(state).filter(|s| s.at.elapsed() < SIGN_IN_WINDOW)
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(state).filter(|s| s.at.elapsed() < SIGN_IN_WINDOW_SECS)
     }
 }
 

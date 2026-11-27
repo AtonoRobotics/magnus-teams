@@ -19,7 +19,7 @@ use std::time::Duration;
 
 /// How long an ask from unwatched work waits for its person.
 pub const UNWATCHED_ASK_WAIT_MINUTES: i64 = 30;
-const EXPIRY_POLL: Duration = Duration::from_secs(1);
+const EXPIRY_POLL_SECS: Duration = Duration::from_secs(1);
 /// What a message's tool is called: a send, a post, a reply, a forward.
 const MESSAGE_VERBS: [&str; 5] = ["send", "post", "reply", "forward", "message"];
 
@@ -45,7 +45,7 @@ fn due(s: &State, item: &Item, now: DateTime<Utc>) -> bool {
 
 pub fn schedule(k: Arc<Kernel>) {
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(EXPIRY_POLL);
+        let mut tick = tokio::time::interval(EXPIRY_POLL_SECS);
         loop {
             tick.tick().await;
             if let Err(e) = k.expire_unattended_asks(Utc::now()).await {

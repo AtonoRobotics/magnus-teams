@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 const SCOPE: &str = "payment_methods.agentic";
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+const CALL_TIMEOUT_SECS: Duration = Duration::from_secs(30);
 /// Early, so a token does not expire on its way.
 const REFRESH_MARGIN_SECONDS: i64 = 60;
 
@@ -51,7 +51,7 @@ pub(super) struct NewSpend<'a> {
 }
 
 fn http() -> Result<reqwest::Client> {
-    reqwest::Client::builder().timeout(CALL_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build().context("an HTTP client")
+    reqwest::Client::builder().timeout(CALL_TIMEOUT_SECS).redirect(reqwest::redirect::Policy::none()).build().context("an HTTP client")
 }
 
 pub(super) fn token_name(person: &str) -> String {

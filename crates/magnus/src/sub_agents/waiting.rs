@@ -4,7 +4,7 @@
 //! 2026-11-25 a chat turn asked after its three sub-agents 74 times in five
 //! minutes, about three million input tokens spent on "still working".
 
-use super::CHILD_POLL;
+use super::CHILD_POLL_MS;
 use crate::kernel::Kernel;
 use crate::state::{State, Status};
 use std::time::{Duration, Instant};
@@ -32,7 +32,7 @@ impl Kernel {
         let Some(child) = self.read(|s| own_child(s, run, task)) else { return };
         let started = Instant::now();
         while started.elapsed() < limit && self.read(|s| working(s, &child) && s.runs.get(run).is_some_and(|r| !r.status.terminal())) {
-            tokio::time::sleep(CHILD_POLL).await;
+            tokio::time::sleep(CHILD_POLL_MS).await;
         }
     }
 }

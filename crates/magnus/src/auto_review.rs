@@ -19,9 +19,9 @@ use std::time::{Duration, Instant};
 /// The approval's rule when Auto Review itself asked: only a person answers.
 pub const ASKED: &str = "auto_review";
 const CREDENTIAL_REVIEW_MAX_TOKENS: u32 = 1024;
-const REVIEW_TIMEOUT: Duration = Duration::from_secs(30);
+const REVIEW_TIMEOUT_SECS: Duration = Duration::from_secs(30);
 const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
-const CACHE_FOR: Duration = Duration::from_secs(30 * 60);
+const CACHE_FOR_SECS: Duration = Duration::from_secs(30 * 60);
 const MAX_CACHED: usize = 4096;
 /// Whose words Auto Review is told the person asked: their own, and a
 /// schedule they set up themselves; never the model's (a chat task's goal,
@@ -110,7 +110,7 @@ fn cached(key: &str) -> Option<Verdict> {
     let mut slot = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let map = slot.get_or_insert_with(HashMap::new);
     match map.get(key) {
-        Some((at, v)) if at.elapsed() < CACHE_FOR => Some(v.clone()),
+        Some((at, v)) if at.elapsed() < CACHE_FOR_SECS => Some(v.clone()),
         _ => None,
     }
 }
@@ -122,7 +122,7 @@ fn remember(key: String, verdict: &Verdict) {
     let mut slot = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let map = slot.get_or_insert_with(HashMap::new);
     if map.len() >= MAX_CACHED {
-        map.retain(|_, (at, _)| at.elapsed() < CACHE_FOR);
+        map.retain(|_, (at, _)| at.elapsed() < CACHE_FOR_SECS);
     }
     map.insert(key, (Instant::now(), verdict.clone()));
 }
@@ -205,7 +205,7 @@ impl Kernel {
             tools: vec![review_tool()],
             max_tokens: CREDENTIAL_REVIEW_MAX_TOKENS,
             servers_model: true,
-            timeout: Some(REVIEW_TIMEOUT),
+            timeout: Some(REVIEW_TIMEOUT_SECS),
         };
         let Some(verdict) = self.paid_call(call, |_| None).await.ok().and_then(|p| verdict_of(&p.out.blocks)) else {
             return Verdict::Ask("Auto Review could not be reached".to_string());
@@ -265,7 +265,7 @@ impl Kernel {
         }
         let tool = review_tool();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = self.reviewer_call_within(run, "auto_review", SYSTEM, messages, vec![tool], Some(REVIEW_TIMEOUT)).await;
+        let reply = self.reviewer_call_within(run, "auto_review", SYSTEM, messages, vec![tool], Some(REVIEW_TIMEOUT_SECS)).await;
         let Some(verdict) = reply.ok().flatten().and_then(|blocks| verdict_of(&blocks)) else {
             return Ok(Verdict::Ask("Auto Review could not be reached".to_string()));
         };

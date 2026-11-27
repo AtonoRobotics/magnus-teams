@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 /// The longest one call to the identity provider may take.
-const PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const PROVIDER_TIMEOUT_SECS: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Deserialize, Clone, Debug)]
 struct Discovery {
@@ -164,11 +164,11 @@ impl Provider {
         // No redirects: a 307 from the token endpoint would replay the POST,
         // password or client secret included, to wherever it points, plain
         // http among them. Every address used is checked by `checked`.
-        let http = reqwest::Client::builder().timeout(PROVIDER_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build()?;
+        let http = reqwest::Client::builder().timeout(PROVIDER_TIMEOUT_SECS).redirect(reqwest::redirect::Policy::none()).build()?;
         if let Some(u) = &cfg.status_admin_url {
             checked(u)?;
         }
-        let mut admin = reqwest::Client::builder().timeout(PROVIDER_TIMEOUT).redirect(reqwest::redirect::Policy::none());
+        let mut admin = reqwest::Client::builder().timeout(PROVIDER_TIMEOUT_SECS).redirect(reqwest::redirect::Policy::none());
         if let Some(ca) = &cfg.status_admin_ca {
             let pem = std::fs::read(ca).with_context(|| format!("reading status_admin_ca {}", ca.display()))?;
             admin = admin.add_root_certificate(reqwest::Certificate::from_pem(&pem).with_context(|| format!("{} is not a PEM certificate", ca.display()))?);

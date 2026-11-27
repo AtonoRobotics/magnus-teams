@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 /// How often the trash is emptied of what has been in it too long.
-const EMPTY_EVERY: std::time::Duration = std::time::Duration::from_secs(3600);
+const EMPTY_EVERY_SECS: std::time::Duration = std::time::Duration::from_secs(3600);
 
 type K = State<Arc<Kernel>>;
 
@@ -134,7 +134,7 @@ pub fn schedule(k: Arc<Kernel>) {
         if let Err(e) = k.scrub_backups().await {
             tracing::error!("taking removed content out of the backups: {e:#}");
         }
-        let mut t = tokio::time::interval(EMPTY_EVERY);
+        let mut t = tokio::time::interval(EMPTY_EVERY_SECS);
         loop {
             t.tick().await;
             if let Err(e) = k.purge_trash().await {

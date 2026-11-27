@@ -16,7 +16,7 @@ use std::path::Path;
 use std::time::Duration;
 
 /// The longest an adapter may go without an event during a conformance call.
-const EVENT_WAIT: Duration = Duration::from_secs(300);
+const EVENT_WAIT_SECS: Duration = Duration::from_secs(300);
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Check {
@@ -77,7 +77,7 @@ async fn call(socket: &Path, req: Request) -> Result<Outcome> {
     let mut c = proto::Call::open(socket, req).await?;
     let mut events = vec![];
     loop {
-        match tokio::time::timeout(EVENT_WAIT, c.next()).await {
+        match tokio::time::timeout(EVENT_WAIT_SECS, c.next()).await {
             Ok(Ok(Some(e))) => {
                 let end = matches!(e, Event::Done { .. } | Event::Error { .. } | Event::Hello { .. } | Event::Catalog { .. } | Event::AuthDone { .. } | Event::AuthStep { .. });
                 events.push(e);

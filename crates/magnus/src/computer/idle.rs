@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const IDLE_POLL: Duration = Duration::from_secs(60);
+const IDLE_POLL_SECS: Duration = Duration::from_secs(60);
 const SECONDS_PER_MINUTE: u64 = 60;
 
 /// When each computer was last used, as this process has seen it. The log's
@@ -70,7 +70,7 @@ pub(super) fn schedule(k: Arc<Kernel>) {
     let run_limit = minutes_limit(k.cfg.computer.as_ref().map_or(0, |c| c.max_run_minutes));
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(IDLE_POLL);
+        let mut tick = tokio::time::interval(IDLE_POLL_SECS);
         loop {
             tick.tick().await;
             k.tend_browsers(&socket).await;

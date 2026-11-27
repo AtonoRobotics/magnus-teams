@@ -51,9 +51,9 @@ const PENDING: &str = "update.json";
 /// How long running tasks get to finish their current step before the
 /// switch. Every step survives a restart at any point (the invariants), so
 /// waiting only saves repeating a model reply in flight; a minute covers one.
-const DRAIN: Duration = Duration::from_secs(60);
+const DRAIN_SECS: Duration = Duration::from_secs(60);
 /// How often the drain looks for runs still driving.
-const DRAIN_POLL: Duration = Duration::from_millis(100);
+const DRAIN_POLL_MS: Duration = Duration::from_millis(100);
 
 /// The directory the running programs were started from. Fixed at the
 /// first look: once the directory is moved aside the kernel's link to the
@@ -381,8 +381,8 @@ impl Kernel {
     async fn ready_to_switch(&self, from: &str, to: &str, rollback: bool, put: impl FnOnce(&Path) -> Result<()>) -> Result<Value> {
         self.suspend_for_update().await?;
         let start = std::time::Instant::now();
-        while self.any_driving() && start.elapsed() < DRAIN {
-            tokio::time::sleep(DRAIN_POLL).await;
+        while self.any_driving() && start.elapsed() < DRAIN_SECS {
+            tokio::time::sleep(DRAIN_POLL_MS).await;
         }
         let dir = install_dir()?;
         let how = started_as()?;

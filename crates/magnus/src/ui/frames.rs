@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
 const MAX_WAITING_FRAMES: usize = 256;
-const FRAME_LIFETIME: Duration = Duration::from_secs(60);
+const FRAME_LIFETIME_SECS: Duration = Duration::from_secs(60);
 
 static WAITING: Mutex<Option<HashMap<String, (Instant, String)>>> = Mutex::new(None);
 
@@ -34,7 +34,7 @@ struct Frame {
 fn hold(html: String) -> Option<String> {
     let mut slot = WAITING.lock().unwrap_or_else(|e| e.into_inner());
     let waiting = slot.get_or_insert_with(HashMap::new);
-    waiting.retain(|_, (at, _)| at.elapsed() < FRAME_LIFETIME);
+    waiting.retain(|_, (at, _)| at.elapsed() < FRAME_LIFETIME_SECS);
     if waiting.len() >= MAX_WAITING_FRAMES {
         return None;
     }
@@ -45,7 +45,7 @@ fn hold(html: String) -> Option<String> {
 
 fn claim(id: &str) -> Option<String> {
     let mut slot = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-    slot.as_mut()?.remove(id).filter(|(at, _)| at.elapsed() < FRAME_LIFETIME).map(|(_, html)| html)
+    slot.as_mut()?.remove(id).filter(|(at, _)| at.elapsed() < FRAME_LIFETIME_SECS).map(|(_, html)| html)
 }
 
 async fn make(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Frame>) -> Response {

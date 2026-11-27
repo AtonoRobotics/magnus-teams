@@ -33,9 +33,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{unix, TcpStream, UnixListener, UnixStream};
 /// As long as the sandbox waits for its guest: an instance boots in about a
 /// second, so this only ends one that never will.
-const BOOT_WAIT: Duration = Duration::from_secs(30);
+const BOOT_WAIT_SECS: Duration = Duration::from_secs(30);
 /// How often a booting instance is looked at.
-const BOOT_POLL: Duration = Duration::from_millis(50);
+const BOOT_POLL_MS: Duration = Duration::from_millis(50);
 /// As long as a remote app's call may take (`apps::Mcp`).
 const CALL_WAIT_SECS: Duration = Duration::from_secs(120);
 /// How long the proxy waits to reach a provider host.
@@ -215,10 +215,10 @@ impl Brokered {
                 let tail: String = log.chars().rev().take(800).collect::<String>().chars().rev().collect();
                 anyhow::bail!("{}'s microVM stopped as it booted: {tail}", c.name);
             }
-            if start.elapsed() > BOOT_WAIT {
-                anyhow::bail!("{}'s microVM did not come up within {}s", c.name, BOOT_WAIT.as_secs());
+            if start.elapsed() > BOOT_WAIT_SECS {
+                anyhow::bail!("{}'s microVM did not come up within {}s", c.name, BOOT_WAIT_SECS.as_secs());
             }
-            tokio::time::sleep(BOOT_POLL).await;
+            tokio::time::sleep(BOOT_POLL_MS).await;
         }
     }
 

@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, NoTls};
 
 /// How often startup asks for the log's database again while it waits.
-const OPEN_RETRY: std::time::Duration = std::time::Duration::from_millis(250);
+const OPEN_RETRY_MS: std::time::Duration = std::time::Duration::from_millis(250);
 
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -194,7 +194,7 @@ impl Log {
             match Log::open(url).await {
                 Err(e) if start.elapsed() < wait => {
                     tracing::info!("waiting for the log: {e:#}");
-                    tokio::time::sleep(OPEN_RETRY).await;
+                    tokio::time::sleep(OPEN_RETRY_MS).await;
                 }
                 r => return r,
             }

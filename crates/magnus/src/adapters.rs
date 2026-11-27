@@ -19,12 +19,12 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 /// How long a launched adapter has to answer hello, and how often it is tried.
-const START_WAIT: Duration = Duration::from_secs(15);
-const START_POLL: Duration = Duration::from_millis(30);
+const START_WAIT_SECS: Duration = Duration::from_secs(15);
+const START_POLL_MS: Duration = Duration::from_millis(30);
 /// How long a replaced adapter process lives on to finish what it has in flight.
-const RETIRE_AFTER: Duration = Duration::from_secs(600);
+const RETIRE_AFTER_SECS: Duration = Duration::from_secs(600);
 /// The longest an adapter's stream may go without an event.
-const STREAM_STALL: Duration = Duration::from_secs(600);
+const STREAM_STALL_SECS: Duration = Duration::from_secs(600);
 
 pub struct Running {
     pub cfg: config::Adapter,
@@ -121,8 +121,8 @@ impl Adapters {
             if let Ok(Some(st)) = running.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
                 anyhow::bail!("adapter {} exited at start ({st})", cfg.id);
             }
-            anyhow::ensure!(start.elapsed() < START_WAIT, "adapter {} did not start within {}s", cfg.id, START_WAIT.as_secs());
-            tokio::time::sleep(START_POLL).await;
+            anyhow::ensure!(start.elapsed() < START_WAIT_SECS, "adapter {} did not start within {}s", cfg.id, START_WAIT_SECS.as_secs());
+            tokio::time::sleep(START_POLL_MS).await;
         }
     }
 
@@ -152,7 +152,7 @@ impl Adapters {
         let old = self.running.write().await.insert(r.cfg.id.clone(), r);
         if let Some(old) = old {
             tokio::spawn(async move {
-                tokio::time::sleep(RETIRE_AFTER).await;
+                tokio::time::sleep(RETIRE_AFTER_SECS).await;
                 drop(old);
             });
         }
@@ -366,7 +366,7 @@ async fn read_turn(call: &mut proto::Call, id: &str, on_text: &mut impl FnMut(&s
     let mut calls = vec![];
     let (mut state, mut usage, mut served) = (None, None, None);
     loop {
-        let ev = tokio::time::timeout(STREAM_STALL, call.next())
+        let ev = tokio::time::timeout(STREAM_STALL_SECS, call.next())
             .await
             .map_err(|_| AdapterError { usage: usage.clone(), ..AdapterError::unavailable("adapter stream stalled for 10 minutes") })?
             .map_err(|e| AdapterError { class: ErrorClass::Malformed, message: format!("adapter stream: {e}"), retry_after_s: None, usage: usage.clone() })?;

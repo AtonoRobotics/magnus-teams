@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::{UnixListener, UnixStream};
 
-const BIND_RETRY: Duration = Duration::from_secs(5);
+const BIND_RETRY_SECS: Duration = Duration::from_secs(5);
 const SOCKET_MODE: u32 = 0o660;
 const MAX_CONNECTIONS: usize = 1024;
 
@@ -46,7 +46,7 @@ pub async fn serve(kernel: Arc<Kernel>, computerd: PathBuf) {
     let path = loop {
         match client::ask(&computerd, Request::EgressSocket).await {
             Ok(v) => break PathBuf::from(v["socket"].as_str().unwrap_or_default()),
-            Err(_) => tokio::time::sleep(BIND_RETRY).await,
+            Err(_) => tokio::time::sleep(BIND_RETRY_SECS).await,
         }
     };
     if let Err(e) = listen(kernel, &computerd, &path).await {

@@ -20,7 +20,7 @@ const INSTALLERS: &str = "computer-installers";
 const IN_GUEST: &str = "/var/tmp/magnus-installers";
 const CHUNK_BYTES: u64 = 16 << 20;
 const MAX_INSTALLER_BYTES: u64 = 4 << 30;
-const STEP_WAIT: Duration = Duration::from_secs(1800);
+const STEP_WAIT_SECS: Duration = Duration::from_secs(1800);
 /// Seconds, for the guest's own limit on a command.
 const STEP_SECONDS: u64 = 1800;
 const MAX_FIELD_CHARS: usize = 500;
@@ -96,7 +96,7 @@ fn verified(dir: &Path, sha256: &str) -> Result<PathBuf> {
 }
 
 async fn exec(socket: &Path, id: &str, command: String) -> Result<Value> {
-    client::guest_for(socket, id, GuestRequest::exec(command, STEP_SECONDS), STEP_WAIT).await
+    client::guest_for(socket, id, GuestRequest::exec(command, STEP_SECONDS), STEP_WAIT_SECS).await
 }
 
 /// Puts one app back on a computer whose overlay is new.

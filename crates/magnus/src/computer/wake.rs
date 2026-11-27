@@ -21,13 +21,13 @@ use std::time::{Duration, Instant};
 
 /// As long as a wake may take before a use gives up on it: a cold boot,
 /// then putting the computer's apps back.
-const WAKE_WAIT: Duration = Duration::from_secs(5 * 60);
+const WAKE_WAIT_SECS: Duration = Duration::from_secs(5 * 60);
 /// How often a use waiting on another's wake looks again.
-const WAKE_POLL: Duration = Duration::from_millis(250);
+const WAKE_POLL_MS: Duration = Duration::from_millis(250);
 /// As long as an agent's use waits its turn for room on the server.
 pub(crate) const ROOM_WAIT_MINUTES: u64 = 15;
 /// How often a use waiting for room looks again.
-const ROOM_POLL: Duration = Duration::from_millis(500);
+const ROOM_POLL_MS: Duration = Duration::from_millis(500);
 
 /// What a use does with a computer in this state.
 #[derive(Debug, PartialEq, Eq)]
@@ -239,10 +239,10 @@ impl Kernel {
                 Plan::Wake if claim(id) => return self.wake_claimed(id, actor).await.map(|_| self.woken(id)),
                 Plan::Ready | Plan::Wake => {}
             }
-            if began.elapsed() > WAKE_WAIT {
+            if began.elapsed() > WAKE_WAIT_SECS {
                 return Err(Refused::Failed("the computer did not wake in time".into()));
             }
-            tokio::time::sleep(WAKE_POLL).await;
+            tokio::time::sleep(WAKE_POLL_MS).await;
         }
     }
 
@@ -258,7 +258,7 @@ impl Kernel {
                 Woken::Queued(n) if began.elapsed() >= bound => {
                     return Err(Refused::Failed(format!("the server had no room for it within {} minutes; it is number {n} in line and starts in its turn", bound.as_secs() / 60)));
                 }
-                Woken::Queued(_) => tokio::time::sleep(ROOM_POLL).await,
+                Woken::Queued(_) => tokio::time::sleep(ROOM_POLL_MS).await,
             }
         }
     }

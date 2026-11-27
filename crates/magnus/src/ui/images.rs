@@ -26,7 +26,7 @@ const DIRECTORY: &str = "ui-images";
 const PURPOSE: &str = "image";
 /// What a picture's record names an images endpoint, which is no adapter.
 const ENDPOINT: &str = "images";
-const IMAGE_TIMEOUT: Duration = Duration::from_secs(180);
+const IMAGE_TIMEOUT_SECS: Duration = Duration::from_secs(180);
 const MAX_PROMPT_CHARS: usize = 4_000;
 /// Between a run's id and the image's, in a placeholder.
 const JOIN: char = '.';
@@ -156,9 +156,9 @@ async fn make(maker: Maker, model: String, prompt: String, source: Option<String
 }
 
 /// A picture's paid call: charged to the run that asked for it, by dollars
-/// alone, cut off after [`IMAGE_TIMEOUT`].
+/// alone, cut off after [`IMAGE_TIMEOUT_SECS`].
 fn bill<'a>(run: &'a crate::state::Run, provider: &'a str, model: &'a str, servers_model: bool) -> Bill<'a> {
-    Bill { payer: Payer::Run(run, Spender::Made), purpose: PURPOSE, adapter: provider, model, servers_model, timeout: Some(IMAGE_TIMEOUT) }
+    Bill { payer: Payer::Run(run, Spender::Made), purpose: PURPOSE, adapter: provider, model, servers_model, timeout: Some(IMAGE_TIMEOUT_SECS) }
 }
 
 impl Kernel {

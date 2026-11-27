@@ -24,28 +24,28 @@ use std::time::Duration;
 
 /// Half the first wait between attempts at a failed model call: the backoff
 /// doubles from one second.
-const BACKOFF_BASE: Duration = Duration::from_millis(500);
+const BACKOFF_BASE_MS: Duration = Duration::from_millis(500);
 
-/// The most doublings of [`BACKOFF_BASE`].
+/// The most doublings of [`BACKOFF_BASE_MS`].
 const MOST_BACKOFF_DOUBLINGS: u32 = 6;
 
 /// The longest wait between attempts at a failed model call (the backoff
 /// below doubles from one second up to this).
 /// How long an app's live tool list is reused before it is asked again.
 pub(super) const LIVE_TOOLS_FRESH: Duration = Duration::from_secs(30);
-const LONGEST_BACKOFF: Duration = Duration::from_millis(500 * 2u64.pow(MOST_BACKOFF_DOUBLINGS));
+const LONGEST_BACKOFF_MS: Duration = Duration::from_millis(500 * 2u64.pow(MOST_BACKOFF_DOUBLINGS));
 
 /// How long to wait before attempt `next_attempt` (1 for the first retry)
 /// of a model call that failed as unavailable or over a usage limit, or
 /// `None` when the provider says it will not pass within
-/// [`LONGEST_BACKOFF`]: the task pauses then instead of waiting, whatever
+/// [`LONGEST_BACKOFF_MS`]: the task pauses then instead of waiting, whatever
 /// the class, so no provider's answer can hold a run asleep. An answer
 /// that is not a positive number is no answer.
 pub(crate) fn retry_delay(next_attempt: u32, retry_after_s: Option<f64>) -> Option<Duration> {
-    let backoff = (BACKOFF_BASE * 2u32.pow(next_attempt.min(MOST_BACKOFF_DOUBLINGS))).min(LONGEST_BACKOFF);
+    let backoff = (BACKOFF_BASE_MS * 2u32.pow(next_attempt.min(MOST_BACKOFF_DOUBLINGS))).min(LONGEST_BACKOFF_MS);
     match retry_after_s {
-        Some(s) if s > LONGEST_BACKOFF.as_secs_f64() => None,
-        Some(s) if s > 0.0 => Some(backoff.max(Duration::from_secs_f64(s)).min(LONGEST_BACKOFF)),
+        Some(s) if s > LONGEST_BACKOFF_MS.as_secs_f64() => None,
+        Some(s) if s > 0.0 => Some(backoff.max(Duration::from_secs_f64(s)).min(LONGEST_BACKOFF_MS)),
         _ => Some(backoff),
     }
 }
@@ -467,7 +467,7 @@ impl Kernel {
                         // task below.
                         ErrorClass::Unavailable | ErrorClass::UsageLimit if attempt < run.config.max_retries && wait.is_some() => {
                             attempt += 1;
-                            tokio::time::sleep(wait.unwrap_or(LONGEST_BACKOFF)).await;
+                            tokio::time::sleep(wait.unwrap_or(LONGEST_BACKOFF_MS)).await;
                         }
                         ErrorClass::Malformed => {
                             self.emit("kernel", Ev::Notice { run: run_id.into(), step, text: format!("Your previous reply could not be used: {}. Reply again.", e.message) })
@@ -518,13 +518,13 @@ mod tests {
     fn an_unbounded_retry_after_pauses_instead_of_sleeping() {
         assert_eq!(retry_delay(1, Some(1e12)), None);
         assert_eq!(retry_delay(1, Some(f64::INFINITY)), None);
-        assert_eq!(retry_delay(1, Some(LONGEST_BACKOFF.as_secs_f64() + 1.0)), None);
+        assert_eq!(retry_delay(1, Some(LONGEST_BACKOFF_MS.as_secs_f64() + 1.0)), None);
     }
 
     #[test]
     fn a_retry_after_within_the_longest_backoff_is_waited() {
         assert_eq!(retry_delay(1, Some(20.0)), Some(Duration::from_secs(20)));
-        assert_eq!(retry_delay(1, Some(LONGEST_BACKOFF.as_secs_f64())), Some(LONGEST_BACKOFF));
+        assert_eq!(retry_delay(1, Some(LONGEST_BACKOFF_MS.as_secs_f64())), Some(LONGEST_BACKOFF_MS));
     }
 
     #[test]
@@ -533,8 +533,8 @@ mod tests {
         assert_eq!(retry_delay(2, Some(f64::NAN)), Some(Duration::from_secs(2)));
         assert_eq!(retry_delay(3, Some(-5.0)), Some(Duration::from_secs(4)));
         for n in 0..100 {
-            assert!(retry_delay(n, None).is_some_and(|d| d <= LONGEST_BACKOFF));
+            assert!(retry_delay(n, None).is_some_and(|d| d <= LONGEST_BACKOFF_MS));
         }
-        assert_eq!(retry_delay(u32::MAX, None), Some(LONGEST_BACKOFF));
+        assert_eq!(retry_delay(u32::MAX, None), Some(LONGEST_BACKOFF_MS));
     }
 }

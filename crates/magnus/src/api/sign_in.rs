@@ -195,7 +195,7 @@ pub(super) async fn revoke_device(State(k): K, Caller(person): Caller, Path(id):
     Ok(Json(json!({ "ok": true })).into_response())
 }
 
-const SIGN_IN_BEGIN_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+const SIGN_IN_BEGIN_WINDOW_SECS: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// Sign-ins begun from one address in the last ten minutes: at most a
 /// quarter of the provider's waiting ones (`max_pending`), which everyone
 /// shares, so no one address can fill them and stop every first sign-in.
@@ -204,7 +204,7 @@ fn may_begin(k: &Kernel, from: std::net::IpAddr) -> bool {
     static BEGUN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, Vec<std::time::Instant>>>> = std::sync::OnceLock::new();
     let mut m = BEGUN.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()); // a panic elsewhere leaves counts that are still counts
     m.retain(|_, v| {
-        v.retain(|t| t.elapsed() < SIGN_IN_BEGIN_WINDOW);
+        v.retain(|t| t.elapsed() < SIGN_IN_BEGIN_WINDOW_SECS);
         !v.is_empty()
     });
     let v = m.entry(from).or_default();

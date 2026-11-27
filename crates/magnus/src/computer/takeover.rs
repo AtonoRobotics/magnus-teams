@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const TICKET_LIFETIME: Duration = Duration::from_secs(30);
+const TICKET_LIFETIME_SECS: Duration = Duration::from_secs(30);
 const TICKET_BYTES: usize = 32;
 const MAX_LIVE_TICKETS: usize = 1024;
 pub(super) const TICKET_PROTOCOL_PREFIX: &str = "magnus.ticket.";
@@ -48,7 +48,7 @@ fn issue(computer: &str, person: &str) -> String {
     let mut slot = TICKETS.lock().unwrap_or_else(|e| e.into_inner());
     let map = slot.get_or_insert_with(HashMap::new);
     if map.len() >= MAX_LIVE_TICKETS {
-        map.retain(|_, t| t.issued.elapsed() < TICKET_LIFETIME);
+        map.retain(|_, t| t.issued.elapsed() < TICKET_LIFETIME_SECS);
     }
     map.insert(digest(&ticket), Ticket { computer: computer.to_string(), person: person.to_string(), issued: Instant::now() });
     ticket
@@ -59,7 +59,7 @@ fn issue(computer: &str, person: &str) -> String {
 pub(super) fn redeem(raw: &str, computer: &str) -> Option<String> {
     let mut slot = TICKETS.lock().unwrap_or_else(|e| e.into_inner());
     let t = slot.get_or_insert_with(HashMap::new).remove(&digest(raw))?;
-    (t.computer == computer && t.issued.elapsed() < TICKET_LIFETIME).then_some(t.person)
+    (t.computer == computer && t.issued.elapsed() < TICKET_LIFETIME_SECS).then_some(t.person)
 }
 
 /// The runs that use a computer with this owner.
@@ -260,7 +260,7 @@ impl Kernel {
             super::display::cut(id);
         }
         super::idle::touch(id);
-        Ok(json!({ "ticket": issue(id, &who.id), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME.as_secs() }))
+        Ok(json!({ "ticket": issue(id, &who.id), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME_SECS.as_secs() }))
     }
 
     /// "I'm done": once the guest has stopped what the session left running,
@@ -446,7 +446,7 @@ mod tests {
         {
             let mut slot = TICKETS.lock().unwrap();
             let entry = slot.as_mut().unwrap().get_mut(&digest(&t)).unwrap();
-            entry.issued = Instant::now().checked_sub(TICKET_LIFETIME + Duration::from_secs(1)).unwrap();
+            entry.issued = Instant::now().checked_sub(TICKET_LIFETIME_SECS + Duration::from_secs(1)).unwrap();
         }
         assert_eq!(redeem(&t, "a"), None);
     }

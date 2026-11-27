@@ -16,9 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const BOOT_WAIT: Duration = Duration::from_secs(60);
-const BOOT_POLL: Duration = Duration::from_millis(200);
-const QUEUE_POLL: Duration = Duration::from_secs(5);
+const BOOT_WAIT_SECS: Duration = Duration::from_secs(60);
+const BOOT_POLL_MS: Duration = Duration::from_millis(200);
+const QUEUE_POLL_SECS: Duration = Duration::from_secs(5);
 const ID_BYTES: usize = 16;
 const MAX_LABEL_CHARS: usize = 200;
 pub(super) const USER_FILES: &str = "/workspace/";
@@ -28,7 +28,7 @@ const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.cr
 /// How long the guest gives `update-ca-certificates`.
 const CA_UPDATE_SECONDS: u64 = 60;
 /// As long as filling a whole volume can take.
-const ZERO_FREE_WAIT: Duration = Duration::from_secs(30 * 60);
+const ZERO_FREE_WAIT_SECS: Duration = Duration::from_secs(30 * 60);
 
 /// A person's computer is theirs alone to change, read or run things on:
 /// "Nothing on one user's computer is reachable from another's" (spec rev
@@ -426,7 +426,7 @@ impl Kernel {
                 return false;
             }
         }
-        match client::guest_for(socket, &c.id, GuestRequest::ZeroFree, ZERO_FREE_WAIT).await {
+        match client::guest_for(socket, &c.id, GuestRequest::ZeroFree, ZERO_FREE_WAIT_SECS).await {
             Ok(v) if v["error"].is_null() => {
                 let change = Change::FreeSpaceZeroed { id: c.id.clone(), at: chrono::Utc::now() };
                 if let Err(e) = self.emit("kernel", Ev::Computer(change)).await {
@@ -451,8 +451,8 @@ pub(super) async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
     loop {
         match client::guest(socket, id, GuestRequest::Ping).await {
             Ok(_) => return Ok(()),
-            Err(e) if started.elapsed() > BOOT_WAIT => return Err(e.context("the computer did not boot")),
-            Err(_) => tokio::time::sleep(BOOT_POLL).await,
+            Err(e) if started.elapsed() > BOOT_WAIT_SECS => return Err(e.context("the computer did not boot")),
+            Err(_) => tokio::time::sleep(BOOT_POLL_MS).await,
         }
     }
 }
@@ -473,7 +473,7 @@ pub fn schedule(k: Arc<Kernel>) {
                 tracing::warn!("could not finish killing computer {id}: {e:#}");
             }
         }
-        let mut tick = tokio::time::interval(QUEUE_POLL);
+        let mut tick = tokio::time::interval(QUEUE_POLL_SECS);
         loop {
             tick.tick().await;
             k.start_next_in_queue(&socket).await;

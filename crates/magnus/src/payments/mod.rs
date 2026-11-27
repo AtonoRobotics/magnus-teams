@@ -29,8 +29,8 @@ pub(crate) const MONEY_RULE: &str = "kernel:payment";
 const MIN_CONTEXT_CHARS: usize = 100;
 const MAX_CONTEXT_CHARS: usize = 2000;
 /// Link gives a person 30 minutes, then the request is `expired`.
-const LINK_APPROVAL_WAIT: Duration = Duration::from_secs(31 * 60);
-const LINK_POLL: Duration = Duration::from_secs(2);
+const LINK_APPROVAL_WAIT_SECS: Duration = Duration::from_secs(31 * 60);
+const LINK_POLL_SECS: Duration = Duration::from_secs(2);
 
 pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "purchase_request", app: "payments", risk: Risk::Financial, label: Label::PRINCIPAL, audience: Audience::Private },
@@ -353,10 +353,10 @@ impl Kernel {
                 }
                 _ => {}
             }
-            if started.elapsed() > LINK_APPROVAL_WAIT {
+            if started.elapsed() > LINK_APPROVAL_WAIT_SECS {
                 break Status::Declined;
             }
-            tokio::time::sleep(LINK_POLL).await;
+            tokio::time::sleep(LINK_POLL_SECS).await;
             match link::retrieve(self, s, person, &spend.id, false).await {
                 Ok(next) => spend = next,
                 Err(link::Failure::Unavailable(why) | link::Failure::Refused(why)) => tracing::warn!("purchase {id}: {why}"),

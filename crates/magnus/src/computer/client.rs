@@ -14,8 +14,8 @@ use tokio::net::UnixStream;
 
 /// Creating a computer makes its drives, a start waits for the VM, and a
 /// hibernate or backup copies a whole disk or memory image.
-const REPLY_WAIT: Duration = Duration::from_secs(600);
-const GUEST_WAIT: Duration = Duration::from_secs(60);
+const REPLY_WAIT_SECS: Duration = Duration::from_secs(600);
+const GUEST_WAIT_SECS: Duration = Duration::from_secs(60);
 const MAX_REPLY_BYTES: u64 = 1 << 16;
 /// Computerd's words when a machine is at its limit of live computers.
 const AT_CAPACITY: &str = "as many computers";
@@ -59,7 +59,7 @@ pub async fn ask(socket: &Path, req: Request) -> Result<Value> {
 
 /// The request as it is, and computerd's answer as it is.
 pub(super) async fn ask_unchecked(socket: &Path, req: Request) -> Result<Value> {
-    let reply = tokio::time::timeout(REPLY_WAIT, async {
+    let reply = tokio::time::timeout(REPLY_WAIT_SECS, async {
         let mut s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
         s.write_all(&line(&req)?).await?;
         read_line(s, MAX_REPLY_BYTES).await
@@ -86,7 +86,7 @@ pub async fn display(socket: &Path, id: &str) -> Result<UnixStream> {
 
 /// One request to a computer's guest agent.
 pub async fn guest(socket: &Path, id: &str, req: GuestRequest) -> Result<Value> {
-    guest_for(socket, id, req, GUEST_WAIT).await
+    guest_for(socket, id, req, GUEST_WAIT_SECS).await
 }
 
 /// For work that takes as long as it takes, such as an install step.
@@ -105,7 +105,7 @@ pub async fn guest_value_for(socket: &Path, id: &str, req: &Value, wait: Duratio
 /// guest busy just after boot has not taken within its two seconds. Once the
 /// request is sent it is never sent again, whatever it was.
 const GUEST_CONNECT_TRIES: u32 = 3;
-const GUEST_CONNECT_RETRY_WAIT: Duration = Duration::from_millis(250);
+const GUEST_CONNECT_RETRY_WAIT_MS: Duration = Duration::from_millis(250);
 
 type GuestReader = BufReader<tokio::io::Take<tokio::net::unix::OwnedReadHalf>>;
 
@@ -129,7 +129,7 @@ async fn open_guest_retrying(socket: &Path, id: &str) -> Result<(GuestReader, to
             Err(e) if tries >= GUEST_CONNECT_TRIES => return Err(e),
             Err(_) => {
                 tries += 1;
-                tokio::time::sleep(GUEST_CONNECT_RETRY_WAIT).await;
+                tokio::time::sleep(GUEST_CONNECT_RETRY_WAIT_MS).await;
             }
         }
     }

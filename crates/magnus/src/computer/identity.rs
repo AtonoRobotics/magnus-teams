@@ -19,8 +19,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// A page can take this long: a slow site after a cold browser start.
-const BROKER_WAIT: Duration = Duration::from_secs(120);
-const BROWSER_IDLE: Duration = Duration::from_secs(10 * 60);
+const BROKER_WAIT_SECS: Duration = Duration::from_secs(120);
+const BROWSER_IDLE_SECS: Duration = Duration::from_secs(10 * 60);
 const SEAL_KEY_BYTES: usize = 32;
 const MAX_FORM_VALUE_BYTES: usize = 8 * 1024;
 const SURROGATE_RANDOM_BYTES: usize = 32;
@@ -169,7 +169,7 @@ impl Kernel {
                 // Not while a tool is opening this profile to boot it.
                 let _no_boot = BOOT.lock().await;
                 let live = client::ask(socket, Request::Status { id: c.id.clone() }).await?["state"] == "running";
-                if live && super::idle::idle_browser(&c, BROWSER_IDLE) {
+                if live && super::idle::idle_browser(&c, BROWSER_IDLE_SECS) {
                     self.stop_browser(socket, &c).await?;
                 } else if !live {
                     if c.status == Status::Running {
@@ -202,7 +202,7 @@ impl Kernel {
 
     async fn broker(&self, id: &str, req: Value) -> Result<Value> {
         let socket = self.computer_socket().map_err(|e| anyhow!("{e:?}"))?;
-        let reply = client::guest_value_for(&socket, id, &req, BROKER_WAIT).await?;
+        let reply = client::guest_value_for(&socket, id, &req, BROKER_WAIT_SECS).await?;
         match reply["error"].as_str() {
             Some(error) => Err(anyhow!("{error}")),
             None => Ok(reply),

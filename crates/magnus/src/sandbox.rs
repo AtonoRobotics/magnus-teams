@@ -23,17 +23,17 @@ const GUEST_PORT: u32 = 52;
 /// How long past a command's own timeout its VM has to reply.
 const EXEC_REPLY_GRACE_SECONDS: u64 = 15;
 /// How long one file read or write in a VM may take.
-const FILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const FILE_REQUEST_TIMEOUT_SECS: Duration = Duration::from_secs(60);
 /// How long one ping of a booting guest may take.
-const PING_TIMEOUT: Duration = Duration::from_secs(2);
+const PING_TIMEOUT_SECS: Duration = Duration::from_secs(2);
 /// How long a VM has to come up.
-const BOOT_TIMEOUT: Duration = Duration::from_secs(30);
+const BOOT_TIMEOUT_SECS: Duration = Duration::from_secs(30);
 /// How often a booting VM's guest agent is polled.
 const BOOT_POLL_MS: Duration = Duration::from_millis(50);
 /// How long the image's check-tool resolver may run.
 const CHECK_TOOLS_TIMEOUT_SECONDS: u64 = 60;
 /// How long a stopping VM has to flush its disk.
-const SYNC_TIMEOUT: Duration = Duration::from_secs(5);
+const SYNC_TIMEOUT_SECS: Duration = Duration::from_secs(5);
 
 /// How long to wait for the reply to a command that may run `timeout_s`:
 /// its timeout and a grace, never wrapping, whatever the caller asked.
@@ -151,7 +151,7 @@ impl Sandboxes {
         // Wait for the guest agent.
         let start = std::time::Instant::now();
         loop {
-            if let Ok(v) = request(&vm.vsock, &GuestRequest::Ping, PING_TIMEOUT).await {
+            if let Ok(v) = request(&vm.vsock, &GuestRequest::Ping, PING_TIMEOUT_SECS).await {
                 if v["ok"] == true {
                     return Ok(vm);
                 }
@@ -160,8 +160,8 @@ impl Sandboxes {
                 let log = std::fs::read_to_string(dir.join("console.log")).unwrap_or_default();
                 return Err(anyhow!("the sandbox VM exited during boot ({st}): {}", log.chars().rev().take(800).collect::<String>().chars().rev().collect::<String>()));
             }
-            if start.elapsed() > BOOT_TIMEOUT {
-                return Err(anyhow!("the sandbox VM did not come up within {}s", BOOT_TIMEOUT.as_secs()));
+            if start.elapsed() > BOOT_TIMEOUT_SECS {
+                return Err(anyhow!("the sandbox VM did not come up within {}s", BOOT_TIMEOUT_SECS.as_secs()));
             }
             tokio::time::sleep(BOOT_POLL_MS).await;
         }
@@ -210,7 +210,7 @@ impl Sandboxes {
             for (name, data) in files {
                 let safe: String = name.chars().map(|c| if c == '/' || c == '\\' { '_' } else { c }).collect();
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-                request(&vm.vsock, &GuestRequest::write(format!("/workspace/inputs/{safe}"), b64), FILE_REQUEST_TIMEOUT).await?;
+                request(&vm.vsock, &GuestRequest::write(format!("/workspace/inputs/{safe}"), b64), FILE_REQUEST_TIMEOUT_SECS).await?;
             }
         }
         self.vms.lock().await.insert(run.to_string(), vm.clone());
@@ -225,12 +225,12 @@ impl Sandboxes {
     pub async fn write(&self, run: &str, path: &str, data: &[u8]) -> Result<Value> {
         let vm = self.vm(run).await?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-        request(&vm.vsock, &GuestRequest::write(path, b64), FILE_REQUEST_TIMEOUT).await
+        request(&vm.vsock, &GuestRequest::write(path, b64), FILE_REQUEST_TIMEOUT_SECS).await
     }
 
     pub async fn read(&self, run: &str, path: &str) -> Result<Vec<u8>> {
         let vm = self.vm(run).await?;
-        let v = request(&vm.vsock, &GuestRequest::read(path), FILE_REQUEST_TIMEOUT).await?;
+        let v = request(&vm.vsock, &GuestRequest::read(path), FILE_REQUEST_TIMEOUT_SECS).await?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
         }
@@ -247,7 +247,7 @@ impl Sandboxes {
 
     /// Read a file as a contract check sees it, in a check VM.
     pub async fn read_check(&self, run: &str, path: &str) -> Result<Vec<u8>> {
-        let v = self.in_check_vm(run, GuestRequest::read(path), FILE_REQUEST_TIMEOUT).await?;
+        let v = self.in_check_vm(run, GuestRequest::read(path), FILE_REQUEST_TIMEOUT_SECS).await?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
         }
@@ -317,7 +317,7 @@ impl Sandboxes {
     /// Stop the run's VM and keep its disk (suspend).
     pub async fn stop(&self, run: &str) {
         if let Some(vm) = self.vms.lock().await.remove(run) {
-            let _ = request(&vm.vsock, &GuestRequest::Sync, SYNC_TIMEOUT).await;
+            let _ = request(&vm.vsock, &GuestRequest::Sync, SYNC_TIMEOUT_SECS).await;
             drop(vm);
         }
     }

@@ -29,8 +29,8 @@ pub(crate) const MAX_DEPTH: usize = 3;
 pub(crate) const MAX_CHILDREN_PER_RUN: usize = 8;
 const MAX_CHILD_SHARE: f64 = 0.5;
 const DEFAULT_CHILD_SHARE: f64 = 0.25;
-const CHILD_WAIT: Duration = Duration::from_secs(30 * 60);
-const CHILD_POLL: Duration = Duration::from_millis(250);
+const CHILD_WAIT_SECS: Duration = Duration::from_secs(30 * 60);
+const CHILD_POLL_MS: Duration = Duration::from_millis(250);
 
 /// Recorded with the child, so its limits outlive the parent's tool call.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -381,10 +381,10 @@ impl Kernel {
                 };
                 return Ok((text, r.status == crate::state::Status::Failed, Some(taint)));
             }
-            if started.elapsed() > CHILD_WAIT {
+            if started.elapsed() > CHILD_WAIT_SECS {
                 return Ok((format!("The sub-agent in run {child} is still working."), true, Some(json!({ "untrusted": true, "private": true }))));
             }
-            tokio::time::sleep(CHILD_POLL).await;
+            tokio::time::sleep(CHILD_POLL_MS).await;
         }
     }
 }

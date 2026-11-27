@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-const EXTRACT_TIMEOUT: Duration = Duration::from_secs(15);
+const EXTRACT_TIMEOUT_SECS: Duration = Duration::from_secs(15);
 /// Whose words compile an envelope: the person's own, and a schedule they
 /// set up, which "authorizes the work it describes" (spec rev 140). Never
 /// the model's (a chat task's goal) nor anyone else's (2026-11-20: "only the
@@ -170,7 +170,7 @@ impl Kernel {
         // validated deterministically by the kernel against literal prompt tokens.
         if !prompt.trim().is_empty() {
             let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: prompt.clone() }], state: None }];
-            if let Ok(Some(blocks)) = self.reviewer_call_within(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()], Some(EXTRACT_TIMEOUT)).await {
+            if let Ok(Some(blocks)) = self.reviewer_call_within(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()], Some(EXTRACT_TIMEOUT_SECS)).await {
                 if let Some((candidates, apps)) = parsed_from_model(&blocks) {
                     for c in candidates {
                         if let Some(d) = validate_model_candidate(&prompt, &c) {

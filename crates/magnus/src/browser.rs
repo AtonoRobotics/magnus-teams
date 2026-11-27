@@ -11,10 +11,10 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// How often, and how many times, a starting sidecar's socket is tried.
-const START_POLL: Duration = Duration::from_millis(100);
+const START_POLL_MS: Duration = Duration::from_millis(100);
 const START_TRIES: u32 = 100;
 /// The longest one browser request may take to answer.
-const ANSWER_WAIT: Duration = Duration::from_secs(90);
+const ANSWER_WAIT_SECS: Duration = Duration::from_secs(90);
 
 /// The browser sidecar's settings (`[browser]`).
 #[derive(Deserialize, Clone, Debug)]
@@ -89,7 +89,7 @@ impl Browser {
             if tokio::net::UnixStream::connect(&self.socket).await.is_ok() {
                 return Ok(());
             }
-            tokio::time::sleep(START_POLL).await;
+            tokio::time::sleep(START_POLL_MS).await;
         }
         Err(anyhow!("the browser sidecar did not start"))
     }
@@ -101,7 +101,7 @@ impl Browser {
         let (r, mut w) = s.into_split();
         w.write_all(format!("{req}\n").as_bytes()).await?;
         let mut line = String::new();
-        tokio::time::timeout(ANSWER_WAIT, BufReader::new(r).read_line(&mut line)).await.map_err(|_| anyhow!("the browser did not answer in time"))??;
+        tokio::time::timeout(ANSWER_WAIT_SECS, BufReader::new(r).read_line(&mut line)).await.map_err(|_| anyhow!("the browser did not answer in time"))??;
         let v: Value = serde_json::from_str(&line).map_err(|_| anyhow!("the browser sent an unreadable answer"))?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));

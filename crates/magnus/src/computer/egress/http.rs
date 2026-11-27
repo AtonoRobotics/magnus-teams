@@ -11,8 +11,8 @@ use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UnixStream};
 
-const HEAD_WAIT: Duration = Duration::from_secs(30);
-const UPSTREAM_WAIT: Duration = Duration::from_secs(300);
+const HEAD_WAIT_SECS: Duration = Duration::from_secs(30);
+const UPSTREAM_WAIT_SECS: Duration = Duration::from_secs(300);
 const MAX_HEAD_BYTES: usize = 64 << 10;
 const MAX_BODY_BYTES: u64 = 256 << 20;
 const MAX_PAGE_BYTES: usize = 2 << 20;
@@ -45,7 +45,7 @@ async fn read_head(from: &mut (impl AsyncBufRead + Unpin)) -> Result<Option<Head
             }
         }
     };
-    if !tokio::time::timeout(HEAD_WAIT, read).await.context("a request head took too long")?? {
+    if !tokio::time::timeout(HEAD_WAIT_SECS, read).await.context("a request head took too long")?? {
         return Ok(None);
     }
     let text = String::from_utf8(raw).context("a request head is not text")?;
@@ -78,7 +78,7 @@ pub(super) async fn serve_connection(proxy: Arc<Proxy>, computer: String, conn: 
         stream.flush().await?;
         // The CA is unavailable while the vault is sealed: nothing leaves then.
         let tls = ca::server_config(&proxy.kernel.vault, &computer, &host)?;
-        let accepted = tokio::time::timeout(HEAD_WAIT, tokio_rustls::TlsAcceptor::from(tls).accept(stream)).await.context("a TLS handshake took too long")??;
+        let accepted = tokio::time::timeout(HEAD_WAIT_SECS, tokio_rustls::TlsAcceptor::from(tls).accept(stream)).await.context("a TLS handshake took too long")??;
         let mut inner = BufReader::new(accepted);
         let Some(head) = read_head(&mut inner).await? else { return Ok(()) };
         return request(&proxy, &computer, &mut inner, head, &host, port, true).await;
@@ -184,7 +184,7 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     let length: u64 = head.header("content-length").map(str::parse).transpose().context("a bad Content-Length")?.unwrap_or(0);
     anyhow::ensure!(length <= MAX_BODY_BYTES, "a request body is too long");
     anyhow::ensure!(!head.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked")), "a chunked request body is not carried");
-    let tcp = tokio::time::timeout(UPSTREAM_WAIT, TcpStream::connect(address)).await.context("connecting took too long")??;
+    let tcp = tokio::time::timeout(UPSTREAM_WAIT_SECS, TcpStream::connect(address)).await.context("connecting took too long")??;
     let mut upstream: Box<dyn Stream> = if tls {
         let name = rustls::pki_types::ServerName::try_from(host.to_string()).context("a bad host name")?;
         Box::new(tokio_rustls::TlsConnector::from(proxy.client_tls.clone()).connect(name, tcp).await.context("the destination's TLS")?)
@@ -227,7 +227,7 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
 
     let mut from_upstream = BufReader::new(upstream);
     let mut response_head = Vec::new();
-    tokio::time::timeout(HEAD_WAIT, async {
+    tokio::time::timeout(HEAD_WAIT_SECS, async {
         loop {
             let before = response_head.len();
             if from_upstream.read_until(b'\n', &mut response_head).await? == 0 || response_head[before..] == *b"\r\n" {
@@ -261,7 +261,7 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     let mut download = (head.method == "GET" && code == "200").then(|| download::BodyHash::new(chunked));
     let mut buffer = vec![0u8; COPY_BUFFER_BYTES];
     loop {
-        let n = tokio::time::timeout(UPSTREAM_WAIT, from_upstream.read(&mut buffer)).await.context("the destination stopped answering")??;
+        let n = tokio::time::timeout(UPSTREAM_WAIT_SECS, from_upstream.read(&mut buffer)).await.context("the destination stopped answering")??;
         if n == 0 {
             break;
         }

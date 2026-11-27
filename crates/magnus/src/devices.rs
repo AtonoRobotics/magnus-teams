@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// The longest one call to the certificate issuer may take.
-const ISSUER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const ISSUER_TIMEOUT_SECS: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Cloudflare's API. Tests pass their own server; the config does not.
 pub const CF_API: &str = "https://api.cloudflare.com/client/v4";
@@ -381,7 +381,7 @@ struct CfCert {
 
 async fn cloudflare_sign(cf: &Cloudflare, csr: &str) -> std::result::Result<CfCert, IssueError> {
     let url = format!("{}/zones/{}/client_certificates", cf.api.trim_end_matches('/'), cf.zone.trim());
-    let client = reqwest::Client::builder().timeout(ISSUER_TIMEOUT).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
+    let client = reqwest::Client::builder().timeout(ISSUER_TIMEOUT_SECS).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
     let r = client
         .post(&url)
         .bearer_auth(&cf.token)
@@ -406,7 +406,7 @@ async fn cloudflare_sign(cf: &Cloudflare, csr: &str) -> std::result::Result<CfCe
 
 async fn cloudflare_revoke(cf: &Cloudflare, id: &str) -> std::result::Result<(), IssueError> {
     let url = format!("{}/zones/{}/client_certificates/{}", cf.api.trim_end_matches('/'), cf.zone.trim(), id);
-    let client = reqwest::Client::builder().timeout(ISSUER_TIMEOUT).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
+    let client = reqwest::Client::builder().timeout(ISSUER_TIMEOUT_SECS).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
     let r = client.delete(&url).bearer_auth(&cf.token).send().await.map_err(|e| IssueError::Upstream(e.to_string()))?;
     if r.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(());

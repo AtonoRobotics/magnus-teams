@@ -34,8 +34,8 @@ const MAX_TOOLS: usize = 32;
 const MAX_TITLE_CHARS: usize = 60;
 const MAX_ANSWER_BYTES: usize = 1 << 20;
 const MAX_TOKEN_BYTES: usize = 8 * 1024;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+const CONNECT_TIMEOUT_SECS: Duration = Duration::from_secs(10);
+const CALL_TIMEOUT_SECS: Duration = Duration::from_secs(60);
 const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 /// What it returns may be anything, and what it is sent can reach anyone.
 const LABEL: &str = "private+untrusted";
@@ -212,7 +212,7 @@ fn address(d: &Definition, t: &DefinedTool, args: &Value) -> Result<(url::Url, s
 /// A client for the connector's address alone, checked and pinned, with
 /// no redirect followed (`egress_client`).
 async fn pinned_client(url: &url::Url, allow_private: bool) -> Result<reqwest::Client, CallError> {
-    crate::egress_client::Egress::new(allow_private, CONNECT_TIMEOUT, CALL_TIMEOUT)
+    crate::egress_client::Egress::new(allow_private, CONNECT_TIMEOUT_SECS, CALL_TIMEOUT_SECS)
         .client_for(url)
         .await
         .map_err(|e| CallError::NotSent(format!("{} is not an address a connector may reach: {e:#}", url.host_str().unwrap_or_default())))
