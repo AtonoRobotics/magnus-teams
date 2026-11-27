@@ -181,12 +181,15 @@ const PANELS = {
   },
   task: taskView,
   file: fileView,
-  files: filesView,
   apps: appsPanelView,
-  connector: connectorView,
-  projects: projectsView,
-  project: projectView,
-  search: searchView,
+  // app-library.js loads after this script, so its views are looked up when
+  // a panel opens, never while this table is built
+  // (desktop/tests/ui-load-order-check.mjs).
+  files: (id, composed) => filesView(id, composed),
+  connector: (id, composed) => connectorView(id, composed),
+  projects: (id, composed) => projectsView(id, composed),
+  project: (id, composed) => projectView(id, composed),
+  search: (id, composed) => searchView(id, composed),
 };
 
 // An app Magnus offered, with why: the same card as in the Library, as the
