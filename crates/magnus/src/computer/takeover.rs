@@ -125,7 +125,7 @@ pub(super) fn apply(l: &mut Ledger, change: &Change) {
 impl State {
     pub(crate) fn add_frame(&mut self, run: &str, step: u32, image_b64: &str) {
         if let Some(r) = self.runs.get_mut(run).filter(|_| !image_b64.is_empty()) {
-            r.frames.push((step, image_b64.to_string()));
+            r.frames.push((step, std::sync::Arc::from(image_b64)));
         }
     }
 }

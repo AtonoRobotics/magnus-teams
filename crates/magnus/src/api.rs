@@ -5,6 +5,7 @@
 //! sandbox has no network and no tool calls this API).
 
 mod owner;
+mod schedules;
 mod sign_in;
 mod work;
 #[cfg(test)]
@@ -18,7 +19,7 @@ use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
 use crate::{api_bodies as req, people::rights};
 use axum::{
     extract::{ConnectInfo, Path, Request, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -113,7 +114,7 @@ fn same_origin(h: &HeaderMap) -> bool {
 }
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
-    use {owner::*, sign_in::*, work::*};
+    use {owner::*, schedules::*, sign_in::*, work::*};
     Router::new()
         .route("/", get(crate::ui::assets::ui_index))
         .route(crate::connectors::web::RETURN_PATH, get(crate::connectors::web::connected))
@@ -620,10 +621,43 @@ async fn speak(State(k): K, _: Caller, Body(b): Body<req::Speak>) -> ApiResult {
     })
 }
 
+/// Weak ETag derived from the kernel's monotonic log sequence number.
+pub(crate) fn seq_etag(k: &Kernel) -> String {
+    format!("W/\"seq-{}\"", k.read(|s| s.last_seq))
+}
+
+/// If the caller's `If-None-Match` already matches `etag`, return `304 Not Modified`.
+pub(crate) fn not_modified(h: &HeaderMap, etag: &str) -> Option<Response> {
+    let raw = h.get(axum::http::header::IF_NONE_MATCH)?.to_str().ok()?;
+    let matched = raw.split(',').any(|part| {
+        let p = part.trim();
+        p == "*" || p == etag || p.strip_prefix("W/") == etag.strip_prefix("W/")
+    });
+    if !matched {
+        return None;
+    }
+    let mut r = StatusCode::NOT_MODIFIED.into_response();
+    if let Ok(v) = HeaderValue::from_str(etag) {
+        r.headers_mut().insert(axum::http::header::ETAG, v);
+    }
+    r.headers_mut().insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    Some(r)
+}
+
+/// Attach `ETag` and `Cache-Control: private, no-cache` to a JSON response.
+pub(crate) fn with_etag(mut r: Response, etag: &str) -> Response {
+    if let Ok(v) = HeaderValue::from_str(etag) {
+        r.headers_mut().insert(axum::http::header::ETAG, v);
+    }
+    r.headers_mut().insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    r
+}
+
 #[cfg(test)]
 mod same_origin_tests {
-    use super::same_origin;
-    use axum::http::HeaderMap;
+    use super::{not_modified, same_origin, with_etag};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
 
     fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut h = HeaderMap::new();
@@ -643,5 +677,19 @@ mod same_origin_tests {
         assert!(same_origin(&headers(&[("sec-fetch-site", "same-origin")])));
         assert!(same_origin(&headers(&[("origin", "https://magnus.example:8443"), ("host", "magnus.example:8443")])));
         assert!(same_origin(&headers(&[])));
+    }
+
+    #[test]
+    fn etag_not_modified_matches_weak_and_list_headers() {
+        let etag = "W/\"seq-42\"";
+        assert!(not_modified(&headers(&[]), etag).is_none());
+        assert!(not_modified(&headers(&[("if-none-match", "W/\"seq-41\"")]), etag).is_none());
+        let hit = not_modified(&headers(&[("if-none-match", "W/\"seq-42\"")]), etag).unwrap();
+        assert_eq!(hit.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(hit.headers().get("etag").unwrap(), etag);
+        assert!(not_modified(&headers(&[("if-none-match", "\"seq-1\", W/\"seq-42\"")]), etag).is_some());
+        let resp = with_etag(StatusCode::OK.into_response(), etag);
+        assert_eq!(resp.headers().get("etag").unwrap(), etag);
+        assert_eq!(resp.headers().get("cache-control").unwrap(), "private, no-cache");
     }
 }

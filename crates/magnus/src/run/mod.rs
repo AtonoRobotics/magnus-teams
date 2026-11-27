@@ -351,7 +351,7 @@ impl Kernel {
             for (_, _, text) in run.notices.iter().filter(|(s, _, _)| *s as usize == i + 1) {
                 user.push(Block::Text { text: text.clone() });
             }
-            user.extend(run.frames.iter().filter(|(s, _)| *s as usize == i + 1).map(|(_, b)| Block::Image { media_type: "image/png".into(), data_b64: b.clone() }));
+            user.extend(run.frames.iter().filter(|(s, _)| *s as usize == i + 1).map(|(_, b)| Block::Image { media_type: "image/png".into(), data_b64: b.to_string() }));
             user.extend(notes(i + 1));
             if !user.is_empty() {
                 msgs.push(Message { role: Role::User, content: user, state: None });

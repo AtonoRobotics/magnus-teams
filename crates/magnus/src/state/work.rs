@@ -17,6 +17,7 @@ use magnus_adapter_proto::Block;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -100,7 +101,7 @@ pub struct Run {
     pub replies: Vec<Reply>,
     pub results: HashMap<String, ResultRec>,
     pub notices: Vec<(u32, i64, String)>,
-    pub frames: Vec<(u32, String)>,
+    pub frames: Vec<(u32, Arc<str>)>,
     pub contract: Option<Value>,
     pub contract_version: u32,
     /// The agent has started the work (its first action that changes anything).
