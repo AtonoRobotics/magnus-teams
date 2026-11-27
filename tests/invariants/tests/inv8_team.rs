@@ -74,11 +74,12 @@ async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
     assert_eq!(code, 200, "a guest could not chat");
     assert_eq!(model.requests().len(), before, "a guest's words reached the model as a request");
 
-    // A peer's @Magnus request dispatches their own personal Magnus via a Mission
-    // lane, and clean output auto-releases inline into the shared conversation.
+    // A peer's @Magnus request runs their own personal Magnus directly (no Mission),
+    // and clean output posts inline into the shared conversation.
     let (code, made) = ask_team(&bob, &ws, &channel, "Summarize blockers.").await;
     assert_eq!(code, 200, "{made}");
-    assert!(made["mission_id"].is_string(), "shared ask did not dispatch a personal-agent mission: {made}");
+    assert!(made.get("mission_id").is_none(), "shared ask must not start a mission: {made}");
+    assert!(made["task_id"].is_string(), "shared ask did not start a personal-agent reply: {made}");
     bob.wait_settled(made["task_id"].as_str().unwrap()).await;
     eventually("clean personal-agent summary posted to room", PATIENCE, || async {
         let (_, seen) = alice.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
@@ -86,37 +87,23 @@ async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
     })
     .await;
 
-    // Output containing a credential pattern is held privately in the owner's
-    // Release Airlock (invisible to teammates) until scrubbed and released.
+    // Output containing a credential pattern is held privately for the asker
+    // inline (invisible to teammates) instead of posting to the conversation.
     let leaked_key = "sk-secret123456789012345678901234567890";
     model.set_script(steps(vec![plan("draft"), complete(&format!("Key is {leaked_key}"))]));
     let (code, made) = ask_team(&alice, &ws, &channel, "Check my deployment note.").await;
     assert_eq!(code, 200, "{made}");
-    let mission_id = made["mission_id"].as_str().unwrap().to_string();
-    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    let lane_id = eventually("scrub-flagged draft held in Alice's Release Airlock", PATIENCE, || async {
-        let (_, ms) = alice.get(&format!("/v1/workspaces/{ws}/rooms/{channel}/missions")).await;
-        ms.as_array()?
-            .iter()
-            .find(|m| m["id"] == json!(mission_id))?
-            .get("lanes")?
-            .as_array()?
-            .iter()
-            .find(|l| l["status"] == "waiting_release" && l["scrub_flagged"] == true)
-            .and_then(|l| l["id"].as_str().map(String::from))
+    let task_id = made["task_id"].as_str().unwrap().to_string();
+    alice.wait_settled(&task_id).await;
+    eventually("scrub-flagged reply held privately for Alice", PATIENCE, || async {
+        let (_, ws_list) = alice.get(&format!("/v1/workspaces/{ws}/channels/{channel}/whispers")).await;
+        ws_list.as_array()?.iter().find(|w| w["task"] == json!(task_id) && w["shared"] == false && w["held_because"].is_string()).map(|_| ())
     })
     .await;
-    let (_, bobs_view) = bob.get(&format!("/v1/workspaces/{ws}/rooms/{channel}/missions")).await;
+    let (_, bobs_view) = bob.get(&format!("/v1/workspaces/{ws}/channels/{channel}/whispers")).await;
     assert!(!bobs_view.to_string().contains(leaked_key), "flagged draft leaked to teammate: {bobs_view}");
     let (_, msgs) = bob.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
     assert!(!msgs.to_string().contains(leaked_key), "flagged draft was posted to the shared room: {msgs}");
-
-    // Scrubbing and releasing across the Airlock posts the clean update to the room.
-    let scrubbed = "Deploy note, with the key taken out.";
-    let (code, v) = alice.post(&format!("/v1/workspaces/{ws}/missions/{mission_id}/lanes/{lane_id}/release"), json!({ "contribution": scrubbed })).await;
-    assert_eq!(code, 200, "owner could not release scrubbed draft: {v}");
-    let (_, msgs) = bob.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
-    assert!(msgs.to_string().contains(scrubbed), "released contribution did not reach the shared room: {msgs}");
 
     // Once removed, a former member cannot ask in the shared project.
     let (code, _) = alice.delete(&format!("/v1/workspaces/{ws}/members/bob")).await;
