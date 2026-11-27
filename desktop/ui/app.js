@@ -687,6 +687,16 @@ const Workspace = (() => {
       ...(administers() ? [{ label: "Admin & Operations", kind: "Page", run: () => { location.hash = "#/admin/operations"; } }] : []),
       { label: "Keyboard shortcuts", kind: "Action", run: () => openShortcutsModal() },
       { label: "Check for updates", kind: "Action", run: () => { refreshUpdate(true); toast("Checking for updates…"); } },
+      ...(pending || []).slice(0, 8).map(a => ({
+        label: `Approval: ${(a.ask?.sentence || a.summary || a.kind || "Waiting decision").slice(0, 72)}`,
+        kind: "Approval",
+        run: () => { if (typeof openPanel === "function") openPanel(`item:${a.id}`); else location.hash = `#/approve?ask=${enc(a.id)}`; },
+      })),
+      ...(App.tasks || []).slice(0, 12).map(t => ({
+        label: displayTitle(t.title || t.text || "Task"),
+        kind: t.status === "running" || t.status === "suspended" ? "Live Task" : "Task",
+        run: () => { if (typeof openPanel === "function") openPanel(`task:${t.task_id}`); else location.hash = `#/task/${enc(t.task_id)}`; },
+      })),
       ...(App.threads || []).slice(0, 20).map(t => ({ label: displayTitle(t.title), kind: "Chat", run: () => { location.hash = `#/chat/${enc(t.thread)}`; } })),
       ...(App.projects || []).map(p => ({ label: p.name, kind: "Project", run: () => { location.hash = `#/project/${enc(p.id)}`; } })),
       ...(App.workspaces || []).map(w => ({ label: w.name, kind: "Shared project", run: () => { location.hash = `#/team/${enc(w.id)}`; } })),

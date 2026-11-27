@@ -40,8 +40,53 @@ function receiptRow(r) {
   return `<li data-receipt="${esc(r.call_id)}"><div>${esc(r.what)}</div>${to}<div class="small faint">${esc(r.tool)} · ${esc(when(r.at))}${undo}</div>${readBackLine(r.read_back)}</li>`;
 }
 
+/** Format receipts as a shareable verifiable Markdown proof block.
+ * @param {string} title @param {Receipt[]} receipts */
+function receiptsToMarkdown(title, receipts) {
+  const lines = [`## Magnus Verification Proof — ${title || "Task"}`, ""];
+  for (const r of receipts || []) {
+    const rb = r.read_back?.matches === true ? "✓ Verified read-back" : r.read_back?.matches === false ? "⚠ Read-back mismatch" : "Logged";
+    const to = Array.isArray(r.to) && r.to.length ? ` (To: ${r.to.join(", ")})` : "";
+    lines.push(`- **${r.what}**${to} — \`${r.tool}\` at ${r.at || ""} · ${rb}`);
+  }
+  return lines.join("\n");
+}
+
+/** Format receipts as structured JSON for audit attachment.
+ * @param {string} title @param {Receipt[]} receipts */
+function receiptsToJson(title, receipts) {
+  return JSON.stringify({ title: title || "Task", exported_at: new Date().toISOString(), receipts: receipts || [] }, null, 2);
+}
+
+/** @type {Record<string, { title: string, receipts: Receipt[] }>} */
+const EvidenceCache = {};
+
 if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
   document.addEventListener("click", async e => {
+    const copyBtn = e.target.closest?.("[data-evidence-copy-md]");
+    if (copyBtn) {
+      e.preventDefault();
+      const entry = EvidenceCache[copyBtn.dataset.evidenceCopyMd];
+      if (!entry) return;
+      const md = receiptsToMarkdown(entry.title, entry.receipts);
+      try { await navigator.clipboard?.writeText?.(md); if (typeof toast === "function") toast("Verification proof copied (Markdown)."); }
+      catch { if (typeof toast === "function") toast("Copy failed."); }
+      return;
+    }
+    const dlBtn = e.target.closest?.("[data-evidence-download-json]");
+    if (dlBtn) {
+      e.preventDefault();
+      const entry = EvidenceCache[dlBtn.dataset.evidenceDownloadJson];
+      if (!entry) return;
+      const blob = new Blob([receiptsToJson(entry.title, entry.receipts)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `magnus-receipts-${dlBtn.dataset.evidenceDownloadJson}.json`;
+      document.body.append(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      return;
+    }
     const b = e.target.closest?.("[data-receipt-undo]");
     if (!b || typeof Server === "undefined") return;
     e.preventDefault();
@@ -87,12 +132,16 @@ function liveStatusLines(root) {
 
 // The result's evidence, after the deliverable: receipts with their
 // read-backs, sources, and anything not done.
-/** @param {{ evidence?: Evidence }} t */
+/** @param {{ task_id?: string, title?: string, evidence?: Evidence }} t */
 function evidenceSection(t) {
   const e = t.evidence;
   if (!e) return "";
   const parts = [];
-  if (e.receipts?.length) parts.push(`<h3>What was done</h3><ul class="receipts" data-receipts>${e.receipts.map(receiptRow).join("")}</ul>`);
+  if (e.receipts?.length) {
+    const key = t.task_id || "task";
+    EvidenceCache[key] = { title: t.title || "Task", receipts: e.receipts };
+    parts.push(`<div class="spread" style="align-items:center;gap:8px;flex-wrap:wrap"><h3>What was done</h3><div class="row" style="gap:6px"><button type="button" class="small" data-evidence-copy-md="${esc(key)}">Copy proof</button><button type="button" class="small" data-evidence-download-json="${esc(key)}">Export JSON</button></div></div><ul class="receipts" data-receipts>${e.receipts.map(receiptRow).join("")}</ul>`);
+  }
   if (e.sources?.length) {
     parts.push(`<h3>Sources</h3><ul class="sources" data-sources>${e.sources.map(s => {
       const where = [s.at, s.tool].filter(Boolean).join(" · ");
