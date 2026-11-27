@@ -1335,6 +1335,12 @@ function killSwitch(ks) {
 // picks another; a pick holds only while the default it was made under is
 // still the default, so changing the default reaches new messages (#540).
 const REASONING_LEVELS = [["", "Reasoning: Auto"], ["off", "Reasoning: Off"], ["low", "Reasoning: Low"], ["medium", "Reasoning: Medium"], ["high", "Reasoning: High"]];
+const AUTONOMY_MODES = [
+  ["standard", "Ask on external & money"],
+  ["cautious", "Ask on every write"],
+  ["draft_only", "Draft & read only"],
+  ["plan_first", "Review plan first"],
+];
 
 async function modelPicker() {
   const { default: dflt, adapters } = await Server.models.list().catch(() => ({ default: null, adapters: [] }));
@@ -1346,9 +1352,17 @@ async function modelPicker() {
   const pick = opts.find(o => saved?.under === under && key(o) === key(saved)) || dflt || opts[0];
   const groups = [...new Set(opts.map(o => o.adapter))];
   const savedReasoning = load("reasoning-choice", "") || "";
+  const savedAutonomy = load("autonomy-mode", "standard") || "standard";
   return `<label class="model"><span class="sr">Model</span><select data-model data-default="${esc(under)}" aria-label="Model">${groups.map(g => `<optgroup label="${esc(g)}">${opts.filter(o => o.adapter === g).map(o =>
     `<option value="${esc(key(o))}"${pick && key(o) === key(pick) ? " selected" : ""}>${esc(o.model)}${dflt && key(o) === key(dflt) ? " (default)" : ""}</option>`).join("")}</optgroup>`).join("")}</select></label><label class="model"><span class="sr">Reasoning level</span><select data-reasoning aria-label="Reasoning level">${REASONING_LEVELS.map(([val, label]) =>
-    `<option value="${esc(val)}"${val === savedReasoning ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
+    `<option value="${esc(val)}"${val === savedReasoning ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label><label class="small"><span class="sr">Autonomy mode</span><select data-autonomy aria-label="Autonomy mode" title="Choose how Magnus asks before acting">${AUTONOMY_MODES.map(([val, label]) =>
+    `<option value="${esc(val)}"${val === savedAutonomy ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
+}
+function chosenAutonomy(root) {
+  const sel = $("select[data-autonomy]", root);
+  const mode = sel && AUTONOMY_MODES.some(([v]) => v === sel.value) ? sel.value : "standard";
+  if (sel) save("autonomy-mode", mode);
+  return mode;
 }
 function chosenModel(root) {
   const sel = $("select[data-model]", root);

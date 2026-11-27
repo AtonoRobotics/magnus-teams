@@ -21,7 +21,19 @@ function personalComposer() {
       await refresh();
     },
     send: async ({ text, files, form, record }) => {
-      const body = { text, model: chosenModel(form), files: files.map(f => f.id) };
+      const autonomy = typeof chosenAutonomy === "function" ? chosenAutonomy(form) : "standard";
+      let finalText = text;
+      if (autonomy === "plan_first" && text && typeof PlanSurface !== "undefined" && typeof PlanSurface.open === "function") {
+        const approved = await PlanSurface.open(text);
+        if (!approved) return;
+        finalText = approved;
+      } else if (autonomy === "cautious" && text) {
+        finalText = `[Session leash: Ask for my explicit approval before any write or modification.]\n\n${text}`;
+      } else if (autonomy === "draft_only" && text) {
+        finalText = `[Session leash: Draft and read only. Do not send, publish, or modify external state—stage drafts or present results for my review only.]\n\n${text}`;
+      }
+      const body = { text: finalText, model: chosenModel(form), files: files.map(f => f.id) };
+      if (autonomy !== "standard") body.autonomy_mode = autonomy;
       if (record.thread) body.thread = record.thread; else if (record.project) body.project = record.project;
       const response = await Server.chat.send(body);
       const startedId = response?.task_id || response?.task || null;
