@@ -321,6 +321,14 @@ async fn add_memory(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> Api
         return refuse(StatusCode::BAD_REQUEST, "memory fact is required");
     }
     let topic = b["topic"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    // The same fact again is the one already kept, as for memory_write.
+    let known = match k.remembered(&p.id, |_| true).await {
+        Ok(known) => known,
+        Err(e) => return Ok(internal(e)),
+    };
+    if let Some(dup) = known.iter().find(|m| crate::memory_index::same_fact(fact, &m.fact)) {
+        return Ok(Json(json!({ "id": dup.entry.id, "already_remembered": true })).into_response());
+    }
     let id = new_id("mem");
     let actor = format!("person:{}", p.id);
     k.emit(

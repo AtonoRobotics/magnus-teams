@@ -39,7 +39,7 @@ assert.ok(app.includes("data-deliverable-bar") && app.includes('data-act="copy-d
 
 // 4. Personal Spend Meter and Memory & Promises tab.
 assert.ok(settings.includes("function personalSpendCard(") && settings.includes("Server.spend.get()"), "settings-sections.js renders personal spend meter");
-assert.ok(settings.includes("async function memorySection(") && settings.includes("Server.memory.summary()") && settings.includes("Server.memory.playbook()"), "settings-sections.js provides personal Memory & Playbook section");
+assert.ok(settings.includes("async function memorySection(") && settings.includes("Server.memory.list()") && settings.includes("Server.memory.playbook()"), "settings-sections.js provides personal Memory & Playbook section");
 assert.ok(app.includes('["memory", "Memory & Promises", memorySection'), "Settings modal includes Memory & Promises tab");
 
 // 5. Onboarding truthfulness & approval card fixes.

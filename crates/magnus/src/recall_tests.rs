@@ -100,3 +100,33 @@ async fn no_words_lists_the_newest_memories() {
     assert!(!listed.contains(&"m_00".to_string()), "the oldest past the cap is left out");
     s.done().await;
 }
+
+/// The best match comes first, whatever its taint: an untrusted fact that
+/// matches every word is not ranked under a clean one that matches one.
+/// Its taint still reaches the run that reads it (`memory_taint`).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_best_match_comes_first() {
+    let s = boot().await;
+    let mut best = memory("m_best", "mo", "Mo's dentist appointment is every March at Riverside dental", None);
+    if let Ev::Memory(m) = &mut best {
+        m.label = Label { untrusted: true, private: false };
+    }
+    s.k.emit("person:mo", best).await.unwrap();
+    s.k.emit("person:mo", memory("m_weak", "mo", "Mo likes Riverside park", None)).await.unwrap();
+    assert_eq!(served(&s, "Riverside dentist appointment March").await, vec!["m_best".to_string(), "m_weak".to_string()]);
+    s.done().await;
+}
+
+/// A fact the person adds again in the app is the one already kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fact_the_person_adds_twice_is_kept_once() {
+    let s = boot().await;
+    let mo = s.token("mo").await;
+    let (_, first) = s.call(&mo, reqwest::Method::POST, "/v1/memory", Some(serde_json::json!({ "fact": "Call me Mags." }))).await;
+    let (_, again) = s.call(&mo, reqwest::Method::POST, "/v1/memory", Some(serde_json::json!({ "fact": "call me mags" }))).await;
+    assert_eq!(again["id"], first["id"], "{again}");
+    assert_eq!(again["already_remembered"], true);
+    let (_, list) = s.get(&mo, "/v1/memory").await;
+    assert_eq!(list["memory"].as_array().map(Vec::len), Some(1));
+    s.done().await;
+}

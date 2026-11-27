@@ -176,8 +176,8 @@ impl Kernel {
 
     /// The person's current facts that best match the query, searched where
     /// they are kept, through the person's content wall (`Recall::search`),
-    /// ranked by match, recency and trust. No words to match ("what do you
-    /// remember?"): the newest.
+    /// best match first. No words to match ("what do you remember?"): the
+    /// newest.
     pub(crate) async fn memory_hits(&self, run: &str, query: &str) -> Result<Vec<crate::recall::Remembered>> {
         let Some(person) = self.read(|s| s.runs.get(run).map(|r| r.person.clone())) else { return Ok(vec![]) };
         let current = self.read(|s| s.current_memory(&person));
@@ -189,20 +189,10 @@ impl Kernel {
         };
         let mut by_seq: std::collections::HashMap<i64, crate::state::MemoryEntry> = current.into_iter().map(|m| (m.seq, m)).collect();
         let seqs: Vec<i64> = by_seq.keys().copied().collect();
+        // Best match first, newest first among equal matches: the order the
+        // database ranks them in.
         let matched = self.recall.search(&person, &seqs, &q).await?;
-        let now = chrono::Utc::now();
-        let mut scored: Vec<(f64, crate::recall::Remembered)> = matched
-            .into_iter()
-            .enumerate()
-            .filter_map(|(rank, (seq, content))| {
-                let m = crate::recall::Remembered::from_content(by_seq.remove(&seq)?, &content)?;
-                let age_days = now.signed_duration_since(m.entry.at).num_seconds().max(0) as f64 / crate::memory_index::SECONDS_PER_DAY;
-                let score = crate::memory_index::hybrid_score(&crate::memory_index::RankedCandidate { fts_rank: rank, untrusted: m.entry.label.untrusted, age_days });
-                Some((score, m))
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.entry.at.cmp(&a.1.entry.at)));
-        Ok(scored.into_iter().take(crate::recall::MAX_MEMORY_HITS).map(|(_, m)| m).collect())
+        Ok(matched.into_iter().filter_map(|(seq, content)| crate::recall::Remembered::from_content(by_seq.remove(&seq)?, &content)).take(crate::recall::MAX_MEMORY_HITS).collect())
     }
 }
 

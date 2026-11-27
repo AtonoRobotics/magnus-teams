@@ -239,13 +239,13 @@ async function memorySection(el) {
   let notes = [];
   const draw = async () => {
     const [memRes, pbRes, rel, cmtRes] = await Promise.all([
-      Server.memory.summary().catch(() => ({ clean_facts: [], untrusted_facts: [] })),
+      Server.memory.list().catch(() => ({ memory: [] })),
       Server.memory.playbook().catch(() => ({ playbook: [] })),
       Server.memory.relationship().catch(() => ({ notes: [] })),
       Server.memory.commitments().catch(() => ({ commitments: [] })),
     ]);
     notes = rel.notes || [];
-    const facts = [...(memRes.clean_facts || []), ...(memRes.untrusted_facts || [])];
+    const facts = [...(memRes.memory || [])].reverse(); // newest first
     const q = query.trim().toLowerCase();
     const shownFacts = q ? facts.filter(f => `${f.fact || ""} ${f.topic || ""}`.toLowerCase().includes(q)) : facts;
     const lessons = pbRes.playbook || [];

@@ -1,6 +1,6 @@
-//! What a memory may be, how two facts are the same, and how recall ranks
-//! what matched: the write caps, the refusals and deduplication of
-//! `memory_write`, and the score `memory_search` sorts by (`memory_hits`).
+//! What a memory may be and when two facts are the same: the write caps,
+//! the refusals and the deduplication of `memory_write` and of a fact the
+//! person adds themselves.
 //! Memory is `Ev::Memory` events with their content rows; recall searches
 //! it where it is kept (`recall::Recall::search`).
 
@@ -13,32 +13,6 @@ pub const MAX_MEMORY_WRITES_PER_RUN: usize = 12;
 /// longer entries were run checkpoints and status reports.
 pub const MAX_MEMORY_FACT_CHARS: usize = 300;
 pub const DEDUP_TOKEN_OVERLAP_THRESHOLD: f32 = 0.85;
-/// The rank offset of reciprocal-rank scoring: a match's text rank `r`
-/// scores `1 / (RRF_K + r + 1)`.
-pub const RRF_K: f64 = 60.0;
-pub const TIER2_WEIGHT: f64 = 0.65;
-pub const RECENCY_HALF_LIFE_DAYS: f64 = 30.0;
-pub const SECONDS_PER_DAY: f64 = 86_400.0;
-
-/// A matched memory as recall scores it.
-#[derive(Clone, Debug)]
-pub struct RankedCandidate {
-    /// Its place in the text-rank order, best first.
-    pub fts_rank: usize,
-    pub untrusted: bool,
-    pub age_days: f64,
-}
-
-/// The score recall sorts matches by: the text rank's reciprocal, decayed
-/// with age (half-life `RECENCY_HALF_LIFE_DAYS`, never below half), and
-/// down-weighted for untrusted facts (`TIER2_WEIGHT`).
-pub fn hybrid_score(c: &RankedCandidate) -> f64 {
-    let base = 1.0 / (RRF_K + (c.fts_rank as f64) + 1.0);
-    let decay = 0.5_f64.powf((c.age_days.max(0.0)) / RECENCY_HALF_LIFE_DAYS);
-    let recency_factor = 0.5 + 0.5 * decay;
-    let trust_factor = if c.untrusted { TIER2_WEIGHT } else { 1.0 };
-    base * recency_factor * trust_factor
-}
 
 /// Jaccard overlap of the words of two texts, for near-duplicate facts.
 pub fn token_overlap_similarity(a: &str, b: &str) -> f32 {
@@ -87,16 +61,6 @@ pub fn fact_refusal(fact: &str, person_spoke: bool) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn clean_facts_outrank_equal_untrusted_facts_and_newer_outrank_older() {
-        let clean = RankedCandidate { fts_rank: 0, untrusted: false, age_days: 1.0 };
-        let untrusted = RankedCandidate { untrusted: true, ..clean.clone() };
-        assert!(hybrid_score(&clean) > hybrid_score(&untrusted));
-        let old = RankedCandidate { age_days: 90.0, ..clean.clone() };
-        assert!(hybrid_score(&clean) > hybrid_score(&old));
-        assert!(hybrid_score(&old) > hybrid_score(&clean) / 2.0, "age halves a score at most");
-    }
 
     #[test]
     fn near_duplicates_are_found_by_word_overlap() {
