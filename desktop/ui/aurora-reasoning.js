@@ -4,8 +4,8 @@
 //   still "Working on an answer…": the step it is on as its words, the steps
 //   lighting up and ticking off below, and when the answer comes it folds to
 //   "Completed 3 steps · 12s" above it;
-// - above the composer, a line says the state Magnus is in ("Ready · standing
-//   by", "Working across your apps…"), in that state's colour;
+// - above the composer, a line says the state its conversation is in
+//   ("Ready · standing by", "Working…"), in that state's colour;
 // - the composer grows and shrinks smoothly as the person types;
 // - what the app would say in a toast ("Allowed.", "Saved.") is said in that
 //   line for as long as the toast would show (`tell`), so nothing floats
@@ -29,8 +29,8 @@ const AuroraReasoning = (() => {
     listening: "Listening · speak naturally…",
     thinking: "Thinking & planning…",
     planning: "Planning next steps…",
-    working: "Working across your apps…",
-    executing: "Working across your apps…",
+    working: "Working…",
+    executing: "Working…",
     control: "You're in control",
     takeover: "You're in control",
     waiting: "Needs you · a decision is waiting",
@@ -212,9 +212,30 @@ const AuroraReasoning = (() => {
     say();
   }
 
-  /** The line above each composer saying the state Magnus is in. */
+  /**
+   * The state the line above a composer speaks of: the person's own
+   * (listening, in control of the computer), or else this conversation's
+   * work only. Work running elsewhere has its own card and tile; under an
+   * answered conversation the line said "Working…" for it (2026-11-28, the
+   * installed app on test.427: "pong", answered in 3s, still "working").
+   */
+  function threadState() {
+    const own = document.documentElement.dataset.auroraAvatarState || "";
+    if (own === "listening" || own === "control") return own;
+    const thread = document.getElementById("thread");
+    if (!thread) return "ready";
+    if (thread.querySelector('.st.need, .aurora-reason[data-phase="needs"]')) return "waiting";
+    const pills = thread.querySelectorAll(".aurora-reason");
+    const last = /** @type {HTMLElement|undefined} */ (pills[pills.length - 1]);
+    const phase = last?.dataset.phase || "";
+    if (phase === "working" || thread.querySelector('.st.working, .tcard:is([data-status="running"], [data-status="working"])')) return last?.hasAttribute("data-planned") ? "planning" : "working";
+    if (phase === "thinking" || phase === "writing") return "thinking";
+    return "ready";
+  }
+
+  /** The line above each composer saying the state this conversation is in. */
   function say() {
-    const key = document.documentElement.dataset.auroraAvatarState || document.documentElement.dataset.auroraState || "ready";
+    const key = threadState();
     const words = SAY_WORDS[/** @type {keyof typeof SAY_WORDS} */ (key)] || SAY_WORDS.ready;
     document.querySelectorAll(".composer-slot > .say, .composer-slot > form.say").forEach(form => {
       const slot = form.parentElement;
@@ -228,6 +249,8 @@ const AuroraReasoning = (() => {
       }
       const text = line.querySelector(".aurora-say-text");
       if (text && text.textContent !== words) text.textContent = words;
+      const state = SAY_WORDS[/** @type {keyof typeof SAY_WORDS} */ (key)] ? key : "ready";
+      if (/** @type {HTMLElement} */ (line).dataset.state !== state) /** @type {HTMLElement} */ (line).dataset.state = state;
     });
   }
 
@@ -297,5 +320,5 @@ const AuroraReasoning = (() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  return { mount, poll, on, kept, tell };
+  return { mount, poll, on, kept, tell, threadState };
 })();

@@ -208,19 +208,20 @@ html[data-style="nova"] .aurora-say-state {
   transition: color .3s var(--ease);
 }
 
-html[data-style="nova"]:is([data-aurora-avatar-state="thinking"], [data-aurora-avatar-state="planning"], [data-aurora-state="thinking"], [data-aurora-avatar-state="working"], [data-aurora-state="executing"]) .aurora-say-state {
+/* Keyed on the line's own state: its conversation's, not the whole app's. */
+html[data-style="nova"] .aurora-say-state:is([data-state="thinking"], [data-state="planning"], [data-state="working"]) {
   color: var(--accent-text);
 }
 
-html[data-style="nova"]:is([data-aurora-avatar-state="listening"], [data-aurora-avatar-state="done"], [data-aurora-state="listening"]) .aurora-say-state {
+html[data-style="nova"] .aurora-say-state[data-state="listening"] {
   color: var(--ok);
 }
 
-html[data-style="nova"]:is([data-aurora-avatar-state="waiting"], [data-aurora-avatar-state="control"], [data-aurora-state="needs"], [data-aurora-state="takeover"]) .aurora-say-state {
+html[data-style="nova"] .aurora-say-state:is([data-state="waiting"], [data-state="control"]) {
   color: var(--warn);
 }
 
-html[data-style="nova"][data-aurora-avatar-state="failed"] .aurora-say-state {
+html[data-style="nova"] .aurora-say-state[data-state="failed"] {
   color: var(--bad);
 }
 
@@ -232,7 +233,7 @@ html[data-style="nova"] .aurora-state-dot {
   background: currentColor;
 }
 
-html[data-style="nova"][data-motion="full"]:not([data-aurora-avatar-state="ready"]) .aurora-state-dot {
+html[data-style="nova"][data-motion="full"] .aurora-say-state:not([data-state="ready"]) .aurora-state-dot {
   animation: novaDotPulse 2.4s ease-in-out infinite;
 }
 

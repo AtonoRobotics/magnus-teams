@@ -1,7 +1,7 @@
 // A release's notes show whole sentences, items as a list and no trailers,
 // though they arrive as a commit message wrapped short. On 2026-11-26 the
 // installed app's What's new card broke each sentence at the wrap and showed
-// Co-Authored-By.
+// Co-Authored-By; on 2026-11-28, Claude-Session.
 import assert from "node:assert/strict";
 import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
@@ -30,6 +30,15 @@ assert.equal(releaseNotesHtml(notes),
 assert.equal(releaseNotesHtml(""), "<p>Fixes and improvements.</p>");
 assert.equal(releaseNotesHtml("Signed-off-by: A <a@b.test>"), "<p>Fixes and improvements.</p>");
 assert.equal(releaseNotesHtml("<b>x</b>"), "<p>&#60;b&#62;x&#60;/b&#62;</p>");
+// Every trailer goes, not only "-by" ones (installed app, test.427: What's
+// new showed "Claude-Session: https://claude.ai/code/session_…"). A line
+// of the message's body that only looks like one stays.
+assert.equal(releaseNotesHtml(`Fix the thing
+
+Note: the body says this.
+
+Co-Authored-By: A <a@b.test>
+Claude-Session: https://claude.ai/code/session_x`), "<p>Fix the thing</p><p>Note: the body says this.</p>");
 
 const app = readAppBundle();
 const settings = readFileSync(join(ui, "settings-sections.js"), "utf8");

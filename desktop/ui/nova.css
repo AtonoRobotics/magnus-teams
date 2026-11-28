@@ -98,7 +98,7 @@ html[data-style="nova"] .hello-hero :is(.hello-sub, .aurora-hello-chips, .hello-
 html[data-style="nova"] body[data-nova-intro="on"] .aurora-say-state { display: none; }
 /* At rest the mockup says nothing over the composer: Magnus's state shows
    only while it works, waits or has just said something. */
-html[data-style="nova"]:is(:not([data-aurora-avatar-state]), [data-aurora-avatar-state="ready"], [data-aurora-avatar-state="idle"]) .aurora-say-state:not([data-told]) { display: none; }
+html[data-style="nova"] .aurora-say-state[data-state="ready"]:not([data-told]) { display: none; }
 /* Magnus signs its answer as in the mockup: its face, its name, then the
    rest quietly in mono. */
 html[data-style="nova"] .msg.magnus > .byline { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }

@@ -47,3 +47,16 @@ moves. Each goes; what the spec asks for stays, said once.
   A background chosen after that stays.
 - Kept, because they inform or act: Task Replay, keyboard approval triage,
   the companion itself, the wake's progress, the kill switch.
+
+## Two more, from the installed app on test.427
+
+- The line above the composer speaks for its own conversation. It read the
+  whole app's state, so with work running anywhere it said "Working across
+  your apps…" under a conversation whose answer ("pong", answered in 3s)
+  was already in. Now it follows that conversation's own answers, cards and
+  asks, plus the person's own states (listening, holding the computer); its
+  colour and visibility key on the line's own state. "Working across your
+  apps…" became "Working…": the task card says what the work is.
+- What's new drops the commit's whole trailer block, not only "-by" lines:
+  "Claude-Session: https://claude.ai/code/session_…" is the team's note,
+  not news for the person.

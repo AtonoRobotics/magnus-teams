@@ -116,10 +116,19 @@ try {
 
   // The composer: the state above it, a glow on focus, growth over time.
   const line = await p.evaluate(() => { const l = document.querySelector("#slot > .aurora-say-state"); return { text: l?.textContent, next: l?.nextElementSibling?.matches(".say"), color: l && getComputedStyle(l).color }; });
+  // Work running elsewhere has its own card: under this conversation, whose
+  // answer is in, the line stays at rest (installed app, test.427: "pong",
+  // answered in 3s, and the line still said "Working across your apps…").
+  await p.evaluate(() => { document.body.insertAdjacentHTML("beforeend", '<div id="elsewhere"><div class="tcard" data-status="running"></div></div>'); });
+  await p.waitForTimeout(450);
+  const elsewhere = await p.evaluate(() => ({ app: document.documentElement.dataset.auroraAvatarState, line: document.querySelector(".aurora-say-state")?.textContent }));
+  await p.evaluate(() => { document.getElementById("elsewhere")?.remove(); });
+  await p.waitForTimeout(300);
+  check("work elsewhere does not say this answered conversation is working", () => assert.deepEqual([elsewhere.app, elsewhere.line], ["working", "Ready · standing by"], JSON.stringify(elsewhere)));
   await p.evaluate(() => { document.getElementById("thread").insertAdjacentHTML("beforeend", '<span class="st working"></span>'); });
   await p.waitForTimeout(450);
   const working = await p.evaluate(() => { const l = document.querySelector(".aurora-say-state"); return { text: l.textContent, color: getComputedStyle(l).color }; });
-  check("above the composer a line says the state Magnus is in", () => assert.deepEqual([line.text, line.next, working.text], ["Ready · standing by", true, "Working across your apps…"]));
+  check("above the composer a line says the state Magnus is in", () => assert.deepEqual([line.text, line.next, working.text], ["Ready · standing by", true, "Working…"]));
   check("the line takes the state's colour", () => assert.deepEqual([line.color !== working.color, working.color], [true, "rgb(56, 189, 248)"]));
   const glowBefore = await p.evaluate(() => getComputedStyle(document.getElementById("slot"), "::before").opacity);
   await p.focus("#msg");
