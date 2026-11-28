@@ -65,7 +65,7 @@ modern chat agents."
   name, people, the summary, or chosen messages instead) without the boundary
   note or the explanation of what crosses.
 - **One project home.** Personal and shared projects are one page: the name,
-  editable in place (a shared one by its admins, `PATCH /v1/workspaces/{ws}`
+  editable in place (a shared one by any member, as the server allows, `PATCH /v1/workspaces/{ws}`
   with `{ "name": "..." }`), the composer, Chats, Files and Instructions;
   Tasks and Routines when a personal one has them; People only on a shared
   one.

@@ -305,12 +305,12 @@ const Projects = (() => {
     const members = home.members || [];
     const role = m => typeof teamRoleLabel === "function" ? teamRoleLabel(m.role) : m.role;
     const person = m => m.id === home.me
-      ? `<span><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)} <span class="small faint">you</span></span>`
+      ? `<span><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)} <span class="small faint">(you)</span></span>`
       : `<a href="#/team/${enc(ws)}" data-start-dm="${esc(ws)}:${esc(m.id)}" title="Message ${esc(m.name)}"><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)}</a>`;
     return homeHtml({
       root: `data-shared-project-page="${esc(ws)}"`,
       name: home.name,
-      rename: admin ? `data-shared-rename="${esc(ws)}"` : "",
+      rename: edit ? `data-shared-rename="${esc(ws)}"` : "",
       ask: edit ? `data-shared-project-ask="${esc(ws)}"` : "",
       acts: admin ? `<button type="button" class="icon-btn" data-shared-project-delete="${esc(ws)}" data-shared-project-name="${esc(home.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>` : "",
       chats: chats.map(c => ({ href: `#/team/${enc(ws)}/c/${enc(c.id)}`, title: c.name, note: c.unread ? `${c.unread} new` : "" })),
@@ -319,7 +319,7 @@ const Projects = (() => {
       ins: { id: "spin", draft: `spin-${ws}`, text: home.instructions || "", save: edit ? `data-shared-save-ins="${esc(ws)}"` : "" },
       side: `<section class="project-sec">
             <div class="spread"><h2>People</h2>${edit ? `<button type="button" class="link small" data-open="shared:settings">Add people</button>` : ""}</div>
-            <ul class="tlist">${members.map(m => `<li class="trow">${person(m)}<span class="small faint">${esc(role(m))}</span></li>`).join("")}</ul>
+            <ul class="tlist">${members.map(m => `<li class="trow">${person(m)} <span class="small faint">· ${esc(role(m))}</span></li>`).join("")}</ul>
           </section>`,
     });
   }

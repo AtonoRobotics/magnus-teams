@@ -159,8 +159,9 @@ assert.deepEqual(parts(emptyProjHtml), ["project-rename-form", "project-hero-com
 assert.deepEqual(parts(sharedHtml), [...parts(emptyProjHtml), "<h2>People</h2>"]);
 const memberHtml = Projects.sharedPageHtml({ ...ownerHome, role: "member", channels: [] }, { files: [] });
 assert.match(memberHtml, /data-shared-project-ask="ws_1"/, "a shared project with no chat still has its composer");
-assert.doesNotMatch(memberHtml, /data-shared-rename|data-shared-project-delete/, "only its admins rename or delete it");
-assert.match(memberHtml, /<h1>Launch<\/h1>/);
+assert.match(memberHtml, /data-shared-rename/, "a member renames the shared project (decisions/2026-11-28-projects-without-hoops.md)");
+assert.doesNotMatch(memberHtml, /data-shared-project-delete/, "only its admins delete it");
+assert.match(memberHtml, /class="project-title-input" name="name" value="Launch"/);
 for (const h of [emptyProjHtml, sharedHtml, listHtml, Projects.listHtml([], [])]) {
   assert.doesNotMatch(h, /nothing runs|Magnus waits|when you're ready|untouched|Optional|Active/, "nothing reassures or explains");
 }
