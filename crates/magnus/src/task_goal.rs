@@ -94,7 +94,7 @@ mod tests {
         assert_eq!(spec.input_schema["required"], json!(["goal", "title"]));
         let d = &spec.description;
         assert!(d.len() < 900, "the description grew to {} bytes: {d}", d.len());
-        assert!(d.contains("one line") && d.contains("carries this conversation") && d.contains("do not restate it"), "{d}");
+        assert!(d.contains("one line") && d.contains("receives this conversation"), "{d}");
         let lower = d.to_lowercase();
         for listed in ["never ", "must not", "don't", "\n-", "\n1.", "complete enough to work from alone"] {
             assert!(!lower.contains(listed), "the description lists prohibitions ({listed:?}): {d}");
