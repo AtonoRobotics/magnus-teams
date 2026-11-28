@@ -99,3 +99,33 @@ async fn a_review_over_the_same_state_waits_for_a_change() {
     assert!(s.k.state_unchanged("mo", now), "what a review told is not news to the next");
     s.done().await;
 }
+
+/// What the reviews queued before they saw what they had told: each
+/// older telling of the same news is dismissed at boot, the newest kept,
+/// and news told once stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn older_tellings_of_the_same_news_are_dismissed() {
+    let s = server_with("", |_| Router::new()).await;
+    let told = |id: &str, summary: &str| Ev::Item {
+        id: id.into(),
+        item_kind: "observation".into(),
+        task: None,
+        run: None,
+        person: "mo".into(),
+        summary: summary.into(),
+        details: json!({ "evidence": "the schedules list" }),
+    };
+    for (id, summary) in [
+        ("item_old", "Two schedules are paused after three consecutive failures each."),
+        ("item_once", "A Robinhood deposit was reversed."),
+        ("item_new", "Two schedules are paused after three consecutive failures each."),
+    ] {
+        s.k.emit("kernel", told(id, summary)).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(s.k.dismiss_repeated_news().await.unwrap(), 1);
+    let open = |id: &str| s.k.read(|st| st.inbox.items()[id].resolution.is_none());
+    assert!(!open("item_old") && open("item_new") && open("item_once"));
+    assert_eq!(s.k.dismiss_repeated_news().await.unwrap(), 0, "once dismissed, nothing more at the next boot");
+    s.done().await;
+}

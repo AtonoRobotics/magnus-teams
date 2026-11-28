@@ -159,6 +159,11 @@ impl Kernel {
         if archived > 0 {
             tracing::info!("archived {archived} memories filed before the memory update");
         }
+        // News the reviews told over and over is told once (`review_news`).
+        let repeats = k.dismiss_repeated_news().await?;
+        if repeats > 0 {
+            tracing::info!("dismissed {repeats} observations that repeat a newer one");
+        }
         // A lane's watcher lived in the process before; follow its lanes again.
         k.resume_lanes().await;
         // The search index catches up with the log (a restore, a missed

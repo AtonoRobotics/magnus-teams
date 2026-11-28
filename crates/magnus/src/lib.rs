@@ -105,6 +105,7 @@ pub mod memory_index;
 pub mod mental_model;
 pub mod message_file;
 pub(crate) mod net_guard;
+pub mod news_backlog;
 pub mod oauth;
 pub mod oidc;
 pub mod openers;

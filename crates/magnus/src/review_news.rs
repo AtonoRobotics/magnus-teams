@@ -45,23 +45,47 @@ fn same_id(a: &str, b: &str) -> bool {
 /// the new one names was named by what was told, or one of them says the
 /// same.
 pub(crate) fn repeat_of(s: &State, person: &str, what: &str, why: &str, evidence: &str, now: DateTime<Utc>) -> Option<String> {
-    let told = told(s, person, now);
+    repeats(what, &format!("{why} {evidence}"), &told(s, person, now))
+}
+
+/// Which of `told`, newest first, already says what `what` says.
+fn repeats(what: &str, rest: &str, told: &[&Item]) -> Option<String> {
     if let Some(i) = told.iter().find(|i| crate::memory_index::same_fact(what, &i.summary)) {
         return Some(i.id.clone());
     }
-    let named = ids(&format!("{what} {why} {evidence}"));
+    let named = ids(&format!("{what} {rest}"));
     if named.is_empty() {
         return None;
     }
     let mut covered = BTreeSet::new();
-    for i in &told {
-        let before = ids(&format!("{} {}", i.summary, i.details));
-        covered.extend(before);
+    for i in told {
+        covered.extend(ids(&format!("{} {}", i.summary, i.details)));
         if named.iter().all(|n| covered.iter().any(|c| same_id(n, c))) {
             return Some(i.id.clone());
         }
     }
     None
+}
+
+/// The open observations and interruptions that repeat a newer one to the
+/// same person, at any age, and those of the backlog read by hand
+/// (`news_backlog`) that were not kept.
+pub(crate) fn repeated(s: &State) -> Vec<String> {
+    let mut items: Vec<&Item> = s.inbox.items().values().filter(|i| i.kind == "observation" || i.kind == "interrupt").collect();
+    items.sort_by_key(|i| std::cmp::Reverse(i.created_at));
+    let backlog = DateTime::parse_from_rfc3339(crate::news_backlog::BACKLOG_READ_AT).map(|t| t.with_timezone(&Utc)).ok();
+    let in_backlog = |i: &Item| backlog.is_some_and(|t| i.created_at <= t) && !crate::news_backlog::KEPT_NEWS.contains(&i.id.as_str());
+    let mut kept: std::collections::HashMap<&str, Vec<&Item>> = Default::default();
+    let mut out = vec![];
+    for i in items {
+        let newer = kept.entry(i.person.as_str()).or_default();
+        if i.resolution.is_none() && (in_backlog(i) || repeats(&i.summary, &i.details.to_string(), newer).is_some()) {
+            out.push(i.id.clone());
+        } else {
+            newer.push(i);
+        }
+    }
+    out
 }
 
 /// The review's list of what it already told, one line each.
@@ -135,6 +159,19 @@ impl Kernel {
         if let Ok(mut m) = self.reviewed_state.lock() {
             m.insert(person.to_string(), print);
         }
+    }
+
+    /// Dismiss every open observation or interruption that repeats a newer
+    /// one (`repeated`): the person keeps one of each. The owner,
+    /// 2026-11-27: "Dismiss the old duplicate observations".
+    pub(crate) async fn dismiss_repeated_news(&self) -> anyhow::Result<usize> {
+        let ids = self.read(repeated);
+        let evs: Vec<(&str, crate::events::Ev)> =
+            ids.iter().map(|id| ("kernel", crate::events::Ev::ItemResolved { id: id.clone(), decision: "dismiss".into(), scope: None, text: None })).collect();
+        if !evs.is_empty() {
+            self.emit_all(evs).await?;
+        }
+        Ok(ids.len())
     }
 
     /// The refusal for news `person` was already given, if it was.
