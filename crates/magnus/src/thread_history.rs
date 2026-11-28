@@ -1,7 +1,7 @@
 //! A run records a thread boundary and reads its shared entries through the owner's wall.
 use crate::boundary::Action;
 use crate::chat_thread::{Body, Entry, Kind};
-use crate::events::{ChatOrigin, ThreadHistory};
+use crate::events::ThreadHistory;
 use crate::kernel::Kernel;
 use crate::recall::Words;
 use crate::state::{Run, Task};
