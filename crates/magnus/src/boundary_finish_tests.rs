@@ -20,12 +20,14 @@ fn tool(name: &str) -> AppTool {
 }
 
 /// A mail app over a fake transport whose calls answer `answers` in turn.
+/// It asks for its login codes to be taken out, which mail no longer does
+/// by default (2026-11-28-gates-beyond-the-invariants).
 async fn mail(answers: Vec<Result<CallOutput, CallError>>) -> (Server, Arc<Fake>) {
     let fake = Fake { tools: vec![tool("read"), tool("send"), tool("get_sent")], ..Fake::new(Kind::Brokered) };
     fake.answers.lock().unwrap().extend(answers);
     let (url, fake) = fake.install();
     let app = format!(
-        "[[connectors]]\nname = \"mail\"\nurl = \"{url}\"\naudience = \"private\"\nlabel = \"untrusted+private\"\nidempotency = \"header\"\n\
+        "[[connectors]]\nname = \"mail\"\nurl = \"{url}\"\naudience = \"private\"\nlabel = \"untrusted+private\"\nidempotency = \"header\"\nfilter_login_codes = true\n\
          [connectors.tools.read]\nrisk = \"read\"\n[connectors.tools.get_sent]\nrisk = \"read\"\n[connectors.tools.send]\nrisk = \"irreversible\"\n\
          [connectors.read_back.send]\nread = \"get_sent\"\n"
     );

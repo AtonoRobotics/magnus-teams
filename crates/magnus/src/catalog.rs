@@ -191,7 +191,7 @@ pub fn registration_name(provider: &str) -> String {
 pub fn connector(m: &Manifest) -> Connector {
     Connector {
         owner: None,
-        filter_login_codes: m.category == "email",
+        filter_login_codes: false,
         keep_login_codes: false,
         name: m.id.clone(),
         transport: if m.kind == "brokered" { crate::transport::BROKERED.into() } else { crate::transport::MCP_HTTP.into() },

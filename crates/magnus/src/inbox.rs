@@ -225,7 +225,7 @@ impl Kernel {
                     (item.details["input_hash"].as_str().map(String::from), crate::asks::item_destinations(&item.details), Vec::new())
                 };
                 if scope == "always" {
-                    if !reason.is_some_and(Reason::always) || p.id != item.person || dests.is_empty() || app.is_empty() {
+                    if !crate::asks::always_offered(rule.as_deref()) || p.id != item.person || app.is_empty() {
                         return Ok(Answer::Invalid("Allow always is not offered for this".into()));
                     }
                     let compiled = match crate::asks::always_rule(&item.person, &app, &tool, &dests) {

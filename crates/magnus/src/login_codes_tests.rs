@@ -97,17 +97,16 @@ fn app(name: &str, url: &str, extra: serde_json::Value) -> Connector {
     serde_json::from_value(v).unwrap()
 }
 
-/// Every mail app's reads are filtered, whoever added it; any app can ask
-/// for it, and any can keep its codes.
+/// Mail reaches the agent with its codes and sign-in links, so it can finish
+/// a sign-in; only an app that asks for the filter has them taken out.
 #[test]
-fn every_mail_apps_reads_are_filtered_unless_it_opts_out() {
+fn mail_keeps_its_codes_unless_the_app_asks_for_the_filter() {
     let none = serde_json::json!({});
-    assert!(applies(&app("fastmail", "https://api.fastmail.com/mcp", none.clone()), "fastmail__read"), "a mail app added by its address");
-    assert!(applies(&app("work", "https://mcp.example.com/mcp", serde_json::json!({ "title": "Work Email" })), "work__read"), "titled as mail");
-    assert!(applies(&app("crm", "https://crm.example/mcp", none.clone()), "crm__read_inbox"), "a tool that reads an inbox");
+    assert!(!applies(&app("fastmail", "https://api.fastmail.com/mcp", none.clone()), "fastmail__read"), "a mail app added by its address");
+    assert!(!applies(&app("work", "https://mcp.example.com/mcp", serde_json::json!({ "title": "Work Email" })), "work__read"), "titled as mail");
+    assert!(!applies(&app("crm", "https://crm.example/mcp", none), "crm__read_inbox"), "a tool that reads an inbox");
     assert!(applies(&app("crm", "https://crm.example/mcp", serde_json::json!({ "filter_login_codes": true })), "crm__lookup"), "an app that asks for it");
-    assert!(!applies(&app("crm", "https://crm.example/mcp", none), "crm__lookup"), "an app with no mail");
     assert!(!applies(&app("gmail", "https://gmail.example/mcp", serde_json::json!({ "filter_login_codes": true, "keep_login_codes": true })), "gmail__read"), "the opt-out");
     let catalog = crate::catalog::manifests().iter().find(|m| m.category == "email").map(crate::catalog::connector).unwrap();
-    assert!(applies(&catalog, &format!("{}__read", catalog.name)), "{}: the catalog's email app", catalog.name);
+    assert!(!applies(&catalog, &format!("{}__read", catalog.name)), "{}: the catalog's email app", catalog.name);
 }

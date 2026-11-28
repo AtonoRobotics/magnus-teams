@@ -92,8 +92,27 @@ fn allow_always_makes_a_narrow_rule() {
     assert!(!covers("alice", "mail__send", "eve@evil.example"), "the rule reached another destination");
     assert!(!covers("alice", "mail__delete", "bob@corp.example"), "the rule reached another tool");
     assert!(!covers("carol", "mail__send", "bob@corp.example"), "the rule reached another person");
-    assert!(always_rule("alice", "mail", "mail__send", &[]).is_err(), "Allow always saved a rule with no destination");
     assert_eq!(Reason::ALL.iter().filter(|r| r.always()).collect::<Vec<_>>(), vec![&Reason::OutsideRequest, &Reason::NewDestination]);
+}
+
+/// Allow always on an action that reaches no one saves a rule for that tool
+/// alone, and it covers only actions that reach no one: never a recipient,
+/// so never case 3 (2026-11-28-gates-beyond-the-invariants).
+#[test]
+fn a_rule_with_no_destination_never_reaches_a_recipient() {
+    let bare = always_rule("alice", "crm", "crm__update_record", &[]).unwrap();
+    let named = always_rule("alice", "crm", "crm__update_record", &to(&["bob@corp.example"])).unwrap();
+    let alice: Person = serde_json::from_value(json!({ "id": "alice", "groups": [] })).unwrap();
+    let carol: Person = serde_json::from_value(json!({ "id": "carol", "groups": [] })).unwrap();
+    let facts = |name| crate::policy::ToolFacts { name, app: "crm", risk: Risk::Irreversible, audience: Audience::Internal };
+    let covers = |c: &crate::rules::Compiled, p: &Person, tool, d: &[&str]| crate::rules::allow_covers(c, p, &facts(tool), &to(d));
+    assert!(covers(&bare, &alice, "crm__update_record", &[]), "the tool's own rule did not cover it");
+    assert!(!covers(&bare, &alice, "crm__update_record", &["eve@evil.example"]), "a rule with no destination reached a recipient");
+    assert!(!covers(&bare, &alice, "crm__delete_record", &[]), "the rule reached another tool");
+    assert!(!covers(&bare, &carol, "crm__update_record", &[]), "the rule reached another person");
+    assert!(!covers(&named, &alice, "crm__update_record", &[]), "a rule for named destinations covered an action with none");
+    assert!(covers(&named, &alice, "crm__update_record", &["bob@corp.example"]));
+    assert!(always_rule("alice", "mail", "mail__send", &to(&["   "])).is_err(), "Allow always saved a rule whose destinations were blank");
 }
 
 /// A rule answers case 1 and case 3 as its person's approval; never a
@@ -232,6 +251,15 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     let taint = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
     // Case 3: Allow for the rest of the task and Allow always, as on every card (spec, How an ask looks).
     assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow", "allow_always", "dont_allow"]), json!("task")));
+    let mut bare = item(OUTSIDE_REQUEST, "irreversible", "alice");
+    bare.details["ask_destinations"] = json!([]);
+    bare.details["input"] = json!({ "record": "42", "stage": "closed" });
+    assert_eq!(card(&s, &alice, &bare)["offers"], json!(["allow", "allow_always", "dont_allow"]), "an action with no destination offered no Allow always");
+    let program = card(&s, &alice, &item(crate::desktop::ASK_RULE, "irreversible", "alice"));
+    assert_eq!(program["offers"], json!(["allow", "allow_always", "dont_allow"]), "a program's code on the person's computer offered no Allow always");
+    for own in [LOCAL_ASK_FIRST, &format!("{}r1", crate::rule_effects::PERSON_RULE)] {
+        assert_eq!(card(&s, &alice, &item(own, "irreversible", "alice"))["offers"], json!(["allow", "dont_allow"]), "Allow always beat the person's own {own}");
+    }
     let shown = without_reasoning(&item(OUTSIDE_REQUEST, "irreversible", "alice").details);
     for k in REASONING_FIELDS {
         assert!(shown.get(k).is_none(), "{k} stayed on the user's item");

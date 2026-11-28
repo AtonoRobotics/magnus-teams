@@ -14,13 +14,14 @@ use crate::state::{State, Status};
 
 impl State {
     /// Whether background work of this run may put an ask in front of its
-    /// person: all of it but routines (and their sub-agents): a team
-    /// agent's own, recorded by older releases, and a routine's lane in its
-    /// author's agent (2026-11-23-routine-lanes-ask-no-one), which nobody
-    /// watches and which reports to the channel.
+    /// person: all of it but a team agent's own routines (and their
+    /// sub-agents), recorded by older releases, which have no person. A
+    /// routine's lane in its author's agent asks its author and waits as
+    /// unwatched work does, instead of being refused
+    /// (2026-11-28-gates-beyond-the-invariants).
     pub fn background_asks(&self, run: &str) -> bool {
         let task = self.runs.get(run).map(|r| r.task.as_str()).unwrap_or_default();
-        self.team.run_of(task).is_none() && !self.team.is_routine_task(task) && !self.missions.is_routine_lane(task)
+        self.team.run_of(task).is_none()
     }
 
     /// Whether a background run stopping for `reason` waits for its person

@@ -1,7 +1,9 @@
-//! One-time codes, password reset links and sign-in links are taken out of
-//! mail before it reaches the agent. They are live credentials, and an agent
-//! that can read one can be told to use one
-//! (`decisions/2026-11-23-login-codes-out-of-all-mail.md`).
+//! One-time codes, password reset links and sign-in links can be taken out
+//! of an app's results before they reach the agent, for an app that asks
+//! (`filter_login_codes`). Mail keeps them by default: an agent that cannot
+//! read a code cannot finish a sign-in the person asked for
+//! (`decisions/2026-11-28-gates-beyond-the-invariants.md`, which replaces
+//! `decisions/2026-11-23-login-codes-out-of-all-mail.md`).
 //!
 //! A line that speaks of a code, and the next line with text on it, lose
 //! every word that reads as one: digits, digits in equal groups ("123 456",
@@ -23,9 +25,6 @@ const SIGN_IN_WORDS: [&str; 12] = ["sign in", "sign-in", "signin", "log in", "lo
 /// A link holding one of these is a way into an account.
 const LINK_WORDS: [&str; 16] =
     ["reset", "password", "passwd", "signin", "sign-in", "sign_in", "login", "log-in", "magic", "verify", "confirm", "activate", "auth", "token", "otp", "unlock"];
-/// Words in an app's name, title or address, or a tool's name, that make
-/// it a mail app.
-const MAIL_WORDS: [&str; 4] = ["mail", "inbox", "imap", "outlook"];
 const ESCAPED_NEWLINE: &str = "\\n";
 const MIN_CODE_CHARS: usize = 4;
 /// Up to this long, a code is at least half digits; longer, it mixes
@@ -40,19 +39,13 @@ const MAX_GROUP_DIGITS: usize = 4;
 /// link's path or query: the token a sign-in link carries.
 const MIN_LINK_TOKEN_CHARS: usize = 16;
 
-/// Whether what `tool` of app `c` returns has its codes and sign-in links
-/// taken out: a mail app's, or any app's that asks for it, unless the app
-/// keeps them (`keep_login_codes`, the opt-out). A mail app is one in the
-/// catalog's email category (which sets `filter_login_codes`), or one whose
-/// name, title or address, or the tool's own name, names mail.
-pub fn applies(c: &Connector, tool: &str) -> bool {
-    if c.keep_login_codes {
-        return false;
-    }
-    let host = url::Url::parse(&c.url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default();
-    let own = tool.split_once("__").map_or(tool, |(_, t)| t);
-    let names = [c.name.to_ascii_lowercase(), c.title.clone().unwrap_or_default().to_ascii_lowercase(), host, own.to_ascii_lowercase()];
-    c.filter_login_codes || names.iter().any(|n| MAIL_WORDS.iter().any(|w| n.contains(w)))
+/// Whether what app `c` returns has its codes and sign-in links taken out:
+/// only an app that asks for it (`filter_login_codes`) and does not also
+/// keep them. Mail reaches the agent whole by default, so it can finish a
+/// sign-up or a sign-in the person asked for
+/// (`decisions/2026-11-28-gates-beyond-the-invariants.md`).
+pub fn applies(c: &Connector, _tool: &str) -> bool {
+    c.filter_login_codes && !c.keep_login_codes
 }
 
 impl Connector {

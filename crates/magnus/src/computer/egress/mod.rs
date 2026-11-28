@@ -6,7 +6,7 @@ mod audit;
 mod ca;
 mod download;
 mod http;
-mod policy;
+pub(super) mod policy;
 pub(super) mod surrogate;
 pub(super) mod watch;
 

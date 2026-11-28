@@ -11,8 +11,8 @@
 //! from and in the approval list. The agent never writes or sees it: the
 //! run only waits. Its sentence is the server's, made from structured
 //! fields. Allow covers the rest of the task (same kind, same
-//! destinations), Allow always saves a narrow rule, Don't allow stops the
-//! action. A payment and case 3 are allowed one action at a time.
+//! destinations), Allow always saves a narrow rule (`always_offered`), Don't
+//! allow stops the action. A payment is allowed one action at a time.
 //!
 //! Every approval card is made here, by `raise`, from a `Reason`: there is
 //! no other way to put one in front of a person.
@@ -96,6 +96,16 @@ impl Reason {
     pub fn rule_answers(self) -> bool {
         matches!(self, Reason::OutsideRequest | Reason::NewDestination)
     }
+}
+
+/// Whether an ask made under `rule` offers Allow always, and an accepted
+/// allow rule answers it: where a rule answers its reason, and the default
+/// policy's ask before a program on the person's own computer runs code,
+/// which is the kernel's ask and not the person's
+/// (2026-11-28-gates-beyond-the-invariants). Never a payment, the person's
+/// own ask-first rule, or their computer set to ask before every action.
+pub fn always_offered(rule: Option<&str>) -> bool {
+    rule == Some(crate::desktop::ASK_RULE) || Reason::of(rule).is_some_and(Reason::always)
 }
 
 /// A boundary action (spec rev 140, Boundary actions): a connector write, a
@@ -334,7 +344,7 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     let say = item_sentence(d, &dests);
     let task_wide = reason.is_some_and(Reason::task_wide);
     let mut offers = vec!["allow"];
-    if reason.is_some_and(Reason::always) && viewer.id == i.person && !dests.is_empty() && d["app"].as_str().is_some_and(|a| !a.is_empty()) {
+    if always_offered(d["rule"].as_str()) && viewer.id == i.person && d["app"].as_str().is_some_and(|a| !a.is_empty()) {
         offers.push("allow_always");
     }
     offers.push("dont_allow");
@@ -370,7 +380,8 @@ impl Kernel {
     /// that covers it, or (where a rule may answer) an accepted allow rule
     /// that matches it exactly. Either counts ahead of Auto Review.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn person_cover(&self, run: &Run, a: &Action, f: &Facts, shown: Option<&Shown>, hash: &str, dests: &[String], reason: Option<Reason>) -> Option<Cover> {
+    pub(crate) fn person_cover(&self, run: &Run, a: &Action, f: &Facts, shown: Option<&Shown>, hash: &str, dests: &[String], rule: Option<&str>) -> Option<Cover> {
+        let reason = Reason::of(rule);
         let found: Vec<Approval> = self.read(|s| {
             // A sub-agent holds what was approved for each run above it, and
             // a chat turn what was approved in its conversation.
@@ -389,7 +400,7 @@ impl Kernel {
         if let Some(ap) = found.into_iter().find(theirs) {
             return Some(Cover::Approval(Box::new(ap)));
         }
-        if f.risk == Risk::Financial || !reason.is_none_or(Reason::rule_answers) {
+        if f.risk == Risk::Financial || !(rule.is_none() || always_offered(rule)) {
             return None;
         }
         // A rule stands for its person only while they could approve this
@@ -429,7 +440,7 @@ impl Kernel {
         let hash = shown_hash(a, shown);
         let dests = self.destinations_of(a, f, shown);
         let reason = asked.as_ref().and_then(|(_, r)| Reason::of(Some(r)));
-        if let Some(c) = self.person_cover(run, a, f, shown, &hash, &dests, reason) {
+        if let Some(c) = self.person_cover(run, a, f, shown, &hash, &dests, asked.as_ref().map(|(_, r)| r.as_str())) {
             self.record_cover(a, c, asked.map(|(_, r)| r)).await?;
             return Ok(Gate::Pass);
         }

@@ -643,7 +643,7 @@ impl Kernel {
                 // Only an app's message is staged, and only until the person
                 // has answered for this very action (a staged item they sent
                 // is their approval of it): then it is case 3, answered.
-                let answered = || self.person_cover(run, a, f, shown, &shown_hash(a, shown), &dests, Some(crate::asks::Reason::NewDestination)).is_some();
+                let answered = || self.person_cover(run, a, f, shown, &shown_hash(a, shown), &dests, Some(crate::asks::NEW_DESTINATION)).is_some();
                 let stageable = f.connector.as_ref().and_then(|_| crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input));
                 if let Some(kind) = stageable.filter(|_| !answered()) {
                     let msg = self.stage_action(a, run, f, shown, crate::staging::StageMeta { kind, dests: &dests, reason: why }).await?;

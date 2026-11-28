@@ -336,9 +336,10 @@ async fn in_a_team_thread_only_the_person_who_asked_answers_an_ask() {
     assert_eq!(crm.effects("update_record"), 1, "the answer of the person who asked did not count");
 }
 
-/// Test 40. The team agent's own work reports to the channel and has no one to ask.
+/// Test 40. A routine reports to the channel, and what would ask goes to its
+/// author, who alone answers it (decisions/2026-11-28-gates-beyond-the-invariants.md).
 #[tokio::test(flavor = "multi_thread")]
-async fn the_team_agents_own_work_reports_to_the_channel_and_asks_no_one() {
+async fn a_routine_reports_to_the_channel_and_asks_its_author() {
     let crm = mcp::crm().start().await;
     // Posted text, so not secret-shaped (the scrubber would hold a canary).
     let report = "Routine report: the records are in order.".to_string();
@@ -352,14 +353,22 @@ async fn the_team_agents_own_work_reports_to_the_channel_and_asks_no_one() {
     assert_eq!(app.api("carol").post(&in_team(&ws, "routines"), body.clone()).await.0, 403, "a guest set a shared routine");
     let (code, v) = alice.post(&in_team(&ws, "routines"), body).await;
     assert_eq!(code, 200, "{v}");
+    let ask = eventually("the routine asked its author", PATIENCE, || async {
+        let (_, inbox) = alice.get("/v1/inbox").await;
+        inbox["items"].as_array()?.iter().find(|i| i["kind"] == "approval").and_then(|i| i["id"].as_str().map(String::from))
+    })
+    .await;
+    assert_eq!(crm.effects("update_record"), 0, "the routine acted before its author answered");
+    let (_, theirs) = bob.get("/v1/inbox").await;
+    assert!(theirs["items"].as_array().unwrap().iter().all(|i| i["kind"] != "approval"), "a routine's ask reached someone other than its author: {theirs}");
+    assert_ne!(bob.respond(&ask, json!({ "decision": "approve", "scope": "once" })).await, 200, "a member answered the author's ask");
+    assert_eq!(alice.respond(&ask, json!({ "decision": "approve", "scope": "once" })).await, 200, "the author could not answer");
     eventually("the routine reported", PATIENCE, || async {
         let (_, seen) = bob.get(&in_team(&ws, &format!("channels/{channel}/messages"))).await;
         seen.to_string().contains(&report).then_some(())
     })
     .await;
-    assert_eq!(crm.effects("update_record"), 0, "the team agent's own work acted on something that would have asked");
-    let (_, inbox) = alice.get("/v1/inbox").await;
-    assert!(inbox["items"].as_array().unwrap().iter().all(|i| i["kind"] != "approval"), "background work asked someone: {inbox}");
+    assert_eq!(crm.effects("update_record"), 1, "the author's answer did not count");
     let calls = model.requests().len();
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(model.requests().len(), calls, "a routine ran again inside its interval");

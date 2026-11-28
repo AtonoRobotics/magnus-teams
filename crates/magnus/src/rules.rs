@@ -43,7 +43,8 @@ pub struct Compiled {
     pub connector: String,
     /// Empty matches every tool of the connector (ask and block only).
     pub tool: String,
-    /// Empty matches every destination (ask and block only).
+    /// Empty matches every destination for an ask or a block, and only an
+    /// action with no destination for an allow (`allow_covers`).
     pub destinations: Vec<String>,
     pub once: bool,
     pub cedar: String,
@@ -176,19 +177,23 @@ fn quoted(s: &str) -> Result<String, String> {
     serde_json::to_string(s).map_err(|e| e.to_string())
 }
 
-/// The match, as Cedar. An allow is narrow: one tool, named destinations.
-/// An ask or a block may be as wide as one connector, because widening
-/// either only makes the agent do less.
+/// The match, as Cedar. An allow is narrow: one tool, and the destinations
+/// it names. One that names none covers only actions that reach no
+/// destination (`Kernel::covering_rule`), so it never answers case 3
+/// (2026-11-28-gates-beyond-the-invariants). An ask or a block may be as
+/// wide as one connector, because widening either only makes the agent do
+/// less.
 pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String], once: bool, effect: Effect) -> Result<Compiled, String> {
     if connector.is_empty() {
         return Err("a rule names a connector".to_string());
     }
-    if effect == Effect::Allow && (tool.is_empty() || destinations.is_empty()) {
-        return Err("a rule that allows names a connector, a tool and at least one destination".to_string());
+    if effect == Effect::Allow && tool.is_empty() {
+        return Err("a rule that allows names a connector and a tool".to_string());
     }
+    let named = !destinations.is_empty();
     let destinations: Vec<String> = destinations.iter().map(|d| normalized(d)).filter(|d| !d.is_empty()).collect();
-    if effect == Effect::Allow && destinations.is_empty() {
-        return Err("a rule that allows names at least one destination".to_string());
+    if effect == Effect::Allow && named && destinations.is_empty() {
+        return Err("a rule that allows names its destinations as addresses or hosts".to_string());
     }
     let scope = if tool.is_empty() { format!("resource in App::{}", quoted(connector)?) } else { format!("resource == Tool::{}", quoted(tool)?) };
     let mut when = vec![format!("resource in App::{}", quoted(connector)?)];
@@ -212,6 +217,17 @@ pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String
     policy::validate(&cedar).map_err(|e| e.to_string())?;
     let once = once && effect == Effect::Allow;
     Ok(Compiled { connector: connector.to_string(), tool: tool.to_string(), destinations, once, cedar, effect })
+}
+
+/// Whether an allow rule covers an action reaching `destinations`. One that
+/// names destinations covers an action whose every destination it names;
+/// one that names none covers only an action that reaches none, so it never
+/// widens to a recipient (and never answers case 3, which always has one).
+pub(crate) fn allow_covers(c: &Compiled, person: &crate::config::Person, facts: &ToolFacts, destinations: &[String]) -> bool {
+    if destinations.is_empty() {
+        return c.destinations.is_empty() && policy::rule_covers(&c.cedar, person, facts, "").unwrap_or(false);
+    }
+    !c.destinations.is_empty() && destinations.iter().all(|d| policy::rule_covers(&c.cedar, person, facts, d).unwrap_or(false))
 }
 
 fn strings<'a>(v: &'a Value, key: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
@@ -240,16 +256,13 @@ impl Kernel {
     /// The accepted rule that covers this action, if one matches exactly.
     pub(crate) fn covering_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<String> {
         let destinations = self.destinations_of(a, f, shown);
-        if destinations.is_empty() {
-            return None;
-        }
         let person = self.person(&run.person)?;
         let facts = ToolFacts::from(f);
         let rules = self.rules_for(&run.person);
-        rules.into_iter().filter(|r| r.live() && r.effect() == Effect::Allow).find_map(|r| {
-            let cedar = r.compiled.as_ref()?.cedar.clone();
-            destinations.iter().all(|d| policy::rule_covers(&cedar, &person, &facts, d).unwrap_or(false)).then_some(r.id)
-        })
+        rules
+            .into_iter()
+            .filter(|r| r.live() && r.effect() == Effect::Allow)
+            .find_map(|r| r.compiled.as_ref().is_some_and(|c| allow_covers(c, &person, &facts, &destinations)).then_some(r.id))
     }
 
     /// Denied whatever a policy, grant, rule or approval says, and never
@@ -461,11 +474,13 @@ mod tests {
         assert!(!policy::rule_covers(&c.cedar, &person("alice"), &facts("drafts__send", "drafts"), "eve@evil.example").unwrap());
     }
 
-    /// Allow stays narrow; ask and block may cover a whole connector.
+    /// Allow stays narrow: one tool, and an allow naming no destination is
+    /// kept with none, so it covers only actions that reach none
+    /// (`allow_covers`). Ask and block may cover a whole connector.
     #[test]
     fn only_ask_and_block_may_be_as_wide_as_a_connector() {
         assert!(compile("alice", "slack", "", &[], false, Effect::Allow).is_err(), "an allow covered a whole connector");
-        assert!(compile("alice", "slack", "slack__post", &[], false, Effect::Allow).is_err(), "an allow covered every destination");
+        assert!(compile("alice", "slack", "slack__post", &[], false, Effect::Allow).is_ok_and(|c| c.destinations.is_empty()), "a tool's own allow was refused");
         let alice = person("alice");
         let block = compile("alice", "slack", "", &[], false, Effect::Block).unwrap();
         assert!(policy::rule_covers(&block.cedar, &alice, &facts("slack__post", "slack"), "").unwrap());

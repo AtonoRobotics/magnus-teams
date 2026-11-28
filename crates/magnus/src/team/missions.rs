@@ -313,11 +313,6 @@ impl MissionLedger {
         self.missions.values().find(|m| m.lanes.values().any(|l| l.kind == LaneKind::MemberAgent && l.child_task.as_deref() == Some(task)))
     }
 
-    /// Whether `task` is the work of a lane a routine fired.
-    pub fn is_routine_lane(&self, task: &str) -> bool {
-        self.missions.values().flat_map(|m| m.lanes.values()).any(|l| l.routine.is_some() && l.child_task.as_deref() == Some(task))
-    }
-
     /// Whether this lane can take `step` now (`LaneStatus::next`).
     pub fn lane_can(&self, mission: &str, lane: &str, step: LaneStep) -> bool {
         self.missions.get(mission).and_then(|m| m.lanes.get(lane)).is_some_and(|l| l.status.next(step).is_some())

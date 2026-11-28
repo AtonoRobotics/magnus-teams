@@ -1,8 +1,10 @@
 //! Sources a task may use from the person's computer. A host the computer
 //! cannot reach yet is a new source. It never asks on its own (spec rev 140,
 //! Asking grants the work): Auto Review judges it as a boundary action, and
-//! once through it is granted to this task, reachable only while the task
-//! runs.
+//! once through it stays reachable from the person's computer, with every
+//! method, so the next task does not ask again and a form there can be sent
+//! (2026-11-28-gates-beyond-the-invariants). Before, it was granted to the
+//! one task (`Change::DestinationGranted`, still read from the log).
 use super::service::checked_host;
 use super::Change;
 use crate::boundary::Action;
@@ -25,10 +27,14 @@ impl Kernel {
             Ok(h) => h,
             Err(e) => return Ok((e.to_string(), true, None)),
         };
-        let granted = Change::DestinationGranted { id, host: host.clone(), task: run.task.clone() };
-        Ok(match self.record_computer(&person, granted).await {
-            Ok(()) => (format!("{host} can be reached from your computer for this task."), false, None),
+        let added = Change::DestinationAdded { id, host: host.clone() };
+        Ok(match self.record_computer(&person, added).await {
+            Ok(()) => (format!("{host} can be reached from your computer from now on."), false, None),
             Err(e) => (e.to_string(), true, None),
         })
     }
 }
+
+#[cfg(test)]
+#[path = "sources_tests.rs"]
+mod tests;
