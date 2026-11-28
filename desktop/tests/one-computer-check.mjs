@@ -37,7 +37,7 @@ listed = [];
 page.fresh();
 await sandbox.showComputers(page.body);
 await settle();
-assert.match(page.body.innerHTML, /being set up/, "a person without their computer yet is not told it is coming");
+assert.match(page.body.innerHTML, /made the first time it is needed/, "a person without their computer yet is not told it is coming");
 assert.doesNotMatch(page.body.innerHTML, /New computer|You have no cloud computer/);
 
 // One computer's page: Reset, and no way to end with none.

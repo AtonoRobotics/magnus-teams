@@ -12,7 +12,7 @@
 
 .control-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0; }
 .control-strip .grow { flex: 1; }
-.control-strip .control-words { color: var(--fg2); }
+.control-strip .control-detail { color: var(--fg2); }
 .control-strip button.icon { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .control-strip button.icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -39,13 +39,8 @@
 .screen-veil { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px 16px 64px; text-align: center; background: rgba(9, 10, 13, .62); color: #ECEFF4; font-size: 15px; }
 .screen-veil span { font-size: 13px; color: #A6B0C3; max-width: 36em; }
 .screen-veil svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.wake-bar { width: min(240px, 70%); height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .2); overflow: hidden; }
-.wake-bar > div { height: 6px; border-radius: 3px; background: var(--accent); transition: width .4s var(--ease); }
 
-.screen-hold { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 8px 8px 8px 14px; border-radius: var(--r-md); background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong); font-size: 13px; box-shadow: var(--shadow); }
-.screen-hold button { height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-sm); background: var(--accent); color: var(--accent-fg); font-size: 12px; font-weight: 600; flex: none; }
 
-.screen-caption { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 12px 18px; background: rgba(9, 10, 13, .88); color: #ECEFF4; font-size: 13px; pointer-events: none; }
 
 /* The computer in the conversation's head: what it is doing, and a way to pin it. */
 .computer-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface); color: var(--fg2); cursor: pointer; }

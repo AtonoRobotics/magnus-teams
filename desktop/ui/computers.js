@@ -14,7 +14,7 @@ const b64Of = bytes => { let s = ""; for (const b of bytes) s += String.fromChar
 const stateChip = c => {
   const w = controlWords(c, false), runs = (c.driving?.runs || []).filter(r => r.status === "running"), whom = workingForWhom(c);
   const tasks = runs.map(r => `<a href="#/task/${enc(r.task)}" data-open="task:${esc(r.task)}">${esc(taskName(r.task))}</a>`);
-  const more = w.key === "working" && tasks.length ? ` <span class="small">${whom.length ? `for ${esc(andList(whom))} ` : ""}on ${tasks.join(", ")}</span>` : w.who === "person" ? ` <span class="small">${esc(w.text)}</span>` : "";
+  const more = w.key === "working" && tasks.length ? ` <span class="small">${whom.length ? `for ${esc(andList(whom))} ` : ""}on ${tasks.join(", ")}</span>` : "";
   return `<span class="state-pill" data-pill="${w.key}">${esc(w.pill)}</span>${more}`;
 };
 
@@ -26,11 +26,10 @@ const stateChip = c => {
  * @param {Array<{ id: string, name?: string, owner?: { person?: string, workspace?: string }, queue_position?: number }>} computers as GET /v1/computers lists them
  */
 function cloudComputers(computers) {
-  const row = c => `<tr data-computer="${esc(c.id)}"><td><a href="#/computer/${enc(c.id)}">${esc(c.name || "Computer")}</a></td><td>${stateChip(c)}${c.queue_position ? ` <span class="small faint">number ${esc(c.queue_position)} in line</span>` : ""}</td><td><button data-open="computer:${esc(c.id)}">Pin beside the conversation</button></td></tr>`;
+  const row = c => `<tr data-computer="${esc(c.id)}"><td><a href="#/computer/${enc(c.id)}">${esc(c.name || "Computer")}</a></td><td>${stateChip(c)}</td><td><button data-open="computer:${esc(c.id)}">Pin beside the conversation</button></td></tr>`;
   const mine = computers.filter(c => c.owner?.person), teams = computers.filter(c => c.owner?.workspace);
   return `<h2>Your computer</h2>
-    ${mine.length ? `<table class="t"><tbody>${mine.map(row).join("")}</tbody></table>` : `<p class="empty">Your computer is being set up. It is ready the first time it is needed.</p>`}
-    <p class="small muted">It is always there: it sleeps when no one uses it and wakes whenever ${esc(agentName({}))} or you need it.</p>
+    ${mine.length ? `<table class="t"><tbody>${mine.map(row).join("")}</tbody></table>` : `<p class="empty">Your computer is made the first time it is needed.</p>`}
     ${teams.length ? `<h2>Team computers</h2><table class="t"><tbody>${teams.map(row).join("")}</tbody></table>` : ""}`;
 }
 
@@ -260,10 +259,9 @@ async function showComputer(main, id, tab) {
  */
 function computerApps(c) {
   const apps = c.apps || [];
-  return `<p class="small muted">${esc(agentName(c))} installs an app itself when a task needs one. Each is written down here, with where it came from, before it counts as installed, so a reset or a rebuild puts it back.</p>
-    ${c.replay_error ? `<div class="banner bad" role="status">Putting the apps back failed: ${esc(c.replay_error)}</div>` : ""}
+  return `${c.replay_error ? `<div class="banner bad" role="status">Putting the apps back failed: ${esc(c.replay_error)}</div>` : ""}
     ${apps.length ? `<table class="t computer-apps"><thead><tr><th>App</th><th>Version</th><th>From</th><th>May also reach</th></tr></thead><tbody>${apps.map(a => `<tr data-app="${esc(a.name)}"><td>${esc(a.name)}</td><td class="n">${esc(a.version)}</td><td class="small">${esc(a.source)}</td><td class="small faint">${esc((a.hosts || []).join(", ") || "Nothing else")}</td></tr>`).join("")}</tbody></table>`
-      : `<p class="empty">No apps installed yet. It has a desktop, a browser and the usual tools.</p>`}`;
+      : `<p class="empty">No apps installed yet.</p>`}`;
 }
 
 /**
@@ -281,9 +279,9 @@ function computerApps(c) {
  */
 function computerScreen(body, c, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
-  body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div><div class="screen-hold" data-hold role="status" hidden><span data-hold-words></span><button data-done-here>I'm done</button></div><p class="screen-caption" data-caption></p></div><p class="small bad" id="display-error" hidden></p></div>`;
+  body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div></div><p class="small bad" id="display-error" hidden></p></div>`;
   const preview = $("#preview", body);
-  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "", recording: false, recordedSteps: [] };
+  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, recording: false, recordedSteps: [] };
   const reviewRecordedSteps = steps => new Promise(done => {
     const d = document.createElement("dialog");
     d.className = "ask";
@@ -320,10 +318,8 @@ function computerScreen(body, c, alive, opts = {}) {
   const take = async () => {
     if (view.holding) return;
     view.holding = true;
-    view.note = view.c.status === "running" ? "" : "Waking it so you can take control";
     let grant;
-    try { grant = await Server.computers.takeover(view.c.id); } catch (e) { view.holding = false; view.note = ""; strip(); return toast(e.message); }
-    view.note = "";
+    try { grant = await Server.computers.takeover(view.c.id); } catch (e) { view.holding = false; strip(); return toast(e.message); }
     takeOver(body, view.c.id, grant, view, strip);
   };
   // A sleeping screen wakes when clicked; an awake one is taken (the mockup).
@@ -334,8 +330,8 @@ function computerScreen(body, c, alive, opts = {}) {
   };
   const handBack = async () => { if (!(await readyToHandBack(view.c.id))) return; try { const r = await Server.computers.handback(view.c.id); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
   const done = () => view.done ? view.done() : handBack();
-  // The strip, the veil, the "you are in control" bar and the caption, all
-  // from the computer as last seen; only what changed is redrawn.
+  // The strip and the veil, from the computer as last seen; only what
+  // changed is redrawn. The strip is the one place that says how it stands.
   const strip = () => {
     const bar = $("[data-screen-bar]", body);
     if (!bar) return;
@@ -351,12 +347,6 @@ function computerScreen(body, c, alive, opts = {}) {
     const veil = view.holding ? "" : screenVeil(c, view.shot), v = $("[data-veil]", body);
     if (v && v.html !== veil) { v.innerHTML = veil; v.html = veil; }
     if (v) v.hidden = !veil;
-    const hold = $("[data-hold]", body), words = $("[data-hold-words]", body), done2 = $("[data-done-here]", body);
-    if (hold) hold.hidden = !view.holding;
-    if (words) words.textContent = `You're in control. ${agentName(c)} is paused.`;
-    if (done2) done2.onclick = done;
-    const p = $("[data-caption]", body);
-    if (p) { p.hidden = false; p.textContent = view.note || screenCaption(c, view.shot, view.holding); }
     const asleep = !view.holding && c.status !== "running" && c.status !== "paused", frame = $("[data-screen]", body);
     if (frame) {
       frame.className = `screen${asleep || (c.waking && !view.holding) ? " asleep" : ""}${view.holding ? " held" : ""}${c.status === "paused" ? " still" : ""}`;

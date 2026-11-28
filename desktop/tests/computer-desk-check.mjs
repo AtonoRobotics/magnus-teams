@@ -15,7 +15,7 @@ assert.match(apps, /data-app="gimp"/, "an installed app is not listed");
 assert.match(apps, /2\.10/);
 assert.match(apps, /apt: &#60;archive&#62;/, "the source was not escaped");
 assert.match(apps, /\*\.gimp\.org/, "what the app may reach is not shown");
-assert.match(apps, /Magnus installs an app itself/);
+assert.doesNotMatch(apps, /installs an app itself/, "the apps tab explains itself before showing the apps");
 assert.match(sandbox.computerApps({ apps: [] }), /No apps installed yet/);
 assert.match(sandbox.computerApps({ apps: [], replay_error: "hash mismatch" }), /Putting the apps back failed: hash mismatch/);
 

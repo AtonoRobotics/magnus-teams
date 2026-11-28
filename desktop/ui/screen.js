@@ -69,67 +69,48 @@ function takeoverRequestCard(i) {
     <button data-item="${esc(i.id)}" data-decision="done">I did it another way</button><button data-item="${esc(i.id)}" data-decision="decline">Decline</button></div>`;
 }
 
-/** How far a wake has got, in words and as a share of the way. */
-const WAKE_WORDS = { starting: "Waking: starting it", booting: "Waking: starting its desktop", restoring: "Waking: restoring your apps and files" };
-const WAKE_SHARE = { starting: 20, booting: 50, restoring: 80 };
+/** How far a wake has got: each phase in words, and its place among them. */
+const WAKE_PHASES = ["starting", "booting", "restoring"];
+const WAKE_WORDS = { starting: "Starting it", booting: "Starting its desktop", restoring: "Restoring your apps and files" };
 
 /**
- * The computer's state as its panel shows it: one pill, and one sentence that
- * always says who holds control and whether the agent is paused (spec rev
- * 131, User takeover and handback: Preview).
- * @param {{ status: string, controller: string|null, controller_name?: string, waking?: object|null, driving?: Driving }} c
+ * The computer's state as its strip shows it, once: the pill says who holds
+ * control and whether the agent is paused (spec rev 131, User takeover and
+ * handback: Preview), and `text` adds only what the pill cannot hold, such
+ * as for whom and on what the agent works.
+ * @param {{ status: string, controller: string|null, controller_name?: string, waking?: object|null, queue_position?: number, driving?: Driving }} c
  * @param {boolean} holding this view holds the stream
  * @returns {{ who: "person"|"agent"|"no_one", mine: boolean, key: string, pill: string, text: string }}
  */
 function controlWords(c, holding) {
   const agent = agentName(c), mine = holding || (!!c.controller && c.controller === App.me?.id);
-  const free = (key, pill) => ({ who: "no_one", mine, key, pill, text: `No one has control. ${agent} is not paused.` });
-  if (mine) return { who: "person", mine, key: "mine", pill: "You are in control", text: `You have control. ${agent} is paused.` };
-  if (c.controller) { const name = c.controller_name || c.controller; return { who: "person", mine, key: "held", pill: `${name} is in control`, text: `${name} has control. ${agent} is paused.` }; }
-  if (c.status === "paused") return { who: "no_one", mine, key: "paused", pill: "Paused", text: `No one has control. ${agent} is paused by the kill switch.` };
-  if (c.driving?.request) return { who: "no_one", mine, key: "asks", pill: `${agent} asks you to take over`, text: `No one has control. ${agent} is paused: it asks you to take over.` };
-  if (c.status === "queued") return free("queued", "Waiting for room");
+  const free = (key, pill, text = "") => ({ who: "no_one", mine, key, pill, text });
+  if (mine) return { who: "person", mine, key: "mine", pill: `You are in control · ${agent} paused`, text: "" };
+  if (c.controller) return { who: "person", mine, key: "held", pill: `${c.controller_name || c.controller} is in control · ${agent} paused`, text: "" };
+  if (c.status === "paused") return free("paused", `Paused by the kill switch`);
+  if (c.driving?.request) return free("asks", `${agent} asks you to take over`, (TAKEOVER_REASONS[c.driving.request.reason] || c.driving.request.reason).toLowerCase());
+  if (c.status === "queued") return free("queued", "Waiting for room", c.queue_position ? `number ${c.queue_position} in line` : "");
   if (c.waking) return free("waking", "Waking");
   if (c.status !== "running") return free("asleep", "Asleep");
-  if (c.driving?.by === "agent") return { who: "agent", mine, key: "working", pill: `${agent} is working`, text: `${agent} has control. It is working ${workingFor(c) || "on a task"}.` };
+  if (c.driving?.by === "agent") return { who: "agent", mine, key: "working", pill: `${agent} is working`, text: workingFor(c) };
   return free("ready", "Ready");
 }
 
 /**
- * What the bar along the bottom of the screen says. It is always there, as in
- * the mockup: what is on the screen, and what a click on it does.
- * @param {{ status: string, controller: string|null, controller_name?: string, waking?: { phase: string }|null, queue_position?: number, driving?: Driving }} c
+ * What covers a screen that is not live: asleep, waking or waiting for room,
+ * with the wake's real progress. "" when it is awake.
+ * @param {{ status: string, waking?: { phase: string }|null, queue_position?: number }} c
  * @param {{ waking?: { phase: string }|null, at?: string|null }|null} shot
- * @param {boolean} [holding] this view holds the stream
- */
-function screenCaption(c, shot, holding = false) {
-  const waking = shot?.waking || c.waking, agent = agentName(c), r = c.driving?.request;
-  if (c.status === "paused") return "Paused by the kill switch. Resume it to use it again.";
-  if (holding || (c.controller && c.controller === App.me?.id)) return `Your mouse and keyboard reach the computer. ${agent} sees nothing until you hand back.`;
-  if (c.status === "queued") return `Waiting for room on the server${c.queue_position ? `, number ${c.queue_position} in line` : ""}. It wakes as soon as there is room.`;
-  if (waking) return WAKE_WORDS[waking.phase] || "Waking";
-  if (c.status !== "running") return `Asleep. It wakes when ${agent} needs it. Click to wake it now.${shot?.at ? ` Last seen ${when(shot.at)}.` : ""}`;
-  if (c.controller) return `${c.controller_name || c.controller} is using it. Click the screen to take control.`;
-  if (r) return `${agent} asks you to take over: ${(TAKEOVER_REASONS[r.reason] || r.reason).toLowerCase()}. Click the screen to take control.`;
-  if (c.driving?.by === "agent") return `Working ${workingFor(c) || "on a task"} · click the screen to take control`;
-  return "No one is using it. Click the screen to take control.";
-}
-
-/**
- * What covers a screen that is not live: asleep, waking or waiting for room.
- * "" when it is awake.
- * @param {{ status: string, waking?: { phase: string }|null }} c
- * @param {{ waking?: { phase: string }|null }|null} shot
  */
 function screenVeil(c, shot) {
   const waking = shot?.waking || c.waking;
   if (c.status === "paused") return "";
-  if (c.status === "queued" || waking) {
-    const queued = c.status === "queued", share = queued ? 5 : WAKE_SHARE[waking.phase] || 10;
-    const words = queued ? "It wakes as soon as there is room on the server." : (WAKE_WORDS[waking.phase] || "Waking").replace(/^Waking: (.)/, (_, ch) => ch.toUpperCase());
-    return `<strong>${queued ? "Waiting for room" : "Waking"}</strong><div class="wake-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${share}"><div style="width:${share}%"></div></div><span>${esc(words)}</span>`;
+  if (c.status === "queued") return `<strong>Waiting for room</strong><span>It wakes as soon as there is room on the server${c.queue_position ? `, number ${esc(c.queue_position)} in line` : ""}.</span>`;
+  if (waking) {
+    const at = WAKE_PHASES.indexOf(waking.phase);
+    return `<strong>Waking</strong><span>${esc(WAKE_WORDS[waking.phase] || "Starting it")}${at >= 0 ? ` · step ${at + 1} of ${WAKE_PHASES.length}` : ""}</span>`;
   }
-  if (c.status !== "running") return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><strong>Asleep</strong><span>It wakes when ${esc(agentName(c))} needs it. Click to wake it now.</span>`;
+  if (c.status !== "running") return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><strong>Asleep</strong><span>Click to wake it.${shot?.at ? ` Last seen ${esc(when(shot.at))}.` : ""}</span>`;
   return "";
 }
 
@@ -141,7 +122,7 @@ function controlStrip(c, holding, recording = false) {
   const paste = w.mine ? `<button type="button" data-paste-clipboard title="Paste your clipboard into this computer">Paste</button>` : "";
   const rec = w.mine ? `<button type="button" class="${recording ? "primary" : ""}" data-record-steps>${recording ? "Stop &amp; teach Magnus" : "Record steps"}</button>` : "";
   const act = w.mine ? `${paste}${rec}<button class="primary" data-done>I'm done</button>` : c.status === "paused" ? "" : `<button class="primary" data-take>Take control</button>`;
-  return `<span class="state-pill" data-pill="${w.key}" data-control="${w.who}">${esc(w.pill)}</span><span class="small control-words">${esc(w.text)}</span><span class="grow"></span>${act}<button class="icon" data-full title="Full screen" aria-label="Full screen">${FULL_SCREEN_ICON}</button>`;
+  return `<span class="state-pill" data-pill="${w.key}" data-control="${w.who}">${esc(w.pill)}</span>${w.text ? `<span class="small control-detail">${esc(w.text)}</span>` : ""}<span class="grow"></span>${act}<button class="icon" data-full title="Full screen" aria-label="Full screen">${FULL_SCREEN_ICON}</button>`;
 }
 
 /**
@@ -154,7 +135,7 @@ function computerChip(computers) {
   const c = (computers || []).find(x => x.owner?.person === App.me?.id);
   if (!c) return "";
   const w = controlWords(c, false), agent = agentName(c);
-  const words = { working: `${agent} is using your computer`, mine: "You are in control of your computer", held: `${w.pill} of your computer`, asks: w.pill, paused: "Your computer is paused", queued: "Your computer is waiting for room", waking: "Your computer is waking", asleep: "Your computer is asleep" }[w.key] || "Your computer";
+  const words = { working: `${agent} is using your computer`, mine: "You are in control of your computer", held: `${c.controller_name || c.controller} is in control of your computer`, asks: w.pill, paused: "Your computer is paused", queued: "Your computer is waiting for room", waking: "Your computer is waking", asleep: "Your computer is asleep" }[w.key] || "Your computer";
   return `<button type="button" class="computer-chip" data-pill="${w.key}" data-open="computer:${esc(c.id)}" title="Show its screen beside the conversation"><svg viewBox="0 0 24 24" aria-hidden="true">${UI.computer}</svg><span class="computer-chip-words">${esc(words)}</span></button>`;
 }
 

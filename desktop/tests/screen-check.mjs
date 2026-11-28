@@ -33,10 +33,10 @@ assert.equal(sandbox.drivingLine({ status: "hibernated", controller: null }), ""
 const forBob = running({ by: "agent", person: null, runs: [{ run: "r1", task: "t1", status: "running", agent: "Magnus", sub: false, for: "bob", for_name: "Bob" }], request: null });
 assert.match(sandbox.drivingLine(forBob), /Magnus is using it.*for Bob on .*Book the flight/s);
 assert.equal(sandbox.controlWords(forBob, false).pill, "Magnus is working");
-assert.equal(sandbox.controlWords(forBob, false).text, "Magnus has control. It is working for Bob on Book the flight.");
+assert.equal(sandbox.controlWords(forBob, false).text, "for Bob on Book the flight");
 const forMe = running({ by: "agent", person: null, runs: [{ run: "r1", task: "t1", status: "running", agent: "Magnus", sub: true, for: "alice", for_name: "Alice" }], request: null });
-assert.match(sandbox.controlWords(forMe, false).text, /working for you on Book the flight \(with a sub-agent\)/);
-assert.equal(sandbox.controlWords({ ...forBob, controller: "bob", controller_name: "Bob" }, false).text, "Bob has control. Magnus is paused.");
+assert.equal(sandbox.controlWords(forMe, false).text, "for you on Book the flight (with a sub-agent)");
+assert.equal(sandbox.controlWords({ ...forBob, controller: "bob", controller_name: "Bob" }, false).pill, "Bob is in control · Magnus paused");
 
 // The conversation's head says what the person's own computer is doing, and
 // a click pins its screen beside the conversation.
