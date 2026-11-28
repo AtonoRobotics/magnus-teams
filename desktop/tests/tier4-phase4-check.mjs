@@ -12,7 +12,6 @@ const read = rel => fs.readFileSync(path.join(ROOT, rel), "utf8");
 for (const file of [
   "desktop/ui/aurora-alerts.js",
   "desktop/ui/aurora-compact.js",
-  "desktop/ui/aurora-pages.js",
   "desktop/ui/aurora-explore.js",
 ]) {
   const src = read(file);

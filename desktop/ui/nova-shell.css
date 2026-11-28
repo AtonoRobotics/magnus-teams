@@ -396,28 +396,6 @@ html[data-style="nova"] .nova-frame-spend {
   }
 }
 
-html[data-style="nova"] .aurora-page-close {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  min-height: 36px;
-  margin: -8px -8px 0 0;
-  border: 1px solid var(--hair);
-  border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  color: var(--fg2);
-}
-
-html[data-style="nova"] .aurora-page-close:hover {
-  color: var(--fg);
-  border-color: var(--line-strong);
-}
-
-html[data-style="nova"] .aurora-page-close:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
 html[data-style="nova"] .stage-bento-bottom {
   position: relative;
   flex: none;

@@ -25,10 +25,10 @@ const teamsJs = readFileSync(join(here, "../ui/teams.js"), "utf8");
 assert.doesNotMatch(teamsJs, /Server\.workspaces\.missions/, "teams.js must not poll retired missions endpoint");
 
 // 3. Unified Stage + Canvas architecture: 3-island .team-shell and body[data-team] are retired; #/team/:ws mounts on the unified workspace shell.
-const stageCss = readFileSync(join(here, "../ui/aurora-stage.css"), "utf8");
+const stageCss = readFileSync(join(here, "../ui/nova-stage.css"), "utf8");
 const teamsCss = readFileSync(join(here, "../ui/teams.css"), "utf8");
 const avatarJs = readFileSync(join(here, "../ui/aurora-avatar.js"), "utf8");
-assert.doesNotMatch(stageCss, /body\[data-team\]/, "aurora-stage.css has no separate body[data-team] frame override");
+assert.doesNotMatch(stageCss, /body\[data-team\]/, "nova-stage.css has no separate body[data-team] frame override");
 assert.doesNotMatch(teamsCss, /\.team-shell\b|\.team-rail\b|\.room-video-/, "teams.css has no 3-island .team-shell or call stage");
 assert.match(teamsJs, /route\(\/\^#\\\/team\\\/\(\[\^\/\]\+\)\(\\\/\.?\*\)\?\$\/,[\s\S]*?,\s*true\)/, "#/team/:ws routes mount with workspace=true on the unified Stage + Canvas");
 assert.doesNotMatch(avatarJs, /\.team-rail-head\s+\.room-orb|\.room-video-listening\s+\.room-orb/, "aurora-avatar.js has no retired .team-rail or call orb hooks");

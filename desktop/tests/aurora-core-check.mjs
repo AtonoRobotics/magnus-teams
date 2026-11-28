@@ -13,7 +13,7 @@ const assets = readFileSync(join(here, "../../crates/magnus/src/ui/assets.rs"), 
 
 const corePos = index.indexOf('<script src="aurora-core.js"></script>');
 assert.ok(corePos >= 0, "index.html loads aurora-core.js");
-for (const dep of ["aurora.js", "aurora-avatar.js", "aurora-orb.js", "aurora-reasoning.js", "aurora-compact.js", "aurora-pages.js", "aurora-alerts.js"]) {
+for (const dep of ["aurora.js", "aurora-avatar.js", "aurora-orb.js", "aurora-reasoning.js", "aurora-compact.js", "aurora-alerts.js"]) {
   const pos = index.indexOf(`<script src="${dep}"></script>`);
   assert.ok(pos > corePos, `index.html loads aurora-core.js before ${dep}`);
 }

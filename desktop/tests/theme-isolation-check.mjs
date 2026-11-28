@@ -23,11 +23,6 @@ for (const sheet of BASE_SHEETS) {
 
 // 2. Each theme stylesheet may only target its own declared theme scope(s).
 const THEME_SCOPES = {
-  "aurora.css": new Set(["aurora", "obsidian-aurora"]),
-  "aurora-widgets.css": new Set(["aurora", "obsidian-aurora"]),
-  "aurora-stage.css": new Set(["aurora", "obsidian-aurora"]),
-  "aurora-rail.css": new Set(["aurora", "obsidian-aurora"]),
-  "aurora-compact.css": new Set(["aurora", "obsidian-aurora"]),
   "nova.css": new Set(["nova"]),
   "nova-stage.css": new Set(["nova"]),
   "nova-shell.css": new Set(["nova"]),
@@ -71,7 +66,7 @@ assert.equal(Theme.get("prism").id, "classic", "Legacy prism alias resolves to c
 assert.equal(Theme.get("aurora").id, "nova", "Legacy aurora alias resolves to nova");
 
 // 4. Shared JS modules must query Theme capabilities instead of hardcoding `=== "nova"`.
-const SHARED_JS = ["app.js", "aurora-rail.js", "aurora-pages.js", "aurora-avatar.js", "discover.js"];
+const SHARED_JS = ["app.js", "aurora-rail.js", "aurora-avatar.js", "discover.js"];
 for (const file of SHARED_JS) {
   const src = ui(file);
   assert.doesNotMatch(src, /dataset\.style\s*[!=]==?\s*"nova"/, `Shared module ${file} must use Theme.has()/Theme.get() instead of hardcoding dataset.style === "nova"`);

@@ -87,26 +87,18 @@ assert.match(novaCss, /html\[data-style="nova"\] \.lgrid/, "nova.css must style 
 assert.match(novaCss, /html\[data-style="nova"\] \.explore-grid/, "nova.css must style 3-column Explore grid");
 assert.match(novaCss, /\.stage-tile\[data-tier="financial"\]/, "nova.css must style Side Bento financial receipt tiles");
 
-// 6. Complete theme isolation: no Aurora stylesheet may ever target Nova.
-for (const sheet of ["aurora.css", "aurora-widgets.css", "aurora-stage.css", "aurora-rail.css", "aurora-compact.css"]) {
-  assert.doesNotMatch(ui(sheet), /data-style="nova"/, `${sheet} must not style Nova`);
-}
+// 6. Complete theme isolation: dead Aurora stylesheets are retired and nova-stage.css paints no opaque overlay.
 assert.doesNotMatch(ui("nova-stage.css"), /\.shell::before/, "nova-stage.css must not paint an opaque .shell::before overlay over main");
 
-// 7. Nova needs nothing from an Aurora sheet: every animation a Nova sheet
-// runs is a keyframe a Nova sheet (or base.css) defines, never an Aurora one.
+// 7. Nova is self-contained: every animation a Nova sheet runs is a keyframe a Nova sheet (or base.css) defines.
 const NOVA_SHEETS = ["nova.css", "nova-stage.css", "nova-shell.css", "nova-widgets.css"];
 const novaAll = NOVA_SHEETS.map(ui).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
 const frames = new Set([...(novaAll + ui("base.css")).matchAll(/@keyframes\s+([\w-]+)/g)].map(m => m[1]));
-const auroraFrames = new Set(["aurora.css", "aurora-widgets.css", "aurora-stage.css", "aurora-rail.css", "aurora-compact.css"]
-  .flatMap(s => [...ui(s).matchAll(/@keyframes\s+([\w-]+)/g)].map(m => m[1])));
 for (const m of novaAll.matchAll(/animation(?:-name)?\s*:\s*([^;}]+)/g)) {
   const name = m[1].trim().split(/[\s,]+/)[0];
   if (name === "none") continue;
-  assert.ok(!auroraFrames.has(name) || frames.has(name), `a Nova sheet runs Aurora's keyframes ${name}`);
   assert.ok(frames.has(name), `a Nova sheet runs keyframes ${name} that no Nova sheet defines`);
 }
-for (const f of frames) assert.ok(!auroraFrames.has(f), `Nova's keyframes ${f} share a name with Aurora's`);
 
 // 8. The widgets the shared stage engines draw under Nova have Nova rules.
 for (const c of ["aurora-reason", "aurora-reason-toggle", "aurora-reason-steps", "aurora-reason-chev", "aurora-reason-spark",

@@ -19,24 +19,22 @@ import { fileURLToPath } from "node:url";
 const uiDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui");
 const read = f => fs.readFileSync(path.join(uiDir, f), "utf8");
 
-const stageCss = read("aurora-stage.css");
-const compactCss = read("aurora-compact.css");
+const stageCss = read("nova-stage.css");
+const shellCss = read("nova-shell.css");
 const stageJs = read("aurora-stage.js") + "\n" + read("aurora-stage-view.js");
 
-// 1. Container query targets parent main (aurora-main), never self-querying aurora-conv.
+// 1. Container query targets parent main (aurora-main), never self-querying conv.
 assert.match(stageCss, /main:has\(> section\.conv\)\s*\{[^}]*container-name:\s*aurora-main;/s, "main:has(> section.conv) must declare container-name: aurora-main");
 assert.match(stageCss, /@container\s+aurora-main\s+\(min-width:\s*820px\)/, "composed stage grid must query @container aurora-main");
-assert.doesNotMatch(stageCss, /@container\s+aurora-conv\s+\(min-width:/, "aurora-conv must never self-query section.conv");
 
 // 2. Wide composed grid puts .thread left, .stage-bento right (Side), and .stage-bento-bottom full-width below (Bottom).
-assert.match(stageCss, /section\.conv\[data-stage-mode="composed"\]\s*>\s*\.stage-bento\s*\{[^}]*grid-column:\s*2;\s*grid-row:\s*3;/s, "Side Bento occupies right column beside .thread");
-assert.match(stageCss, /section\.conv\[data-stage-mode="composed"\]\s*>\s*\.stage-bento-bottom\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;\s*grid-row:\s*4;/s, "Bottom Bento spans full width below .thread and Side Bento");
-assert.match(compactCss, /\.stage-bento-bottom\[data-count="0"\]\s*\{[^}]*height:\s*0;/s, "empty Bottom Bento folds to 0 height");
+assert.match(stageCss, /section\.conv\[data-stage-mode="composed"\][^\{]*>\s*\.stage-bento\s*\{[^}]*grid-column:\s*2;\s*grid-row:\s*3;/s, "Side Bento occupies right column beside .thread");
+assert.match(stageCss, /section\.conv\[data-stage-mode="composed"\][^\{]*>\s*\.stage-bento-bottom\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;\s*grid-row:\s*4;/s, "Bottom Bento spans full width below .thread and Side Bento");
+assert.match(shellCss, /\.stage-bento-bottom\[data-count="0"\]\s*\{[^}]*height:\s*0;/s, "empty Bottom Bento folds to 0 height");
 
 // 3. Antigravity-style change history styling strips card chrome inside #thread.
-assert.match(compactCss, /#thread \[data-history="1"\]\s*\{[^}]*border-left:\s*2px solid var\(--aurora-rim\)/s, "thread history uses quiet left vertical rail");
-assert.match(compactCss, /#thread \[data-history="1"\] \.sub-agent\s*\{[^}]*background:\s*transparent;/s, "sub-agent rows in #thread strip glass card background");
-assert.match(compactCss, /#thread \[data-history="1"\] \.card-acts\s*\{\s*display:\s*none;\s*\}/, "inline card action bars are hidden in #thread history");
+assert.match(shellCss, /#thread \[data-history="1"\] \.sub-agent\s*\{[^}]*background:\s*transparent;/s, "sub-agent rows in #thread strip card background");
+assert.match(shellCss, /#thread \[data-history="1"\] \.card-acts\s*\{\s*display:\s*none;\s*\}/, "inline card action bars are hidden in #thread history");
 
 // 4. aurora-stage.js consolidates sub-agents inside Live Workspace as inline expandable rows (no per-sub-agent card flood) and keeps tight caps.
 assert.doesNotMatch(stageJs, /key:\s*`sub:\$\{/, "sub-agents must not spawn a separate bento card per sub-agent");

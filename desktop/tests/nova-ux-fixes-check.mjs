@@ -6,7 +6,7 @@
 // Apps spotlight at the top.
 import assert from "node:assert/strict";
 import { readAppBundle } from "./app-bundle.mjs";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -89,7 +89,7 @@ assert.doesNotMatch(app + ux, /topBarHtml/, "the conversation head no longer pai
 assert.match(frame, /data-nova-set-avatar/, "the top bar has the companion pill");
 assert.match(frame, /data-nova-toggle-mode/, "the top bar has Light / Dark");
 assert.match(frame, /Spend this month: /, "the top bar shows the month's spend, the only period the server keeps");
-assert.match(read("aurora-pages.js"), /!Theme\.has\("pageCloseButton"\)\) \{ mine\?\.remove\(\); return; \}/, "Nova pages get no lone close");
+assert.ok(!existsSync(join(here, "../ui", "aurora-pages.js")), "retired aurora-pages.js is removed");
 assert.match(read("index.html"), /<script src="nova-frame\.js"><\/script>/, "the app loads the top bar");
 assert.match(read("nova-shell.css"), /\.shell > \.nova-frame-bar \{[^}]*grid-row: 1;[^}]*grid-column: 2 \/ -1;/, "the bar is the shell's first row, beside the rail");
 

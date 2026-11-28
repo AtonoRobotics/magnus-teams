@@ -4,7 +4,7 @@
 // (decisions/2026-11-22-aurora-stability-navigation-and-updates.md).
 import assert from "node:assert/strict";
 import { readAppBundle } from "./app-bundle.mjs";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -12,68 +12,8 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (/** @type {string} */ rel) => readFileSync(join(here, "..", rel), "utf8");
 
-// 1. AuroraPages never records a non-conversation route as its back target
-// when hashchange fires before an async page replaces #main.
-{
-  let hash = "#/chat/c1";
-  let hasConv = true;
-  let barAdded = null;
-  const mainEl = {
-    firstElementChild: {},
-    querySelector(sel) {
-      if (sel === ":scope > .aurora-page-bar") return barAdded;
-      if (sel.includes("section.conv")) return hasConv ? {} : null;
-      if (sel === "h1") return { textContent: "Explore" };
-      return null;
-    },
-    querySelectorAll() { return []; },
-    getBoundingClientRect() { return { top: 0 }; },
-    prepend(el) { barAdded = el; },
-  };
-  const winListeners = new Map();
-  const docListeners = new Map();
-  const ctx = {
-    location: { get hash() { return hash; }, set hash(v) { hash = v; } },
-    Theme: { stage: s => s === "aurora" || s === "obsidian-aurora" },
-    icon: () => "<svg/>",
-    requestAnimationFrame: fn => fn(),
-    window: {
-      addEventListener(t, fn) { winListeners.set(t, [...(winListeners.get(t) || []), fn]); },
-    },
-    document: {
-      readyState: "complete",
-      documentElement: { dataset: { style: "obsidian-aurora" } },
-      body: {},
-      getElementById: id => (id === "main" ? mainEl : null),
-      createElement: () => ({
-        className: "", type: "", title: "", innerHTML: "",
-        setAttribute() {}, append() {}, remove() { barAdded = null; },
-        querySelector() { return { setAttribute() {} }; },
-      }),
-      addEventListener(t, fn) { docListeners.set(t, [...(docListeners.get(t) || []), fn]); },
-    },
-    MutationObserver: class { observe() {} },
-  };
-  vm.createContext(ctx);
-  vm.runInContext(`${read("ui/aurora-pages.js")}\nthis.AuroraPages = AuroraPages;`, ctx);
-
-  // Visit a conversation so AuroraPages records #/chat/c1.
-  ctx.AuroraPages.place();
-
-  // Navigate to #/explore while #main still holds section.conv (async load in flight).
-  hash = "#/explore";
-  for (const fn of winListeners.get("hashchange") || []) fn();
-  assert.equal(ctx.AuroraPages.back, "#/chat/c1", "hashchange before async page mount must not overwrite conversation target with #/explore");
-
-  // Once Explore replaces #main, clicking close must still navigate back to #/chat/c1.
-  hasConv = false;
-  ctx.AuroraPages.place();
-  assert.equal(ctx.AuroraPages.back, "#/chat/c1");
-  for (const fn of docListeners.get("click") || []) {
-    fn({ target: { closest: sel => (sel === ".aurora-page-close" ? {} : null) }, preventDefault() {} });
-  }
-  assert.equal(hash, "#/chat/c1", "clicking .aurora-page-close returns to the last conversation");
-}
+// 1. Retired aurora-pages.js is removed (Nova uses the rail; Classic has no stage).
+assert.equal(existsSync(join(here, "../ui/aurora-pages.js")), false, "retired aurora-pages.js must be deleted");
 
 // 2. Discover.show does not wipe .explore-page on background App.redraw() calls.
 {
@@ -141,7 +81,7 @@ const exploreAnim = read("ui/aurora-explore.js");
 const rail = read("ui/aurora-rail.js");
 const app = readAppBundle();
 const admin = read("ui/admin.js");
-const stageCss = read("ui/aurora-stage.css");
+const stageCss = read("ui/nova-stage.css");
 const updateRs = read("src-tauri/src/update.rs");
 
 assert.match(aurora, /querySelector\("#main > \*:not\(section\.conv\):not\(\.aurora-page-bar\)"\)/, "aurora.js ignores .aurora-page-bar in viewKey");
@@ -157,17 +97,16 @@ assert.match(app, /class="nav-apps primary-nav/, "left rail includes Apps link")
 assert.match(app, /if \(App\.serverVersion && App\.serverVersion !== v\.version\) refreshUpdate\(true\)/, "server version change triggers desktop update check");
 assert.match(app, /let restartingUpdate = false;/, "restartToUpdate guards against concurrent clicks");
 assert.match(admin, /submit\.disabled = true/, "stepUp disables Confirm button while in flight");
-assert.match(stageCss, /@container aurora-conv \(max-width: 680px\)/, "conversation header adapts to container width");
+assert.match(stageCss, /@container aurora-main \(min-width: 820px\)/, "nova-stage.css adapts to container width");
 assert.match(updateRs, /\*ups\.ready\.lock\(\)\.unwrap\(\) = Some\(\(update, bytes\)\);/, "update_install restores ready update on install failure");
 
 // 4. Send-to-Stop square, Steer, close deduplication, sizing harmony, and autonomy UX.
 const composerJs = read("ui/chat-composer.js");
 const personalJs = read("ui/personal-chat.js");
 const teamConvJs = read("ui/team-conversation.js");
-const pagesJs = read("ui/aurora-pages.js");
 const asksJs = read("ui/asks.js");
 const chatCss = read("ui/chat.css");
-const auroraCss = read("ui/aurora.css");
+const novaCss = read("ui/nova.css");
 const pagesCss = read("ui/pages.css");
 
 assert.match(app, /stop:\s*'<rect /, "app.js defines UI.stop so Stop square SVG always renders");
@@ -178,8 +117,6 @@ assert.match(composerJs, /conv\.steerRun/, "composer supports steering active wo
 assert.match(personalJs, /steerRun:/, "personal chat wires Server.tasks.steer");
 assert.match(personalJs, /next\.pendingRun = carry\.pendingRun/, "new-chat handoff preserves optimistic Stop state");
 assert.match(teamConvJs, /stopRun:/, "team chat wires Stop support");
-assert.match(pagesJs, /chat\(\?:\\\/\|\$\)\|team\\\//, "aurora-pages.js treats shared conversations (#/team/) as first-class conversations");
-assert.match(pagesJs, /modalRoute/, "aurora-pages.js exempts Settings/Admin modal routes from background close X");
 assert.match(app, /\[data-close-work\]"\)\.hidden=!work \|\| m\.split \|\| region==="work"/, "workspace-bar hides duplicate Close work when panel shows its own close");
 assert.match(app, /class="icon-btn settings-close" data-settings-done/, "Settings modal uses standard X close button");
 assert.match(app, /data-settings-filter/, "Settings modal includes live tab filter");
@@ -189,7 +126,7 @@ assert.match(asksJs, /class="ask-tier"/, "approval cards display risk-tier impac
 assert.match(rail, /function syncBadge\(\)/, "Aurora left rail syncs active-work/approval badge");
 assert.match(stage, /aurora-verified-pill/, "completed answers show Verified pill when receipts exist");
 assert.match(chatCss, /button\.send \{ width: 32px; height: 32px;/, "composer Send/Stop button is the mockup's 32px (decisions/2026-11-27-compact-nova.md)");
-assert.match(auroraCss, /button\.send\.is-stop \{/, "Aurora styles Stop square with high contrast");
+assert.match(chatCss, /button\.send\.is-stop/, "chat.css styles Stop square with high contrast");
 assert.match(pagesCss, /\.lclose \{ width: 36px; height: 36px;/, "Apps close button harmonized to 36px on desktop");
 
 console.log("aurora stability check passed");

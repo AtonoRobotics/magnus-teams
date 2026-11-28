@@ -33,13 +33,7 @@ const ORB_TURN_MS = 600;
     done: { c1: [52, 211, 153], c2: [16, 185, 129], c3: [209, 250, 229], speed: 0.6, amp: 0.08, mark: "tick" },
     failed: { c1: [251, 113, 133], c2: [225, 29, 72], c3: [254, 205, 211], speed: 0.5, amp: 0.06, mark: "bar" },
   };
-  // Obsidian 2 Aurora keeps its quieter, silver ready and thinking.
-  /** @type {Record<string, Partial<Look>>} */
-  const OBSIDIAN = {
-    ready: { c1: [220, 224, 234], c2: [120, 136, 162], c3: [248, 250, 252] },
-    thinking: { c1: [124, 140, 255], c2: [216, 220, 230], c3: [224, 231, 255] },
-  };
-  const look = (/** @type {string} */ s) => ({ ...(AURORA[s] || AURORA.ready), ...(document.documentElement.dataset.style === "obsidian-aurora" ? OBSIDIAN[s] || {} : {}) });
+  const look = (/** @type {string} */ s) => ({ ...(AURORA[s] || AURORA.ready) });
   const moving = () => document.documentElement.dataset.motion === "full";
   const mix = (/** @type {number} */ a, /** @type {number} */ b, /** @type {number} */ t) => a + (b - a) * t;
   const mixRgb = (/** @type {Rgb} */ a, /** @type {Rgb} */ b, /** @type {number} */ t) => /** @type {Rgb} */ ([mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]);
