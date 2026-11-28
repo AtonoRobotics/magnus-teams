@@ -20,7 +20,7 @@ assert.deepEqual([...T.AVATAR_CHOICES.map(a => a[0])], ['pip', 'mochi', 'orb', '
 
 // Validation and clamping.
 const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', background: 'lasers', avatar: 'robot', navigation: 'floating', sidebar: 'drawer', panelWidthPx: 9999 });
-assert.deepEqual({ ...p }, { style: 'nova', mode: 'dark', accent: 'blue', motion: 'full', background: 'particles', avatar: 'pip', navigation: 'expanded', sidebar: 'rail', panelWidthPx: 560 });
+assert.deepEqual({ ...p }, { style: 'nova', mode: 'dark', accent: 'blue', motion: 'full', background: 'off', avatar: 'pip', navigation: 'expanded', sidebar: 'rail', panelWidthPx: 560 });
 // Stage styles start as a rail unless the sidebar is pinned; classic keeps the navigation chosen.
 for (const style of ['nova', 'aurora', 'obsidian-aurora']) {
   assert.equal(T.navigation(T.preferences({ style, navigation: 'expanded' })), 'compact', `${style} starts as a rail`);
@@ -58,7 +58,7 @@ assert.equal(v2({ theme: 'dark' }).mode, 'dark');
 assert.equal(v2({ theme: 'ember' }).mode, 'dark');
 assert.equal(v2({ theme: 'corporate' }).mode, 'light');
 assert.equal(v2({ theme: 'dark', followComputer: true }).mode, 'system');
-assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'nova', mode: 'dark', accent: 'amber', motion: 'reduced', background: 'particles', avatar: 'pip', navigation: 'compact', sidebar: 'rail', panelWidthPx: 480 });
+assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'nova', mode: 'dark', accent: 'amber', motion: 'reduced', background: 'off', avatar: 'pip', navigation: 'compact', sidebar: 'rail', panelWidthPx: 480 });
 
 // In the page: per-person storage, legacy read once and left intact, a
 // failed write keeps the choice for the session and says so, and old records
@@ -107,9 +107,21 @@ store.set('magnus.ui.v2.appliance-c.gail', JSON.stringify({ style: 'obsidian', m
 U.scope('appliance-c', 'gail');
 assert.equal(U.prefs().style, 'nova', 'a record from before Nova moves to Nova');
 assert.equal(U.prefs().accent, 'rose'); assert.equal(U.prefs().mode, 'light'); assert.equal(U.prefs().panelWidthPx, 420);
-assert.equal(JSON.parse(store.get('magnus.ui.v2.appliance-c.gail')).look, 2, 'the move is written once');
+assert.equal(JSON.parse(store.get('magnus.ui.v2.appliance-c.gail')).look, 3, 'the move is written once');
 U.set({ style: 'classic' }); U.scope('appliance-c', 'gail');
 assert.equal(U.prefs().style, 'classic', 'a style chosen after the move stays');
 U.set({ panelWidthPx: 400 }); U.scope('appliance-c', 'gail');
 assert.equal(U.prefs().style, 'classic', 'a later splitter drag keeps the chosen style');
+// A record from look 2 holds Particles as the default it was then: it moves
+// to Off once, keeping its chosen style. Ribbons were chosen and stay
+// (decisions/2026-11-28-ui-without-ceremony.md).
+store.set('magnus.ui.v2.appliance-c.hal', JSON.stringify({ style: 'classic', mode: 'dark', accent: 'blue', motion: 'full', background: 'particles', avatar: 'orb', look: 2 }));
+U.scope('appliance-c', 'hal');
+assert.deepEqual([U.prefs().background, U.prefs().style, U.prefs().avatar], ['off', 'classic', 'orb'], 'a look-2 record keeps its Particles, or loses its chosen style');
+assert.equal(JSON.parse(store.get('magnus.ui.v2.appliance-c.hal')).look, 3, 'the move to Off is written once');
+U.set({ background: 'particles' }); U.scope('appliance-c', 'hal');
+assert.equal(U.prefs().background, 'particles', 'Particles chosen after the move do not stay');
+store.set('magnus.ui.v2.appliance-c.ida', JSON.stringify({ style: 'nova', background: 'ribbons', look: 2 }));
+U.scope('appliance-c', 'ida');
+assert.equal(U.prefs().background, 'ribbons', 'a chosen background was taken away');
 console.log('preferences: validation, style, migration, per-person storage and storage failure passed');

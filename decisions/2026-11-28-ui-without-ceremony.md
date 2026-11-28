@@ -25,3 +25,25 @@ moves. Each goes; what the spec asks for stays, said once.
   for the progress, and the phases are all there is to show.
 - The paragraphs that explained the page ("It is always there…", how apps
   are recorded) are gone.
+
+## The rest of the app
+
+- A new conversation is its title and the composer. The "Autonomous
+  launchpads" with their emoji, the prismatic showcase tiles (a colour
+  mosaic, "Editorial Playbooks", a "Live Workspace" badge) and the cobalt
+  halo behind them are gone. They were sample work, not the person's.
+- Settings → Appearance picks a companion without the "Live Companion
+  Preview" that acted out states (Listening, Thinking, Done…) nothing was in.
+- Apps & Skills opens on its search and catalog, without the Featured banner
+  that advertised one app of the catalog.
+- The top bar says where the person is and the month's spend, and holds an
+  admin's kill switch. The companion picker and Light / Dark leave it: they
+  are set once, in Settings, not offered on every screen.
+- The animated background (Particles) is off by default. Ribbons,
+  Constellation and Particles stay in Settings for whoever chooses them. A
+  saved look holds the whole record, so one saved before look 3 holds
+  Particles as the default it was then: it moves to Off once, keeping the
+  rest, as the move to Nova did (2026-11-26-saved-looks-move-to-nova-once.md).
+  A background chosen after that stays.
+- Kept, because they inform or act: Task Replay, keyboard approval triage,
+  the companion itself, the wake's progress, the kill switch.

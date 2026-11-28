@@ -2,8 +2,9 @@
 // checked so it stays fixed (decisions/2026-11-26-nova-matches-its-spec.md):
 // batch approval (⌘K call shape, Tier 1 never batched, same kind only), the
 // Briefing (summary from /v1/briefing, live routines only, honest dry run,
-// spend and snooze), the de-cluttered top bar, one inbox count, and the
-// Apps spotlight at the top.
+// spend and snooze), the de-cluttered top bar and one inbox count. The Apps
+// spotlight went with the owner's "remove ceremony, and theater"
+// (decisions/2026-11-28-ui-without-ceremony.md).
 import assert from "node:assert/strict";
 import { readAppBundle } from "./app-bundle.mjs";
 import { existsSync, readFileSync } from "node:fs";
@@ -79,15 +80,15 @@ assert.match(stage, /batchableApprovals\(pending\)/, "the stage's batch bar uses
 assert.match(pages, /prompt_preview/, "a dry run says what the routine would ask");
 assert.doesNotMatch(pages, /brief\?\.summary/, "no field the server never sends");
 
-// 3. Top bar: in Nova, Share and the computer chip are in the ••• menu, and
-// the quick controls are in the top bar across every screen (nova-frame.js),
-// which also says where the person is and this month's spend.
+// 3. Top bar: in Nova, Share and the computer chip are in the ••• menu. The
+// top bar across every screen (nova-frame.js) says where the person is and
+// this month's spend; the companion and Light / Dark are chosen in Settings,
+// not offered on every screen (decisions/2026-11-28-ui-without-ceremony.md).
 const frame = read("nova-frame.js");
 assert.match(app, /const inMenu = nova \? `\$\{chip\}\$\{shareBtn\}` : "";/, "Nova puts Share and the computer chip in the menu");
 assert.match(app, /<div class="row">\$\{nova \? "" : `\$\{chip\}\$\{shareBtn\}`\}/, "Nova's head shows neither outside the menu");
 assert.doesNotMatch(app + ux, /topBarHtml/, "the conversation head no longer paints the quick controls");
-assert.match(frame, /data-nova-set-avatar/, "the top bar has the companion pill");
-assert.match(frame, /data-nova-toggle-mode/, "the top bar has Light / Dark");
+assert.doesNotMatch(frame, /data-nova-set-avatar|data-nova-toggle-mode/, "the top bar offers the companion or Light / Dark on every screen");
 assert.match(frame, /Spend this month: /, "the top bar shows the month's spend, the only period the server keeps");
 assert.ok(!existsSync(join(here, "../ui", "aurora-pages.js")), "retired aurora-pages.js is removed");
 assert.match(read("index.html"), /<script src="nova-frame\.js"><\/script>/, "the app loads the top bar");
@@ -116,10 +117,10 @@ assert.match(app, /pending && !Panel\.what && !\(typeof Theme !== "undefined" &&
 assert.match(rail, /const count = activeOnly \? active : waiting \|\| active;/, "Nova's rail button counts running work only");
 assert.match(app, /inbox: "Inbox \/ Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills"/, "Nova's rail labels follow the spec");
 
-// 5. Home title and the Apps spotlight.
+// 5. Home title, and no Apps spotlight.
 assert.match(read("theme.js"), /introHeading:\s*"Where should we start\?"/, "Nova's home asks where to start");
 assert.match(discover, /features\?\.introHeading/, "discover.js reads introHeading from Theme");
-assert.match(ux, /:scope > \.lhead[\s\S]*head\.insertAdjacentElement\("afterend", hero\)/, "the spotlight goes straight under the Apps header");
+assert.doesNotMatch(ux, /nova-featured/, "Apps leads with a featured banner");
 assert.match(stage, /\$\{v\.foot \|\| ""\}/, "the stage shell can carry the computer footer");
 
 console.log("nova-ux-fixes-check: ok");

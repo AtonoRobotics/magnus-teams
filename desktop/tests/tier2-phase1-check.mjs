@@ -3,7 +3,7 @@
 // 2. Takeover controlStrip renders Paste button when user holds control.
 // 3. Sub-agent rows render inline Stop button for active sub-agents and omit it when ended.
 // 4. Local computer offline files disable Download/Delete buttons and quick-add folder chips exist.
-// 5. Nova Home launchpads adapt to connected apps (GitHub/Mail/Slack vs universal fallbacks).
+// 5. Nova Home stages no launchpads.
 import assert from "node:assert/strict";
 import { readAppBundle } from "./app-bundle.mjs";
 import { readFileSync } from "node:fs";
@@ -71,12 +71,11 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
   assert.match(compSrc, /const id = esc\(c\.id\), dis = online \? "" : " disabled";/, "madeThere must disable file actions when computer is offline");
 }
 
-// 5. Adaptive Nova launchpads respond to connected apps.
+// 5. A new conversation stages no launchpads: they went with the owner's
+// "remove ceremony, and theater" (decisions/2026-11-28-ui-without-ceremony.md).
 {
   const uxSrc = ui("nova-ux.js");
-  assert.match(uxSrc, /function adaptiveLaunchpads\(\)/, "nova-ux.js must compute adaptive launchpads from App.connectors");
-  assert.match(uxSrc, /Review open PRs/, "adaptive launchpads must include GitHub-specific prompt");
-  assert.match(uxSrc, /Catch up on quiet Slack threads/, "adaptive launchpads must include Slack-specific prompt");
+  assert.doesNotMatch(uxSrc, /adaptiveLaunchpads|LAUNCHPADS|nova-showcase/, "nova-ux.js still stages launchpads on a new conversation");
 }
 
 console.log("tier 2 phase 1 check ok");

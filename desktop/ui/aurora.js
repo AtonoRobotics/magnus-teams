@@ -72,7 +72,7 @@
   function statePalette() { return styleName() === "obsidian-aurora" ? OBSIDIAN_STATES : AURORA_STATES; }
   function isLight() { return document.documentElement.dataset.mode === "light"; }
   function motionMode() { return document.documentElement.dataset.motion || "full"; }
-  function bgStyle() { return document.documentElement.dataset.background || "particles"; }
+  function bgStyle() { return document.documentElement.dataset.background || "off"; }
 
   function detectState() {
     if (typeof AuroraCore !== "undefined") return AuroraCore.refreshState();

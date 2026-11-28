@@ -61,7 +61,7 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const DEFAULTS = { style: "nova", mode: "dark", accent: "blue", motion: "full", background: "particles", avatar: "pip" };
+  const DEFAULTS = { style: "nova", mode: "dark", accent: "blue", motion: "full", background: "off", avatar: "pip" };
   /** Maps retired legacy theme ids to their consolidated first-class replacement. */
   const LEGACY_STYLE_ALIASES = {
     obsidian: "classic",
@@ -279,8 +279,11 @@
   // so one saved before Nova became the default holds the style that was the
   // default then, not a choice. Such a record (no `look`, or an older one)
   // moves to Nova once; a style chosen after that stays
-  // (decisions/2026-11-26-saved-looks-move-to-nova-once.md).
-  const LOOK = 2;
+  // (decisions/2026-11-26-saved-looks-move-to-nova-once.md). Likewise a
+  // record from before look 3 holds Particles as the default it was then, so
+  // it moves to Off once; Ribbons or Constellation were chosen and stay
+  // (decisions/2026-11-28-ui-without-ceremony.md).
+  const LOOK = 3;
   const store = () => {
     if (!key) return;
     try { localStorage.setItem(key, JSON.stringify({ ...current, look: LOOK })); } catch { Theme.saved = false; }
@@ -289,7 +292,9 @@
     key = person ? `magnus.ui.v2.${appliance}.${person}` : null;
     const saved = key && parse(key), legacy = key && !saved ? parse(LEGACY_KEY) : null;
     const before = !!saved && typeof saved === "object" && saved.look !== LOOK;
-    current = preferences(before ? { ...saved, style: DEFAULTS.style } : saved || legacy);
+    const look = before ? Number(saved.look) || 0 : LOOK;
+    const moved = before ? { ...saved, ...(look < 2 ? { style: DEFAULTS.style } : {}), ...(saved.background === "particles" ? { background: DEFAULTS.background } : {}) } : null;
+    current = preferences(moved || saved || legacy);
     Theme.saved = true;
     // Only a choice is stored, or a record being migrated: defaults stay
     // unstored, so a later change of default reaches everyone who never chose.

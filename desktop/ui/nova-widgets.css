@@ -645,7 +645,6 @@ html[data-style="nova"] .libpage .lseg button[aria-pressed="true"] {
   color: var(--fg);
 }
 
-html[data-style="nova"] .libpage > .nova-featured { order: 1; }
 html[data-style="nova"] .libpage > .lbar { order: 2; }
 html[data-style="nova"] .libpage > .lchips { display: none; }
 html[data-style="nova"] .libpage > #lib-sections { order: 3; padding-top: 0; gap: 32px; }

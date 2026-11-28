@@ -1,8 +1,9 @@
 // Nova's screens in the real app, beside its mockup
 // (docs/nova-greenfield-mockup.html), at the mockup's window size:
 // - every screen has the mockup's top bar beside the rail: where the person
-//   is and the month's spend on the left, the companion and Light / Dark
-//   controls on the right; a page has no lone close;
+//   is and the month's spend; the companion and Light / Dark are chosen in
+//   Settings, not on every screen, and nothing is staged to show off
+//   (decisions/2026-11-28-ui-without-ceremony.md); a page has no lone close;
 // - the compact rail is Nova's 60px column.
 // Each screen is saved to MAGNUS_SHOTS, to be put beside the mockup's.
 //
@@ -37,7 +38,7 @@ const frame = () => page.evaluate(() => {
     hash: location.hash,
     bar: shown(bar),
     barTitle: bar?.querySelector(".nova-page-title")?.textContent?.trim() || "",
-    controls: shown(bar?.querySelector(".nova-topbar-ctrls") || null),
+    companion: !!bar?.querySelector("[data-nova-set-avatar], [data-nova-toggle-mode]"),
     spend: bar?.querySelector(".nova-frame-spend")?.textContent || "",
     loneClose: [...document.querySelectorAll("#main .aurora-page-close")].some(shown),
     rail: rail ? Math.round(rail.getBoundingClientRect().width) : 0,
@@ -61,7 +62,9 @@ try {
     await page.waitForTimeout(800);
     let f = await frame();
     if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-home.png`) });
-    check(`${mode}: New Chat has the top bar with its controls`, () => assert.deepEqual([f.bar, f.barTitle, f.controls], [true, "New conversation", true], JSON.stringify(f)));
+    check(`${mode}: New Chat has the top bar, with no companion or Light / Dark in it`, () => assert.deepEqual([f.bar, f.barTitle, f.companion], [true, "New conversation", false], JSON.stringify(f)));
+    const staged = await page.evaluate(() => ({ showcase: !!document.querySelector(".nova-showcase, [data-nova-prompt]"), halo: getComputedStyle(document.body, "::before").backgroundImage }));
+    check(`${mode}: a new conversation stages no showcase and no halo`, () => assert.deepEqual([staged.showcase, /gradient/.test(staged.halo)], [false, false], JSON.stringify(staged)));
     check(`${mode}: the bar shows the month's spend`, () => assert.match(f.spend, /^Spend this month: \$\d+\.\d\d/, JSON.stringify(f)));
     check(`${mode}: the rail is Nova's 60px column`, () => assert.equal(f.rail, 60, JSON.stringify(f)));
     const rail = await page.evaluate(() => {
@@ -76,13 +79,13 @@ try {
     await go(await page.evaluate(() => `#/chat/${encodeURIComponent(App.threads[0].thread)}`));
     f = await frame();
     if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-stage.png`) });
-    check(`${mode}: a conversation has the top bar with its controls`, () => assert.deepEqual([f.bar, f.barTitle, f.controls], [true, "Conversation", true], JSON.stringify(f)));
+    check(`${mode}: a conversation has the top bar`, () => assert.deepEqual([f.bar, f.barTitle, f.companion], [true, "Conversation", false], JSON.stringify(f)));
     for (const [hash, name, title] of [["#/projects", "projects", "Project Hub"], ["#/briefing", "briefing", "Morning Briefing & Routines"], ["#/explore", "explore", "Explore & Artifacts"], ["#/library", "apps", "Apps & Skills"]]) {
       await go(hash);
       f = await frame();
       if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-${name}.png`) });
       check(`${mode}: ${name} has the top bar, titled ${title}`, () => assert.deepEqual([f.bar, f.barTitle], [true, title], JSON.stringify(f)));
-      check(`${mode}: ${name} has the controls in its bar`, () => assert.equal(f.controls, true, JSON.stringify(f)));
+      check(`${mode}: ${name} has no companion or Light / Dark in its bar`, () => assert.equal(f.companion, false, JSON.stringify(f)));
       check(`${mode}: ${name} has no lone close`, () => assert.equal(f.loneClose, false, JSON.stringify(f)));
     }
     // Apps in the mockup's measures (owner, 2026-11-27: "Fonts, font size,
@@ -92,17 +95,16 @@ try {
       const q = (/** @type {string} */ sel) => document.querySelector(sel);
       const box = (/** @type {?Element} */ e) => e ? e.getBoundingClientRect() : null;
       const css = (/** @type {?Element} */ e, /** @type {string} */ p) => e ? getComputedStyle(e).getPropertyValue(p) : "";
-      const h1 = q(".libpage > .lhead h1"), seg = q(".libpage > .lhead .lseg"), hero = q(".libpage > .nova-featured");
-      const art = q(".nova-featured-art"), copy = q(".nova-featured-copy"), search = q(".libpage .lsearch"), label = q("#lib-sections .lsect-head h2");
+      const h1 = q(".libpage > .lhead h1"), seg = q(".libpage > .lhead .lseg"), hero = q(".nova-featured");
+      const search = q(".libpage .lsearch"), label = q("#lib-sections .lsect-head h2");
       const rows = [...document.querySelectorAll("#lib-sections .lcard")].slice(0, 2), row = rows[0] || null;
       const r0 = box(rows[0] || null), r1 = box(rows[1] || null);
       return {
         page: Math.round(box(q(".libpage"))?.width || 0),
         h1: [css(h1, "font-size"), css(h1, "font-weight")],
         segBesideTitle: !!seg && Math.abs((box(seg)?.top || 0) - (box(h1)?.top || 0)) < 40,
-        hero: !!hero && css(hero, "border-top-left-radius") === "24px" && Math.abs((box(art)?.width || 0) - (box(copy)?.width || 1)) < 4,
-        heroActs: [...(hero?.querySelectorAll(".nova-featured-acts > *") || [])].map(e => (e.textContent || "").trim()),
-        order: [box(hero)?.top || 0, box(search)?.top || 0, box(label)?.top || 0],
+        hero: !!hero,
+        order: [box(search)?.top || 0, box(label)?.top || 0],
         label: [css(label, "font-size"), css(label, "font-weight")],
         row: row ? {
           padding: css(row, "padding"), border: css(row, "border-top-width"), radius: css(row, "border-top-left-radius"),
@@ -119,8 +121,8 @@ try {
     if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-apps-measured.png`) });
     check(`${mode}: Apps is the mockup's 896px column`, () => assert.ok(apps.page > 0 && apps.page <= 896, JSON.stringify(apps)));
     check(`${mode}: Apps' title is 24px in medium weight, the segmented pill beside it`, () => assert.ok(apps.h1[0] === "24px" && apps.h1[1] === "500" && apps.segBesideTitle, JSON.stringify(apps)));
-    check(`${mode}: the spotlight is half art, half copy, with 24px corners, Add and Details`, () => assert.ok(apps.hero && apps.heroActs.length === 2 && apps.heroActs[1] === "Details", JSON.stringify(apps)));
-    check(`${mode}: the spotlight, then search, then the catalog`, () => assert.ok(apps.order[0] > 0 && apps.order[0] < apps.order[1] && apps.order[1] < apps.order[2], JSON.stringify(apps)));
+    check(`${mode}: Apps has no featured banner`, () => assert.equal(apps.hero, false, JSON.stringify(apps)));
+    check(`${mode}: search, then the catalog`, () => assert.ok(apps.order[0] > 0 && apps.order[0] < apps.order[1], JSON.stringify(apps)));
     check(`${mode}: a catalog head is a 14px label`, () => assert.deepEqual(apps.label, ["14px", "500"], JSON.stringify(apps)));
     check(`${mode}: a catalog row is the mockup's: 12px by 10px, no border, a 40px tile, a 14px name over a 12px line, a 32px action`, () => assert.ok(apps.row
       && apps.row.padding === "12px 10px" && apps.row.border === "0px" && apps.row.radius === "14px" && apps.row.tile === 40
@@ -159,7 +161,7 @@ try {
     await go("#/inbox");
     f = await frame();
     if (shots) await page.screenshot({ path: join(shots, `nova-${mode}-inbox.png`) });
-    check(`${mode}: Inbox has the top bar with its controls`, () => assert.deepEqual([f.bar, f.controls], [true, true], JSON.stringify(f)));
+    check(`${mode}: Inbox has the top bar`, () => assert.deepEqual([f.bar, f.companion], [true, false], JSON.stringify(f)));
     // The right panel's tabs are one row level with the conversation's head,
     // with no title row above them, as in the mockup.
     const panel = await page.evaluate(() => {
@@ -224,16 +226,6 @@ try {
     const back = await page.evaluate(() => document.body.dataset.navigation);
     check(`${mode}: collapsing the sidebar puts the rail back`, () => assert.equal(back, "compact"));
   }
-  // The Live Workspace tile on a new conversation is one tap: it sends its
-  // work and the conversation opens on it, as the mockup's launchStage does.
-  await go("#/chat/new");
-  await page.locator(".nova-showcase .nova-prism-wide").click();
-  await page.waitForTimeout(2500);
-  const launched = await page.evaluate(() => ({
-    hash: location.hash,
-    sent: [...document.querySelectorAll("#thread .msg.me")].map(m => (m.textContent || "").trim()).some(t => t.includes("interactive summary dashboard")),
-  }));
-  check("the Live Workspace tile starts the work in a conversation", () => assert.ok(/^#\/chat\/(?!new)/.test(launched.hash) && launched.sent, JSON.stringify(launched)));
   // On a touchscreen, a connected app's check and another app's + line up:
   // each action is one box with its mark centred (owner's touchscreen laptop,
   // 2026-11-27: the checks sat 12px left of the +).

@@ -1,7 +1,8 @@
 // Nova's top bar (docs/nova-greenfield-mockup.html, spec §4.2): one bar
 // across the top of every screen, beside the rail. On the left, where the
-// person is and this month's spend; on the right, the companion pill and
-// Light / Dark. A conversation keeps its own head under it (breadcrumb,
+// person is and this month's spend; on the right, an admin's kill switch.
+// The companion and Light / Dark are chosen in Settings, not offered on
+// every screen (decisions/2026-11-28-ui-without-ceremony.md). A conversation keeps its own head under it (breadcrumb,
 // •••, bell, sidebar). The bar replaces the lone close Aurora puts on a page:
 // in Nova the rail is the way out (aurora-pages.js).
 "use strict";
@@ -52,12 +53,9 @@ const NovaFrame = (() => {
     });
   }
 
-  /** The companion pill and Light / Dark (spec §4.2). */
+  /** Where an admin's kill switch goes. */
   function controlsHtml() {
-    const avatar = document.documentElement.dataset.avatar || "pip";
-    const mode = document.documentElement.dataset.mode || "dark";
-    const avatars = [["pip", "Pip"], ["mochi", "Mochi"], ["orb", "Orb"], ["prism", "Prism"]];
-    return `<div class="nova-topbar-ctrls"><div class="admin-kill" data-admin-kill-top role="group" aria-label="Kill switch" hidden></div><div class="nova-top-seg" role="group" aria-label="Switch companion">${avatars.map(([id, label]) => `<button type="button" class="${avatar === id ? "on" : ""}" data-nova-set-avatar="${id}" aria-pressed="${avatar === id}">${label}</button>`).join("")}</div><button type="button" class="nova-top-pill" data-nova-toggle-mode>${mode === "dark" ? "Light" : "Dark"}</button></div>`;
+    return `<div class="nova-topbar-ctrls"><div class="admin-kill" data-admin-kill-top role="group" aria-label="Kill switch" hidden></div></div>`;
   }
 
   /** Paints the bar when what it shows has changed. */
@@ -68,7 +66,7 @@ const NovaFrame = (() => {
     readSpend();
     const title = where();
     const money = spendText();
-    const key = [title, money, document.documentElement.dataset.avatar || "pip", document.documentElement.dataset.mode || "dark"].join("|");
+    const key = [title, money].join("|");
     if (bar?.getAttribute("data-key") === key) return;
     if (!bar) {
       bar = document.createElement("header");
@@ -85,20 +83,6 @@ const NovaFrame = (() => {
   let queued = false;
   const soon = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; sync(); }); };
 
-  document.addEventListener("click", e => {
-    const t = /** @type {HTMLElement} */ (e.target);
-    const avBtn = t.closest?.("[data-nova-set-avatar]");
-    if (avBtn && typeof Theme !== "undefined") {
-      Theme.set({ avatar: avBtn.getAttribute("data-nova-set-avatar") || "pip" });
-      soon();
-      return;
-    }
-    if (t.closest?.("[data-nova-toggle-mode]") && typeof Theme !== "undefined") {
-      const cur = Theme.effective(Theme.prefs(), Theme.os()).mode;
-      Theme.set({ mode: cur === "dark" ? "light" : "dark" });
-      soon();
-    }
-  });
   window.addEventListener("hashchange", soon);
   window.addEventListener("magnus-theme", soon);
   window.addEventListener("magnus-render", soon);
