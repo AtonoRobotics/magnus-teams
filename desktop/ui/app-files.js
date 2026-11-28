@@ -2,9 +2,11 @@
 // verdict bars (extracted from app.js in Tier 3 Phase 4 to shrink app.js).
 "use strict";
 
-// A file wherever it is listed: its name opens it, Download saves it.
+// A file wherever it is listed: its name opens it, Download saves it, and text files can open in Split Co-Edit.
 function fileChip(f) {
-  return `<span class="fchip"><a href="#/file/${enc(f.id)}" data-open="file:${esc(f.id)}">${esc(f.name)}</a> <span class="small faint">${esc(kb(f.size))}</span> <button class="link small" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span>`;
+  const editable = /\.(md|txt|json|csv|ya?ml|toml|js|ts|py|rs|html?|css)$/i.test(f.name || "") || /^text\//i.test(f.media_type || "");
+  const split = editable ? ` <button type="button" class="link small" data-file-coedit="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Edit ${esc(f.name)} in Split Co-Edit">Split edit</button>` : "";
+  return `<span class="fchip"><a href="#/file/${enc(f.id)}" data-open="file:${esc(f.id)}">${esc(f.name)}</a> <span class="small faint">${esc(kb(f.size))}</span>${split} <button class="link small" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span>`;
 }
 
 // One tap records the person's verdict on an outcome; a note is optional.
@@ -75,6 +77,22 @@ async function drawPageCards(root) {
       if (el.isConnected && !el.querySelector(".live-page")) el.prepend(livePage(el.dataset.name || "Page", pageTexts[id]));
     } catch (e) { if (!el.querySelector(".bad")) el.insertAdjacentHTML("afterbegin", `<div class="small bad">This page could not be drawn: ${esc(e.message)}</div>`); }
   }));
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("click", async e => {
+    const btn = /** @type {?HTMLElement} */ (/** @type {HTMLElement} */ (e.target).closest?.("[data-file-coedit]"));
+    if (!btn || typeof globalThis.SplitCoedit === "undefined") return;
+    const id = btn.dataset.fileCoedit;
+    const name = btn.dataset.name || "Document";
+    let content = "";
+    try {
+      if (id && typeof Magnus !== "undefined" && typeof Magnus.dataUrl === "function") {
+        content = decodeText(await Magnus.dataUrl(`/v1/files/${enc(id)}`, "text/plain"));
+      }
+    } catch { /* open empty draft if offline */ }
+    globalThis.SplitCoedit.open({ title: name, content });
+  });
 }
 async function loadGlimpses(root) {
   drawPageCards(root);

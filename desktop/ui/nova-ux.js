@@ -352,6 +352,7 @@ const NovaUx = (() => {
   document.addEventListener("keydown", e => {
     if (!isNova() || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.querySelector("dialog[open]")) return;
+    if (document.querySelector(".card.item.is-triage-focus")) return;
     const active = document.activeElement;
     if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
     if (active && /** @type {HTMLElement} */ (active).isContentEditable) return;

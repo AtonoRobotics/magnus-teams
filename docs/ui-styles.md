@@ -17,6 +17,7 @@ kind of style lives, so a change goes in one place and shows.
 | The computer panel | `computer.css` |
 | The Admin section's own parts | `admin.css` |
 | Sign-in and first run | `onboarding.css` |
+| Consolidated UX Next components: composer chips, inline plan comments, assistant micro-actions, optimistic undo toast, keyboard triage ring, compact work queue strip, and split co-edit canvas | `ux-next.css` |
 | Nova: pitch-carbon / clean-light greenfield theme, dissolving midnight cobalt halo, prismatic editorial showcase, working-state tip carousel, risk-tiered approvals, borderless matte catalogs, and Project Hub 2.0 | `nova.css` |
 | Nova's standalone Bento Stage, artifact canvas, and Explore card media (zero dependency on Aurora CSS) | `nova-stage.css` |
 | Nova's standalone Left Rail, slide-out drawer, and compact thread history (zero dependency on Aurora CSS) | `nova-shell.css` |

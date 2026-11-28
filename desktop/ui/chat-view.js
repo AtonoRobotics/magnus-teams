@@ -161,7 +161,7 @@ const ChatView = (() => {
     if (!m) return lead ? `<div class="msg-actions small" role="group" aria-label="Message actions">${lead}</div>` : "";
     const key = conv.voice ? conv.voice(e) : e.id, reading = typeof voice !== "undefined" && voice.entry === key;
     const list = MessageControls.controls(m, { ...conv.caps(), canReadAloud: App.canReadAloud, reading });
-    return MessageControls.html(menuId(e.id), list, { voiceEntry: key, lead }) + (view.ui.sharing === e.id ? MessageControls.shareRow(`share-${e.id}`, view.ui.people) : "");
+    return MessageControls.html(menuId(e.id), list, { voiceEntry: key, lead, agent: !!m.agent }) + (view.ui.sharing === e.id ? MessageControls.shareRow(`share-${e.id}`, view.ui.people) : "");
   }
 
   /** The id of an item's "More message actions" menu. @param {string} id */

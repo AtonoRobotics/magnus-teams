@@ -554,7 +554,12 @@ function banners() {
   if (!el) return;
   const v = App.versions, news = v ? v.changes.filter(c => c.seq > load("version", 0)) : [];
   const sessionUpdates = !App.feedDismissed && App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length);
-  paint(el, `${sessionUpdates ? '<div class="banner small banner-row" role="status"><span>Updates since your last session. <a href="#/activity" data-open="activity">View Activity</a></span><button type="button" data-act="dismiss-updates">Dismiss</button></div>' : ""}
+  const running = (App.tasks || []).filter(t => !ENDED.includes(t.status)).length;
+  const waiting = typeof needsMe === "function" ? needsMe().length : 0;
+  const queue = typeof WorkQueue !== "undefined"
+    ? WorkQueue.html({ running, waiting, sessionUpdates })
+    : (sessionUpdates ? '<div class="banner small banner-row" role="status"><span>Updates since your last session. <a href="#/activity" data-open="activity">View Activity</a></span><button type="button" data-act="dismiss-updates">Dismiss</button></div>' : "");
+  paint(el, `${queue}
     ${news.length ? `<div class="banner" role="status"><strong>The agent changed since you last looked.</strong>
       <ul class="small" style="margin:6px 0">${news.map(c => `<li>${esc(describeChange(c))} <span class="faint">(${esc(when(c.at))})</span></li>`).join("")}</ul>
       <button data-act="seen-versions">Got it</button></div>` : ""}`);

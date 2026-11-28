@@ -15,7 +15,7 @@ const ui = name => readFileSync(join(here, "../ui", name), "utf8");
 const stripComments = s => s.replace(/\/\*[\s\S]*?\*\//g, "");
 
 // 1. Base stylesheets must be 100% theme-agnostic.
-const BASE_SHEETS = ["base.css", "layout.css", "chat.css", "pages.css", "teams.css", "computer.css", "admin.css", "onboarding.css"];
+const BASE_SHEETS = ["base.css", "layout.css", "chat.css", "pages.css", "teams.css", "computer.css", "admin.css", "onboarding.css", "ux-next.css"];
 for (const sheet of BASE_SHEETS) {
   const css = stripComments(ui(sheet));
   assert.doesNotMatch(css, /\[data-style\s*=/, `Base sheet ${sheet} must not contain theme-specific [data-style=...] selectors`);

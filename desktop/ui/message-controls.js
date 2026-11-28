@@ -44,7 +44,18 @@
  */
 const MessageControls = (() => {
   /** Actions whose adapter method is named otherwise. */
-  const METHODS = { "share-send": "shareSend", "share-cancel": "shareCancel", "edit-send": "editSend", "edit-cancel": "editCancel" };
+  const METHODS = {
+    "share-send": "shareSend", "share-cancel": "shareCancel", "edit-send": "editSend", "edit-cancel": "editCancel",
+    "refine-shorter": "refineShorter", "refine-direct": "refineDirect", "refine-table": "refineTable",
+    "refine-schedule": "refineSchedule", "refine-split": "refineSplit",
+  };
+  const REFINE_ACTIONS = [
+    ["refine-shorter", "Shorter"],
+    ["refine-direct", "More direct"],
+    ["refine-table", "Turn into table"],
+    ["refine-schedule", "Schedule"],
+    ["refine-split", "Open in split view"],
+  ];
   const QUICK_REACTIONS = [["great", "That was great"], ["annoying", "That was annoying"]];
   const escape = s => (typeof esc === "function" ? esc(s) : String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`));
   const iconOf = a => (typeof ICONS !== "undefined" ? ICONS[a] || "" : "");
@@ -79,13 +90,14 @@ const MessageControls = (() => {
 
   /**
    * The controls as a row of icons under the message, the rest in a menu.
-   * @param {string} menuId @param {Control[]} list @param {{ voiceEntry?: string, lead?: string }} [o] lead: the surface's own controls, first in the row
+   * @param {string} menuId @param {Control[]} list @param {{ voiceEntry?: string, lead?: string, agent?: boolean }} [o] lead: the surface's own controls, first in the row
    */
   function html(menuId, list, o = {}) {
     const button = c => `<button class="icon" data-msg-act="${c.act}"${c.act === "listen" || c.act === "hush" ? ` data-voice-entry="${escape(o.voiceEntry)}"` : ""} aria-label="${c.label}" data-tooltip="${c.label}"><svg viewBox="0 0 24 24" aria-hidden="true">${iconOf(c.act)}</svg></button>`;
     const menu = list.filter(c => !c.primary).map(c => `<button role="menuitem" tabindex="-1" data-msg-act="${c.act}">${c.label}</button>`).join("");
+    const refine = o.agent ? `<div class="msg-refine-bar" role="group" aria-label="Quick refinements">${REFINE_ACTIONS.map(([act, label]) => `<button type="button" class="msg-refine-btn" data-msg-act="${act}">${label}</button>`).join("")}</div>` : "";
     return `<div class="msg-actions small" role="group" aria-label="Message actions">${o.lead || ""}${list.filter(c => c.primary).map(button).join("")}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${escape(menuId)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${escape(menuId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
-    <div id="${escape(menuId)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${menu}</div></div></div>`;
+    <div id="${escape(menuId)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${menu}</div></div>${refine}</div>`;
   }
 
   /**
@@ -179,7 +191,26 @@ const MessageControls = (() => {
         if (!await ask(t.deleting, "Delete")) return;
         await t.remove(e); return t.after(view, "delete");
       },
+      refineShorter: () => queueRefine(view, "Make your previous response shorter and tighter."),
+      refineDirect: () => queueRefine(view, "Rewrite your previous response to be more direct and action-oriented."),
+      refineTable: () => queueRefine(view, "Turn your previous response into a clean Markdown table."),
+      refineSchedule: () => queueRefine(view, "/schedule Turn your previous response into a recurring schedule and confirm the cadence."),
+      refineSplit: () => {
+        const content = String(t.text(e) || "").trim();
+        const title = content.split("\n")[0].replace(/^#+\s*/, "").slice(0, 60) || "Draft";
+        if (typeof globalThis.SplitCoedit !== "undefined") globalThis.SplitCoedit.open({ title, content, onSend: msg => queueRefine(view, msg) });
+        else if (typeof toast === "function") toast("Split Co-Edit is not ready yet.");
+      },
     };
+  }
+
+  /** Fill the active conversation composer with a one-click refinement prompt. @param {any} view @param {string} prompt */
+  function queueRefine(view, prompt) {
+    const box = /** @type {?HTMLTextAreaElement} */ (view?.section?.querySelector("form.say textarea") || document.querySelector("#msg"));
+    if (!box) { if (typeof toast === "function") toast(prompt); return; }
+    box.value = prompt;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.focus();
   }
 
   return { controls, html, shareRow, run, feedback, method, adapter };

@@ -30,11 +30,12 @@ const PlanSurface = (() => {
   }
 
   /** Format the user-approved step list into a clear structured prompt for Magnus.
-   * @param {string} originalPrompt @param {string[]} steps */
-  function formatApprovedPlan(originalPrompt, steps) {
+   * @param {string} originalPrompt @param {string[]} steps @param {string} [commentNotes] */
+  function formatApprovedPlan(originalPrompt, steps, commentNotes = "") {
     const clean = (steps || []).map(s => String(s || "").trim()).filter(Boolean);
     const list = clean.map((s, i) => `${i + 1}. ${s}`).join("\n");
-    return `${originalPrompt}\n\nFollow this approved plan in order:\n${list}`;
+    const extra = commentNotes ? `\n\n${commentNotes}` : "";
+    return `${originalPrompt}\n\nFollow this approved plan in order:\n${list}${extra}`;
   }
 
   /** Open the interactive editable Plan Surface modal. Resolves to the approved
@@ -44,32 +45,55 @@ const PlanSurface = (() => {
     return new Promise(done => {
       if (typeof document === "undefined") { done(formatApprovedPlan(prompt, parseSteps(prompt))); return; }
       let steps = parseSteps(prompt);
+      const surfaceId = `plan-modal-${Date.now()}`;
+      let activeCommentIdx = -1;
       const d = document.createElement("dialog");
       d.className = "ask";
       d.setAttribute("aria-label", "Review and edit plan before starting");
 
       const draw = () => {
         const rows = steps.map((st, i) => {
+          const key = `step-${i}`;
           const gate = isGated(st) ? `<span class="chip warn" data-plan-gate>Will ask</span>` : `<span class="chip">Auto</span>`;
-          return `<div class="row" data-plan-row="${i}" style="gap:6px;align-items:center">
-            <span class="mono small muted" style="min-width:1.6em">${i + 1}.</span>
-            <input type="text" data-plan-step="${i}" value="${escHtml(st)}" aria-label="Step ${i + 1}" style="flex:1">
-            ${gate}
-            <button type="button" class="small" data-plan-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move step ${i + 1} up">↑</button>
-            <button type="button" class="small" data-plan-down="${i}" ${i === steps.length - 1 ? "disabled" : ""} aria-label="Move step ${i + 1} down">↓</button>
-            <button type="button" class="small" data-plan-del="${i}" aria-label="Remove step ${i + 1}">×</button>
-          </div>`;
+          const pills = typeof InlineComments !== "undefined" ? InlineComments.pillsHtml(surfaceId, key) : "";
+          const editor = activeCommentIdx === i
+            ? `<div class="ic-editor" data-plan-comment-box="${i}"><input type="text" data-plan-comment-input="${i}" placeholder="Add inline note for step ${i + 1}…" aria-label="Comment on step ${i + 1}"><button type="button" class="small primary" data-plan-comment-save="${i}">Add</button></div>`
+            : "";
+          return `<div class="plan-step-wrap" data-plan-row="${i}">
+            <div class="row" style="gap:6px;align-items:center">
+              <span class="mono small muted" style="min-width:1.6em">${i + 1}.</span>
+              <input type="text" data-plan-step="${i}" value="${escHtml(st)}" aria-label="Step ${i + 1}" style="flex:1">
+              ${gate}
+              <button type="button" class="small" data-plan-comment="${i}" aria-label="Comment on step ${i + 1}">Comment</button>
+              <button type="button" class="small" data-plan-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move step ${i + 1} up">↑</button>
+              <button type="button" class="small" data-plan-down="${i}" ${i === steps.length - 1 ? "disabled" : ""} aria-label="Move step ${i + 1} down">↓</button>
+              <button type="button" class="small" data-plan-del="${i}" aria-label="Remove step ${i + 1}">×</button>
+            </div>${pills}${editor}</div>`;
         }).join("");
+        const footer = typeof InlineComments !== "undefined" ? InlineComments.footerHtml(surfaceId) : "";
         d.innerHTML = `<div class="stack" style="gap:10px;min-width:min(560px, 86vw)">
-          <div><h3>Review plan before starting</h3><p class="small muted">Edit, reorder, or remove steps. Steps marked <strong>Will ask</strong> pause for your approval before acting.</p></div>
+          <div><h3>Review plan before starting</h3><p class="small muted">Edit, comment inline, reorder, or remove steps. Steps marked <strong>Will ask</strong> pause for your approval before acting.</p></div>
           <div class="stack" data-plan-list style="gap:6px">${rows || `<p class="small muted">Add at least one step to start.</p>`}</div>
+          ${footer}
           <div class="row"><button type="button" class="small" data-plan-add>+ Add step</button></div>
           <div class="row" style="justify-content:flex-end"><button type="button" data-plan-cancel>Cancel</button><button type="button" class="primary" data-plan-start ${steps.some(s => s.trim()) ? "" : "disabled"}>Start plan</button></div>
         </div>`;
+        if (activeCommentIdx >= 0) {
+          const inp = /** @type {?HTMLInputElement} */ (d.querySelector(`[data-plan-comment-input="${activeCommentIdx}"]`));
+          inp?.focus();
+        }
       };
 
       const syncInputs = () => {
         steps = [...d.querySelectorAll("[data-plan-step]")].map(inp => /** @type {HTMLInputElement} */ (inp).value);
+      };
+
+      const saveActiveComment = i => {
+        const inp = /** @type {?HTMLInputElement} */ (d.querySelector(`[data-plan-comment-input="${i}"]`));
+        const val = inp?.value?.trim() || "";
+        if (val && typeof InlineComments !== "undefined") InlineComments.add(surfaceId, `step-${i}`, val);
+        activeCommentIdx = -1;
+        draw();
       };
 
       d.addEventListener("input", e => {
@@ -88,6 +112,13 @@ const PlanSurface = (() => {
         if (startBtn) startBtn.disabled = !steps.some(s => s.trim());
       });
 
+      d.addEventListener("keydown", e => {
+        const inp = /** @type {?HTMLInputElement} */ (/** @type {HTMLElement} */ (e.target).closest?.("[data-plan-comment-input]"));
+        if (!inp) return;
+        if (e.key === "Enter") { e.preventDefault(); saveActiveComment(Number(inp.dataset.planCommentInput)); }
+        if (e.key === "Escape") { e.preventDefault(); activeCommentIdx = -1; draw(); }
+      });
+
       d.addEventListener("click", e => {
         const t = /** @type {HTMLElement} */ (e.target);
         if (t.closest?.("[data-plan-add]")) {
@@ -96,6 +127,26 @@ const PlanSurface = (() => {
           draw();
           const last = /** @type {?HTMLInputElement} */ (d.querySelector(`[data-plan-step="${steps.length - 1}"]`));
           last?.focus();
+          return;
+        }
+        const cbtn = t.closest?.("[data-plan-comment]");
+        if (cbtn) {
+          syncInputs();
+          const i = Number(cbtn.dataset.planComment);
+          activeCommentIdx = activeCommentIdx === i ? -1 : i;
+          draw();
+          return;
+        }
+        const csave = t.closest?.("[data-plan-comment-save]");
+        if (csave) { syncInputs(); saveActiveComment(Number(csave.dataset.planCommentSave)); return; }
+        if (t.closest?.("[data-ic-clear]")) {
+          if (typeof InlineComments !== "undefined") InlineComments.clear(surfaceId);
+          draw();
+          return;
+        }
+        if (t.closest?.("[data-ic-revise]")) {
+          syncInputs();
+          d.close("revise");
           return;
         }
         const del = t.closest?.("[data-plan-del]");
@@ -125,9 +176,13 @@ const PlanSurface = (() => {
       });
 
       d.addEventListener("close", () => {
-        const ok = d.returnValue === "start";
+        const rv = d.returnValue;
+        const labels = Object.fromEntries(steps.map((s, i) => [`step-${i}`, `Step ${i + 1}: ${s}`]));
+        const notes = typeof InlineComments !== "undefined" ? InlineComments.formatRevision(surfaceId, labels) : "";
+        if (typeof InlineComments !== "undefined") InlineComments.clear(surfaceId);
         d.remove();
-        done(ok ? formatApprovedPlan(prompt, steps) : null);
+        if (rv === "revise" && notes) { done(formatApprovedPlan(prompt, steps, notes)); return; }
+        done(rv === "start" ? formatApprovedPlan(prompt, steps, notes) : null);
       });
 
       draw();

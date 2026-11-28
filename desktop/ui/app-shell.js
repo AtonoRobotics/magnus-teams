@@ -245,8 +245,8 @@ const Workspace = (() => {
           <li><span>New line in message</span><kbd class="shortcut-kbd">Shift + Enter</kbd></li>
           <li><span>Stop active work (empty composer)</span><kbd class="shortcut-kbd">Esc</kbd></li>
           <li><span>Format composer text (bold / italic / code / link)</span><kbd class="shortcut-kbd">⌘ / Ctrl + B / I / E / K</kbd></li>
-          <li><span>Triage waiting approval (Allow / Edit / Decline)</span><kbd class="shortcut-kbd">A / E / D</kbd></li>
-          <li><span>Navigate @mentions or palette</span><kbd class="shortcut-kbd">↑ / ↓</kbd></li>
+          <li><span>Triage waiting approvals &amp; inbox (Next / Prev / Allow / Dismiss)</span><kbd class="shortcut-kbd">J / K / A / D</kbd></li>
+          <li><span>Navigate / commands, @context or palette</span><kbd class="shortcut-kbd">↑ / ↓</kbd></li>
           <li><span>Keyboard shortcuts</span><kbd class="shortcut-kbd">⌘ / Ctrl + / or ?</kbd></li>
         </ul>`;
       d.addEventListener("click", e => { if (e.target === d || e.target.closest("[data-close-shortcuts]")) d.close(); });
@@ -256,99 +256,8 @@ const Workspace = (() => {
     d.showModal();
     $("[data-close-shortcuts]", d)?.focus();
   }
-  function paletteItems(raw) {
-    const q = (raw || "").trim().toLowerCase();
-    const homes = (typeof Team !== "undefined" && Team.homes) || {};
-    const sharedChats = [], people = [];
-    for (const w of (App.workspaces || [])) {
-      const h = homes[w.id];
-      if (!h) continue;
-      for (const c of (h.channels || []).filter(x => !x.direct && !x.archived && !x.deleted)) {
-        sharedChats.push({ label: `${w.name} / ${c.name}`, kind: "Shared chat", run: () => { location.hash = `#/team/${enc(w.id)}/c/${enc(c.id)}`; } });
-      }
-      for (const m of (h.members || []).filter(x => x.id !== h.me)) {
-        const dm = (h.channels || []).find(c => c.direct && !c.direct.agent && !c.deleted && c.direct.people.length === 2 && c.direct.people.includes(m.id));
-        people.push({ label: m.name, kind: "Person", run: async () => {
-          if (dm) { location.hash = `#/team/${enc(w.id)}/c/${enc(dm.id)}`; return; }
-          try { const r = await Server.workspaces.direct(w.id, { people: [m.id] }); if (typeof loadHome === "function") await loadHome(w.id); location.hash = `#/team/${enc(w.id)}/c/${enc(r.id)}`; } catch (err) { toast(err.message); }
-        } });
-      }
-    }
-    const workspaceActions = (App.shared && typeof Team !== "undefined" && Team.home && typeof commandsFor === "function" && typeof TeamCommand !== "undefined")
-      ? commandsFor(Team.home, Team.place || { kind: "home" }, raw || "").filter(c => c.group === "Create" || c.group === "Actions").slice(0, 6).map(c => ({ label: c.label, kind: c.group, run: () => TeamCommand.run(c.run) }))
-      : [];
-    const pending = typeof needsMe === "function" ? needsMe() : [];
-    const batchable = batchableApprovals(pending);
-    const list = [
-      ...workspaceActions,
-      ...(batchable.length >= 2 ? [{ label: `Approve all ${batchable.length} pending`, kind: "Approval", run: async () => { try { await Server.inbox.batch(batchable, { decision: "approve", scope: "once" }); toast(`Allowed ${batchable.length} requests.`); await refresh(); } catch (err) { toast(err.message); } } }] : []),
-      { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
-      { label: `Approvals & Inbox${pending.length ? ` (${pending.length} waiting)` : ""}`, kind: "Page", run: () => { location.hash = "#/inbox"; } },
-      { label: "Morning Briefing & Routines", kind: "Page", run: () => { location.hash = "#/briefing"; } },
-      { label: "Mobile Approvals", kind: "Page", run: () => { location.hash = "#/approve"; } },
-      { label: "Projects", kind: "Page", run: () => { location.hash = "#/projects"; } },
-      { label: "Explore playbooks", kind: "Page", run: () => { location.hash = "#/explore"; } },
-      { label: "Apps & connectors", kind: "Page", run: () => { location.hash = "#/library"; } },
-      { label: "Shared projects", kind: "Page", run: () => { location.hash = "#/teams"; } },
-      { label: "Toggle Dark / Light mode", kind: "Action", run: () => { const cur = Theme.effective(Theme.prefs(), Theme.os()).mode; Theme.set({ mode: cur === "dark" ? "light" : "dark" }); } },
-      { label: "Appearance & Companion", kind: "Page", run: () => { location.hash = "#/settings/appearance"; } },
-      { label: "Trash", kind: "Page", run: () => { location.hash = "#/trash"; } },
-      { label: "Settings", kind: "Page", run: () => { location.hash = "#/settings"; } },
-      ...(administers() ? [{ label: "Admin & Operations", kind: "Page", run: () => { location.hash = "#/admin/operations"; } }] : []),
-      { label: "Keyboard shortcuts", kind: "Action", run: () => openShortcutsModal() },
-      { label: "Check for updates", kind: "Action", run: () => { refreshUpdate(true); toast("Checking for updates…"); } },
-      ...(pending || []).slice(0, 8).map(a => ({
-        label: `Approval: ${(a.ask?.sentence || a.summary || a.kind || "Waiting decision").slice(0, 72)}`,
-        kind: "Approval",
-        run: () => { if (typeof openPanel === "function") openPanel(`item:${a.id}`); else location.hash = `#/approve?ask=${enc(a.id)}`; },
-      })),
-      ...(App.tasks || []).slice(0, 12).map(t => ({
-        label: displayTitle(t.title || t.text || "Task"),
-        kind: t.status === "running" || t.status === "suspended" ? "Live Task" : "Task",
-        run: () => { if (typeof openPanel === "function") openPanel(`task:${t.task_id}`); else location.hash = `#/task/${enc(t.task_id)}`; },
-      })),
-      ...(App.threads || []).slice(0, 20).map(t => ({ label: displayTitle(t.title), kind: "Chat", run: () => { location.hash = `#/chat/${enc(t.thread)}`; } })),
-      ...(App.projects || []).map(p => ({ label: p.name, kind: "Project", run: () => { location.hash = `#/project/${enc(p.id)}`; } })),
-      ...(App.workspaces || []).map(w => ({ label: w.name, kind: "Shared project", run: () => { location.hash = `#/team/${enc(w.id)}`; } })),
-      ...sharedChats,
-      ...people,
-    ];
-    return (q ? list.filter(x => `${x.label} ${x.kind}`.toLowerCase().includes(q)) : list).slice(0, 12);
-  }
   function openPalette() {
-    const dialog = $("#workspace-search"); if (!dialog || dialog.open) return;
-    const inp = $("#workspace-query", dialog);
-    inp.value = "";
-    dialog.showModal();
-    drawPalette();
-    inp.focus();
-  }
-  let paletteList = [], paletteIdx = -1;
-  function syncPaletteActive() {
-    const box = $("#workspace-search .palette-list"), inp = $("#workspace-query");
-    if (!box || !inp) return;
-    const items = [...box.querySelectorAll(".palette-item")];
-    items.forEach((el, i) => {
-      const on = i === paletteIdx;
-      el.classList.toggle("on", on);
-      el.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    const cur = items[paletteIdx];
-    if (cur) {
-      inp.setAttribute("aria-activedescendant", cur.id);
-      cur.scrollIntoView?.({ block: "nearest" });
-    } else {
-      inp.removeAttribute("aria-activedescendant");
-    }
-  }
-  function drawPalette() {
-    const box = $("#workspace-search .palette-list"), inp = $("#workspace-query");
-    if (!box || !inp) return;
-    paletteList = paletteItems(inp.value);
-    paletteIdx = paletteList.length ? 0 : -1;
-    inp.setAttribute("aria-expanded", paletteList.length ? "true" : "false");
-    box.innerHTML = paletteList.map((it, i) => `<button type="button" role="option" id="pal-opt-${i}" aria-selected="${i === paletteIdx}" class="palette-item${i === paletteIdx ? " on" : ""}" data-pal="${i}"><span>${esc(it.label)}</span><span class="palette-kind">${esc(it.kind)}</span></button>`).join("");
-    syncPaletteActive();
+    if (typeof CommandBar !== "undefined") CommandBar.open();
   }
   function install() {
     expanded=false;region="conversation";forceExpanded=false;
@@ -357,23 +266,7 @@ const Workspace = (() => {
     $("[data-nav-toggle]").onclick=()=>{const m=update(),navigation=m.nav==="compact" ? "expanded" : "compact";forceExpanded=navigation==="expanded";Theme.set({navigation});update();};
     $("[data-close-drawer]").onclick=()=>closeDrawer();
     $("[data-rail-search]").onclick=()=>openPalette();
-    const wsDialog=$("#workspace-search"), wsInput=$("#workspace-query",wsDialog), wsList=$(".palette-list",wsDialog);
-    wsDialog.addEventListener("click",e=>{if(e.target===wsDialog)wsDialog.close();});
-    wsInput.oninput=drawPalette;
-    wsInput.onkeydown=e=>{
-      if(e.key==="Escape"){e.preventDefault();wsDialog.close();return;}
-      if(!paletteList.length)return;
-      if(e.key==="ArrowDown"||e.key==="ArrowUp"){
-        e.preventDefault();
-        paletteIdx=(paletteIdx+(e.key==="ArrowDown"?1:-1)+paletteList.length)%paletteList.length;
-        syncPaletteActive();
-      } else if(e.key==="Enter" && paletteIdx>=0 && !e.shiftKey){
-        e.preventDefault();const item=paletteList[paletteIdx];wsDialog.close();item?.run();
-      }
-    };
-    wsList.onclick=e=>{const b=e.target.closest("[data-pal]");if(!b)return;const item=paletteList[Number(b.dataset.pal)];wsDialog.close();item?.run();};
-    $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=wsInput.value.trim();wsDialog.close();if(q){if(App.workspace)openPanel(App.shared ? `shared:search:${q}` : `search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
-    $("[data-close-search]").onclick=()=>wsDialog.close();
+    if (typeof CommandBar !== "undefined") CommandBar.install();
     const separator=$("#workspace-splitter"), B=Theme.LAYOUT_BOUNDS;
     separator.onkeydown=e=>{const m=update();let width=m.panel;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowLeft" ? 1 : -1)*(e.shiftKey ? B.splitterLargeStepPx : B.splitterStepPx);else return;e.preventDefault();resize(width);};
     separator.onpointerdown=e=>{if(e.button!==0)return;const m=update(),x=e.clientX,width=m.panel;separator.setPointerCapture(e.pointerId);separator.onpointermove=move=>resize(width+x-move.clientX);separator.onpointerup=()=>{separator.onpointermove=null;separator.onpointerup=null;separator.releasePointerCapture(e.pointerId);};};

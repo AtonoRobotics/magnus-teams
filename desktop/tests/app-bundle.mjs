@@ -7,6 +7,7 @@ const uiDir = join(dirname(fileURLToPath(import.meta.url)), "../ui");
 
 export const APP_MODULES = [
   "app.js",
+  "command-bar.js",
   "app-shell.js",
   "app-files.js",
   "app-polling.js",

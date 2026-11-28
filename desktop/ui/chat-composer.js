@@ -25,7 +25,7 @@ function composer(placeholder, bar, o = {}) {
   const id = n => o.side ? "" : ` id="${n}"`;
   const label = o.side ? `<textarea rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(o.label || placeholder)}"></textarea>`
     : `<label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}"></textarea>`;
-  return `<form${id("say")} class="say">${label}${o.mentions ? `<div class="say-mentions" role="listbox" aria-label="Mention" hidden></div>` : ""}
+  return `<form${id("say")} class="say"><div class="composer-chips" data-composer-chips hidden></div>${label}<div class="say-mentions" role="listbox" aria-label="Commands and context" hidden></div>
     <div class="row small pending"${id("pending")}></div>
     <div class="say-bar">${bar}<span class="chip run" data-steer-pill hidden>Steering active task</span><span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button type="button" class="icon-btn say-stop" data-say-stop aria-label="Stop" title="Stop" hidden>${icon("stop")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
 }
@@ -104,7 +104,7 @@ function wireComposer(form, record, conv) {
     send.classList.toggle("is-steer", steer);
     if (steerPill) steerPill.hidden = !steer;
     send.disabled = stopMode ? stopping : (!!record.sending || record.files.some(f => f.state !== "ready"));
-    send.classList.toggle("is-empty", !stopMode && !box.value.trim() && !record.files.length);
+    send.classList.toggle("is-empty", !stopMode && !box.value.trim() && !record.files.length && !(record.chips && record.chips.length));
     if (sideStop) {
       sideStop.hidden = !hasActiveRun() || stopMode;
       sideStop.disabled = stopping;
@@ -158,7 +158,22 @@ function wireComposer(form, record, conv) {
     }
   };
   const menu = $(".say-mentions", form);
-  let mentionIdx = 0, mentionChoices = [];
+  const chipHost = $("[data-composer-chips]", form);
+  record.chips = Array.isArray(record.chips) ? record.chips : [];
+  let mentionIdx = 0, mentionChoices = [], activeTrigger = null;
+  const renderChips = () => {
+    if (!chipHost) return;
+    const list = record.chips || [];
+    chipHost.hidden = !list.length;
+    chipHost.innerHTML = list.map((c, i) => `<span class="composer-chip" data-kind="${esc(c.kind || "context")}"><span>${esc(c.token)}</span><button type="button" class="composer-chip-x" data-rm-chip="${i}" aria-label="Remove ${esc(c.token)}">×</button></span>`).join("");
+  };
+  if (chipHost) chipHost.onclick = e => {
+    const rm = e.target.closest("[data-rm-chip]");
+    if (!rm) return;
+    record.chips.splice(Number(rm.dataset.rmChip), 1);
+    renderChips(); syncSend(); box.focus();
+  };
+  renderChips();
   if (menu) {
     if (!menu.id) menu.id = `say-mentions-${MessageDrafts.uid()}`;
     box.setAttribute("role", "combobox");
@@ -170,6 +185,7 @@ function wireComposer(form, record, conv) {
     if (!menu) return;
     menu.hidden = true;
     mentionChoices = [];
+    activeTrigger = null;
     mentionIdx = 0;
     box.setAttribute("aria-expanded", "false");
     box.removeAttribute("aria-activedescendant");
@@ -190,18 +206,45 @@ function wireComposer(form, record, conv) {
       box.removeAttribute("aria-activedescendant");
     }
   };
-  const choose = name => { const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `); box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length); closeMentions(); read(); };
+  const choose = choice => {
+    if (!choice) return;
+    if (typeof choice === "string" || typeof ComposerCommands === "undefined") {
+      const name = typeof choice === "string" ? choice : (choice.label || choice.name || "");
+      const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `);
+      box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length);
+      closeMentions(); read(); syncSend(); return;
+    }
+    const trig = activeTrigger || ComposerCommands.triggerAt(box.value, box.selectionStart);
+    if (!trig) { closeMentions(); return; }
+    const next = ComposerCommands.apply(box.value, trig, choice);
+    box.value = next.text;
+    box.setSelectionRange(next.caret, next.caret);
+    if (next.chip && !record.chips.some(c => c.token === next.chip.token)) {
+      record.chips.push(next.chip);
+      renderChips();
+    }
+    closeMentions(); read(); fit(); syncSend();
+  };
   const offer = () => {
-    if (!menu || !conv.mentions) return;
-    const partial = mentionAt(box.value, box.selectionStart), choices = partial === null ? [] : conv.mentions(partial);
+    if (!menu) return;
+    let choices = [];
+    if (typeof ComposerCommands !== "undefined") {
+      const trig = ComposerCommands.triggerAt(box.value, box.selectionStart);
+      activeTrigger = trig;
+      choices = trig ? ComposerCommands.items(trig, conv) : [];
+    } else if (conv.mentions) {
+      const partial = mentionAt(box.value, box.selectionStart);
+      activeTrigger = null;
+      choices = partial === null ? [] : conv.mentions(partial).map(p => ({ label: p.name, name: p.name, hint: p.agent ? "personal agent" : "", kind: "person", agent: !!p.agent, inline: true }));
+    }
     mentionChoices = choices;
     mentionIdx = 0;
     menu.hidden = !choices.length;
     box.setAttribute("aria-expanded", choices.length ? "true" : "false");
-    menu.innerHTML = choices.map((p, i) => `<button type="button" role="option" id="${esc(menu.id)}-${i}" aria-selected="${i === 0}" class="${i === 0 ? "on" : ""}" data-mention="${esc(p.name)}">${typeof avatar === "function" ? avatar(p.name, p.agent) : ""}${esc(p.name)}${p.agent ? ` <span class="small faint">personal agent</span>` : ""}</button>`).join("");
+    menu.innerHTML = choices.map((c, i) => `<button type="button" role="option" id="${esc(menu.id)}-${i}" aria-selected="${i === 0}" class="${i === 0 ? "on" : ""}" data-mention="${esc(c.label)}" data-mention-idx="${i}">${c.kind === "person" && typeof avatar === "function" ? avatar(c.label, c.agent) : ""}<span class="say-mention-label">${esc(c.label)}</span>${c.hint ? `<span class="small faint say-mention-hint">${esc(c.hint)}</span>` : ""}</button>`).join("");
     syncMentionActive();
   };
-  if (menu) menu.onclick = e => { const b = e.target.closest("[data-mention]"); if (b) { choose(b.dataset.mention); box.focus(); } };
+  if (menu) menu.onclick = e => { const b = e.target.closest("[data-mention-idx]"); if (b) { choose(mentionChoices[Number(b.dataset.mentionIdx)]); box.focus(); } };
   box.oninput = () => { read(); fit(); syncSend(); offer(); conv.typed?.(); };
   box.onselect = selected;
   const wrapSelection = (before, after = before, placeholder = "") => {
@@ -246,7 +289,7 @@ function wireComposer(form, record, conv) {
       }
       if (e.key === "Enter" || e.key === "Tab") {
         const picked = mentionChoices[mentionIdx] || mentionChoices[0];
-        if (picked) { e.preventDefault(); choose(picked.name); return; }
+        if (picked) { e.preventDefault(); choose(picked); return; }
       }
       if (e.key === "Escape") { e.preventDefault(); closeMentions(); return; }
     }
@@ -262,14 +305,18 @@ function wireComposer(form, record, conv) {
   zone.ondrop = e => { dragDepth = 0; zone.classList.remove("dropping"); if (!e.dataTransfer?.files?.length) return; e.preventDefault(); attach(e.dataTransfer.files); };
   form.onsubmit = async e => {
     e.preventDefault(); read();
-    const text = record.text.trim(); if ((!text && !record.files.length) || record.sending) return;
+    const rawText = record.text.trim();
+    const sentChips = [...(record.chips || [])];
+    const text = typeof ComposerCommands !== "undefined" ? ComposerCommands.composePayload(rawText, sentChips) : rawText;
+    if ((!text && !record.files.length) || record.sending) return;
     if (record.files.some(f => f.state !== "ready")) { toast("Wait for uploads, or retry/remove unavailable files before sending."); return; }
     if (canSteer()) {
       record.sending = true; MessageDrafts.changed();
       try {
         await conv.steerRun([...record.runningIds], text);
         if (epoch !== MessageDrafts.epoch()) return;
-        if (record.text.trim() === text) { record.text = ""; record.selection = [0, 0]; }
+        if (record.text.trim() === rawText) { record.text = ""; record.selection = [0, 0]; }
+        if (sentChips.length) { record.chips = []; renderChips(); }
       } catch (err) {
         if (epoch !== MessageDrafts.epoch()) return;
         toast(err.message || "Could not steer active work.");
@@ -282,7 +329,8 @@ function wireComposer(form, record, conv) {
       const then = await conv.send({ text, files, form, record });
       if (epoch !== MessageDrafts.epoch()) return;
       // Clear what was sent; anything typed or attached meanwhile stays.
-      if (record.text.trim() === text) { record.text = ""; record.selection = [0, 0]; }
+      if (record.text.trim() === rawText) { record.text = ""; record.selection = [0, 0]; }
+      if (sentChips.length) { record.chips = []; renderChips(); }
       record.files = record.files.filter(f => !files.includes(f));
       if (then) await then();
     } catch (err) {

@@ -177,6 +177,25 @@ async function respond(btn, root) {
     }
   }
   if (decision === "answer" && !body.text) { toast("Write an answer first."); return; }
+  if (decision === "dismiss" && typeof UndoToast !== "undefined") {
+    const cardEl = btn.closest(".card.item, .item");
+    btn.disabled = true;
+    if (cardEl) cardEl.hidden = true;
+    UndoToast.schedule({
+      label: "Dismissed.",
+      commit: async () => {
+        await Server.inbox.answer(id, body);
+        document.dispatchEvent(new CustomEvent("magnus:answered", { detail: { item: id, decision, button: btn } }));
+        delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
+        await refresh();
+      },
+      undo: () => {
+        if (cardEl) cardEl.hidden = false;
+        btn.disabled = false;
+      },
+    });
+    return;
+  }
   btn.disabled = true;
   try {
     await Server.inbox.answer(id, body);
@@ -204,6 +223,46 @@ async function respond(btn, root) {
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }
+
+// Keyboard Inbox triage (j/k navigate, a approve/accept, d dismiss/reject).
+const InboxTriage = (() => {
+  let idx = 0;
+  let installed = false;
+  const visibleCards = () => [...document.querySelectorAll("#main .card.item:not([hidden]), #panel .card.item:not([hidden])")];
+  function sync() {
+    const cards = visibleCards();
+    if (!cards.length) { idx = 0; return null; }
+    idx = Math.max(0, Math.min(idx, cards.length - 1));
+    cards.forEach((c, i) => c.classList.toggle("is-triage-focus", i === idx));
+    cards[idx].scrollIntoView?.({ block: "nearest" });
+    return cards[idx];
+  }
+  function onKey(e) {
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector("dialog[open]") || e.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+    const k = e.key.toLowerCase();
+    const cards = visibleCards();
+    if (!cards.length) return;
+    if (k === "j") { e.preventDefault(); idx = Math.min(cards.length - 1, idx + 1); sync(); }
+    else if (k === "k") { e.preventDefault(); idx = Math.max(0, idx - 1); sync(); }
+    else if (k === "a") {
+      const cur = sync();
+      const btn = cur?.querySelector("[data-decision^='approve'], [data-decision^='accept'], [data-decision^='endorse']");
+      if (btn) { e.preventDefault(); btn.click(); }
+    } else if (k === "d") {
+      const cur = sync();
+      const btn = cur?.querySelector("[data-decision^='dismiss'], [data-decision^='reject']");
+      if (btn) { e.preventDefault(); btn.click(); }
+    }
+  }
+  function install() {
+    if (installed || typeof document === "undefined") return;
+    installed = true;
+    document.addEventListener("keydown", onKey);
+  }
+  install();
+  return { sync, install };
+})();
 
 // Needs you: every decision waiting on the person (U1), most pressing
 // first, each the same card as in its conversation, with a way there.
