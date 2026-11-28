@@ -96,7 +96,10 @@ const ctx = {
     workspaces: [],
     tasks: [{ task_id: "tk1", status: "running", thread: "t2", title: "Running job", created_at: recentIso }],
     schedules: [],
-    inbox: [{ id: "n0", status: "decided", kind: "approval", summary: "Send quarterly email", resolution: { decision: "approve" }, created_at: oldIso }],
+    inbox: [
+      { id: "n0", status: "decided", kind: "approval", summary: "Send quarterly email", resolution: { decision: "approve" }, created_at: oldIso },
+      { id: "o0", status: "decided", kind: "observation", summary: "Two schedules are paused", resolution: { decision: "dismiss" }, created_at: recentIso },
+    ],
     computers: [{ id: "c1", name: "Magnus VM", status: "running" }],
   },
   Panel: { lib: { q: "", project: "", kind: "all" } },
@@ -120,6 +123,8 @@ vm.runInContext(themeSrc, ctx, { filename: "theme.js" });
 vm.runInContext(read("evidence.js"), ctx, { filename: "evidence.js" });
 vm.runInContext(`${read("app-logos.js")}\nglobalThis.AppLogos = AppLogos;`, ctx, { filename: "app-logos.js" });
 vm.runInContext(`${read("side-panel.js")}\nglobalThis.SidePanel = SidePanel;`, ctx, { filename: "side-panel.js" });
+vm.runInContext(`${app.match(/const OBSERVATION_KINDS = new Set\([^)]*\);/)[0]}\nglobalThis.OBSERVATION_KINDS = OBSERVATION_KINDS;\nconst MAX_BATCH_INBOX_ITEMS = 2;\n${extractFn(app, "async function clearObservations(btn)")}\nglobalThis.clearObservations = clearObservations;`, ctx, { filename: "app-inbox.js" });
+vm.runInContext(`${app.match(/const DECISION_KINDS=new Set\([^)]*\);/)[0]}\nglobalThis.DECISION_KINDS = DECISION_KINDS;\n${extractFn(app, "function wasAsk(i)")}\nglobalThis.wasAsk = wasAsk;`, ctx, { filename: "app-shell.js" });
 const snippets = [
   extractFn(app, "function companionStatus()"),
   extractFn(app, "function dayBucketLabel(iso)"),
@@ -221,6 +226,8 @@ assert.match(nv, /companion-sec-head appr-queue-head"><span>Approval queue<\/spa
 assert.doesNotMatch(nv, /brand SVGs/);
 assert.match(nv, /class="gbox companion-guard"/);
 assert.match(nv, /class="appr-history".*class="appr-ic mail has-logo".*<svg class="ctile-svg".*class="gbox appr-payload-box"/s);
+assert.match(nv, /Send quarterly email/, "a decided approval is in the approvals history");
+assert.doesNotMatch(nv, /Two schedules are paused/, "a dismissed observation is not an approval");
 
 ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Running job", created_at: recentIso }];
 const tree = ctx.navigationTree();
@@ -307,5 +314,26 @@ assert.match(app, /SidePanel\.head\(/, "app.js renders through shared SidePanel"
 assert.match(hdr, /data-admin-kill/);
 assert.ok(!app.includes("inspector-pill"), "Companion pill removed from conversation top bar");
 assert.match(read("chat-composer.js"), /send\.classList\.toggle\("is-stop",\s*stopMode\)/);
+
+// Observations clear all at once: every open one is dismissed, in batches
+// the server takes.
+{
+  const saved = { inbox: ctx.App.inbox, ExploreIdeas: ctx.ExploreIdeas, Server: ctx.Server, toast: ctx.toast, refresh: ctx.refresh, card: ctx.card };
+  ctx.App.inbox = ["o1", "o2", "o3"].map(id => ({ id, status: "open", kind: id === "o3" ? "interrupt" : "observation", summary: `News ${id}`, created_at: recentIso }));
+  ctx.ExploreIdeas = { isIdea: () => false, isNotice: () => false, open: () => [] };
+  ctx.card = i => `<div class="card">${i.summary}</div>`;
+  const { updates } = ctx.activityParts();
+  assert.match(updates, /3 observations<\/span><button type="button" class="small" data-clear-observations>Clear all<\/button>/);
+  const calls = [];
+  ctx.Server = { inbox: { batch: async (ids, body) => { calls.push([ids, body.decision]); return { results: ids.map(id => ({ id, ok: true })) }; } } };
+  let said = "";
+  ctx.toast = t => { said = t; };
+  ctx.refresh = async () => {};
+  await ctx.clearObservations({ disabled: false });
+  assert.deepEqual(calls, [[["o1", "o2"], "dismiss"], [["o3"], "dismiss"]]);
+  assert.equal(said, "Cleared 3 observations.");
+  Object.assign(ctx, { ExploreIdeas: saved.ExploreIdeas, Server: saved.Server, toast: saved.toast, refresh: saved.refresh, card: saved.card });
+  ctx.App.inbox = saved.inbox;
+}
 
 console.log("companion-panel-check: ok");

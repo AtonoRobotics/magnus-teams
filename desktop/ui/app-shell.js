@@ -10,7 +10,10 @@
 const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","app_tools","deletion_request","endorsement"]);
 // Magnus's own ideas (suggestions) are no decision waiting: they are in
 // Explore's For you (explore-ideas.js).
-const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
+// Whether an item asks the person to decide: an approval, a question, a
+// blocking notice. An observation, a message or a suggestion does not.
+function wasAsk(i) { return DECISION_KINDS.has(i.kind) || (i.kind === "notice" && !!i.blocking); }
+const needsDecision=i=>i.status==="open" && i.can_respond && wasAsk(i) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 // Approvals one click may allow together (Nova spec §4.5 Tier 2): of the same
 // kind as the first that waits (the same tool), and never Tier 1 — money or

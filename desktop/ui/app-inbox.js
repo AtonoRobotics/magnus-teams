@@ -338,6 +338,30 @@ function schedRows(scheds) {
 const guardrailsRow = () => `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
 // The overview's parts, which the panel stacks and an Aurora stage
 // (aurora-stage.js) lays out as cards.
+// What Magnus noticed on its own and queued for the person: observations,
+// and interruptions it already delivered. Clear all dismisses every open one.
+const OBSERVATION_KINDS = new Set(["observation", "interrupt"]);
+// The most ids one batch call takes (`MAX_BATCH_INBOX_ITEMS` on the server).
+const MAX_BATCH_INBOX_ITEMS = 50;
+async function clearObservations(btn) {
+  const ids = App.inbox.filter(i => i.status === "open" && OBSERVATION_KINDS.has(i.kind)).map(i => i.id);
+  if (!ids.length) return;
+  btn.disabled = true;
+  let cleared = 0;
+  try {
+    for (let n = 0; n < ids.length; n += MAX_BATCH_INBOX_ITEMS) {
+      const res = await Server.inbox.batch(ids.slice(n, n + MAX_BATCH_INBOX_ITEMS), { decision: "dismiss" });
+      cleared += (res?.results || []).filter(r => r.ok).length;
+    }
+    toast(`Cleared ${cleared} observation${cleared === 1 ? "" : "s"}.`);
+  } catch (err) { toast(err.message); }
+  btn.disabled = false;
+  await refresh();
+}
+addEventListener("click", e => {
+  const btn = e.target.closest?.("button[data-clear-observations]");
+  if (btn) clearObservations(btn);
+});
 function activityParts(composed) {
   const quietSys = t => typeof isQuietSystemTask === "function" ? isQuietSystemTask(t) : !!(t?.system && !t.needs_you && t.status !== "failed");
   const sysSched = sc => typeof isSystemSchedule === "function" ? isSystemSchedule(sc) : !!(sc?.system || /heartbeat/i.test(sc?.title || sc?.text || ""));
@@ -389,7 +413,9 @@ function activityParts(composed) {
       ${schedRows(scheds)}
     </div>
   </section>`;
-  const updates = (feed || shownOther.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${shownOther.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${shownOther.map(i => card(i, composed)).join("")}</details>` : "";
+  const told = shownOther.filter(i => OBSERVATION_KINDS.has(i.kind)).length;
+  const clearAll = told ? `<div class="spread"><span class="small muted">${told} observation${told === 1 ? "" : "s"}</span><button type="button" class="small" data-clear-observations>Clear all</button></div>` : "";
+  const updates = (feed || shownOther.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${shownOther.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${clearAll}${shownOther.map(i => card(i, composed)).join("")}</details>` : "";
   return { active, done, pending, scheds, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
 }
 function briefingCard() {
@@ -472,7 +498,9 @@ function needsView(composed) {
     ${card(i, composed)}
   </div>`).join("")}</div>`;
   const stagedHtml = staged.length ? `<section data-staged-section style="margin-top:12px"><div class="companion-sec-head"><span>Staged drafts</span><span class="count">${staged.length}</span></div><div class="appr-list">${staged.map(stagedDraftCard).join("")}</div></section>` : "";
-  const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
+  // What was decided, not what was only read: a dismissed observation was
+  // never an approval.
+  const decided = App.inbox.filter(i => i.status !== "open" && wasAsk(i)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
   const resText = i => {
     const d = i.resolution?.decision || i.status || "decided";
     return { approve: "Allowed", reject: "Rejected", accept: "Accepted", answer: "Answered", dismiss: "Dismissed", endorse: "Endorsed", decline: "Declined" }[d] || d;
