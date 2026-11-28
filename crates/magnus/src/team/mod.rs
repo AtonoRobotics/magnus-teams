@@ -443,6 +443,11 @@ impl Ledger {
         self.whispers.values().filter(|w| w.workspace == workspace && w.channel == channel && w.owner == person).collect()
     }
 
+    /// A person's whispers anywhere in the workspace, whichever channel.
+    pub fn whispers_owned_by(&self, workspace: &str, person: &str) -> Vec<&Whisper> {
+        self.whispers.values().filter(|w| w.workspace == workspace && w.owner == person).collect()
+    }
+
     pub fn whispers_of(&self, workspace: &str) -> Vec<&Whisper> {
         self.whispers.values().filter(|w| w.workspace == workspace).collect()
     }

@@ -54,6 +54,9 @@ impl Kernel {
             let running: Vec<String> = self.read(|s| {
                 let mut tasks: Vec<String> = s.team.runs_by(ws, person).into_iter().map(|r| r.task.clone()).collect();
                 tasks.extend(s.missions.active_tasks_by(ws, person));
+                // A shared-chat ask runs as a plain run with a whisper, not a
+                // team run or a mission lane (`reply_in_room`).
+                tasks.extend(s.team.whispers_owned_by(ws, person).into_iter().map(|w| w.task.clone()));
                 tasks
             });
             self.keep_held(actor, ws, person).await;
