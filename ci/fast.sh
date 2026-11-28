@@ -75,6 +75,7 @@ check sh ci/production-guard-check.sh
 check sh ci/strix-gc-check.sh
 check sh ci/ratchet-check.sh
 check sh ci/release-gate-check.sh
+check sh ci/release-queue-check.sh
 check sh ci/toolchain-check.sh
 check sh ci/egress-check.sh
 check sh ci/strix-beta-host-check.sh

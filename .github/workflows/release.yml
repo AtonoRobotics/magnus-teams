@@ -25,24 +25,48 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Releases wait for each other. A run whose fast run did not pass builds
-# nothing, and takes a group of its own so it cannot displace a release
-# waiting its turn.
-concurrency:
-  group: ${{ (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') && 'release' || format('release-skipped-{0}', github.run_id) }}
-  cancel-in-progress: false
+# Releases are a queue (decisions/2026-11-28-release-queue.md), kept by the
+# queue job, not by a concurrency group: GitHub keeps one waiting run per
+# group and cancels the one before it, which replaced commits' releases.
+# Every run waits its turn and none is cancelled; a commit's release is
+# skipped only when its fast run failed, or when a later commit has passed
+# and its release, next in the queue, includes this one.
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 250
+    outputs:
+      release: ${{ steps.turn.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Wait for this release's turn
+        id: turn
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          FAST_RUN_ID: ${{ github.event.workflow_run.id }}
+          FAST_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: sh ci/release-queue.sh "$REPOSITORY" "$RUN_ID" "$EVENT" "$FAST_RUN_ID" "$FAST_CONCLUSION"
+
   build:
-    # The commit's own fast run passed, for a push to main in this repository.
+    needs: queue
+    # The commit's own fast run passed, for a push to main in this repository,
+    # and the queue says it is this commit's turn.
     if: >-
+      needs.queue.outputs.release == 'true' && (
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+       github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: [self-hosted, linux, strix-build]
     timeout-minutes: 90
     outputs:
