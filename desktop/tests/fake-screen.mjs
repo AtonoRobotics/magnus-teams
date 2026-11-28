@@ -69,7 +69,7 @@ export function load({ reply, hash = "#/computer/c/screen", me = "alice" }) {
     setTimeout: f => { stream.timers.push(f); return 0; },
     api: async (method, path, body) => { calls.push(`${method} ${path}`); return reply(method, path, body); },
     Magnus: { displayOpen: (id, ticket, prefix, feed, onClose) => { stream.closed = onClose; return { send() {}, close() {} }; } },
-    Rfb: class { constructor(o) { stream.rfb = o; } feed() {} pointer() {} key(name, down) { stream.keys.push([name, down]); return true; } },
+    Rfb: class { constructor(o) { stream.rfb = o; } feed() {} pointer() {} cut(text) { stream.cut = text; } key(name, down) { stream.keys.push([name, down]); return true; } },
     ImageData: class { constructor() {} },
   };
   // The page's requests go through server.js to the transport the check answers.

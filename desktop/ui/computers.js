@@ -435,7 +435,7 @@ function takeOver(body, id, grant, view, strip) {
       const text = await navigator.clipboard?.readText?.();
       if (!text) { toast("Clipboard is empty."); return; }
       sendClipboard(text);
-    } catch { toast("Clipboard read was blocked by the browser. Use Ctrl+V on the screen."); }
+    } catch { toast("The clipboard could not be read here. Type it on the screen instead."); }
   };
   const gone = () => { if (!view.alive()) leave(); };
   // Asked from I'm done, it first says what handing back closes. Left by
@@ -482,6 +482,14 @@ function takeOver(body, id, grant, view, strip) {
       } else if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) {
         view.recordedSteps.push(`Press ${e.key}`);
       }
+    }
+    // Ctrl+V pastes the person's own clipboard. Sent as keys it pasted the
+    // computer's clipboard, and a shell took it as "insert the next key as
+    // it is", so Enter came out as ^M.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") {
+      e.preventDefault();
+      if (down) view.pasteClipboard();
+      return;
     }
     if (rfb.key(e.key, down)) e.preventDefault();
   });
