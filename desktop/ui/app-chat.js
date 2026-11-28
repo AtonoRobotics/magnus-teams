@@ -39,7 +39,7 @@ function convHead(thread, project) {
   const ttl = here ? displayTitle(here.title) : "New conversation";
   const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
-  const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share into a shared project (clean-room)">${icon("team")}<span>Share</span></button>` : "";
+  const shareBtn = thread ? `<button type="button" class="shared-promote-btn" data-conv-share="${esc(thread)}" data-conv-title="${esc(ttl)}" title="Share">${icon("team")}<span>Share</span></button>` : "";
   const pending = needsMe().length;
   const dnd = typeof Notices !== "undefined" && Notices.isDnd?.();
   const nCount = typeof Notices !== "undefined" && Array.isArray(Notices.history) ? Notices.history.length : 0;
@@ -60,8 +60,14 @@ async function showNewChat(main, project) {
   if (!view) return;
   const record = App.draftRecord;
   paint($("#thread", main), ChatView.listHtml([], view));
+  // A message asked elsewhere (a project's composer) is sent here, by the
+  // chat's own composer, so it goes as any first message does; other
+  // places only start the box (App.appSearch).
+  const sendNow = !!App.sendOnOpen && !!App.appSearch;
+  App.sendOnOpen = false;
   if (App.appSearch) { record.text=App.appSearch;record.selection=[record.text.length,record.text.length];App.appSearch=null;const box=$("#msg",main);if(box){box.value=record.text;box.setSelectionRange(...record.selection);} }
   sidebar();
+  if (sendNow) $("form.say", main)?.requestSubmit();
 }
 
 async function showThread(main, thread) {
