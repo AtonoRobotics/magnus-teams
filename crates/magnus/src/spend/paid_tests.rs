@@ -174,7 +174,7 @@ async fn a_call_for_no_run_is_charged_to_its_owner_and_refused_at_its_limit() {
 
     emit(&s, "person:sam", json!({ "kind": "team", "change": "chat", "workspace": "w", "chat": { "what": "spend_limit", "usd": 0.05 } })).await;
     let v = s.k.review_credential_use("workspace:w", "pc-1", "POST", "api.example.com", "/x").await;
-    assert!(matches!(v, crate::auto_review::Verdict::Ask(_)), "a credential left past the workspace's limit");
+    assert!(matches!(v, crate::auto_review::Verdict::Unavailable(_)), "credential review was available past the workspace's limit");
     limit(&s, Scope::Server, 0.1).await;
     let words = format!("Another tool {}", crate::kernel::new_id("d"));
     assert!(matches!(s.k.screen_definition(None, &words).await, crate::safety::Screen::Unanswered), "a screen ran past the server's limit");
