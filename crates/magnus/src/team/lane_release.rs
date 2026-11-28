@@ -77,15 +77,31 @@ pub(crate) struct Send<'a> {
     pub standing: String,
     /// Whether the person set up what covers it (a standing release).
     pub covered: bool,
+    /// Whether it stays in the shared project whose words the run started
+    /// with (its room or one of its chats), not an outside agent.
+    pub within: bool,
 }
 
 /// The checks that rest on no model's word: the scrubber, and the run's
 /// taint (it read content from outside while holding private data).
-fn first_holds(text: &str, run: &Run, to: &str) -> Option<Gate> {
+fn first_holds(text: &str, run: &Run, to: &str, within: bool) -> Option<Gate> {
     if let Some(reason) = scrub_check(text) {
         return Some(Gate::Hold { why: format!("the scrubber flagged it: {reason}"), scrub_flagged: true });
     }
-    (run.outside && run.private).then(|| hold(format!("{TAINTED}{to}")))
+    (run.outside && holds_private_for(run, within)).then(|| hold(format!("{TAINTED}{to}")))
+}
+
+/// Whether a run holds private data a send to `within` (its own shared
+/// project) or past it may not carry after an outside read. A run asked in
+/// a shared chat starts private for the chat's words, so they are never
+/// filed as public; those words going back to the same project leak
+/// nothing. What holds such a post is private data a tool brought, or a
+/// named source it started with (2026-11-28-projects-without-hoops).
+pub(crate) fn holds_private_for(run: &Run, within: bool) -> bool {
+    if !within {
+        return run.private;
+    }
+    run.read_private || run.private_from.iter().any(|from| !from.is_empty())
 }
 
 /// Who asked, as Auto Review weighs it: the owner themselves, the open web
@@ -163,7 +179,7 @@ impl Kernel {
     /// data), which rests on no model's word; the outgoing classifier; and
     /// Auto Review, judging a post to the room's other members.
     async fn lane_release_checks(&self, workspace: &str, mission: &str, lane: &str, owner: Option<&str>, run: &Run, summary: &str) -> Gate {
-        if let Some(g) = first_holds(summary, run, "the room") {
+        if let Some(g) = first_holds(summary, run, "the room", true) {
             return g;
         }
         // Its edits to co-edited files go out with it, and are judged with it.
@@ -208,6 +224,7 @@ impl Kernel {
             content: edits.iter().map(|(file, changes)| (format!("edit of {file}"), changes.clone())).collect(),
             to: "the room",
             covered: matches!(asked, Asked::Standing),
+            within: true,
             standing,
         };
         self.judged(send).await
@@ -217,7 +234,7 @@ impl Kernel {
     /// which may only hold: the scrubber, the run's taint, the outgoing
     /// classifier and Auto Review (outside agents' replies come here too).
     pub(crate) async fn checked_send(&self, send: Send<'_>) -> Gate {
-        if let Some(g) = first_holds(send.text, send.run, send.to) {
+        if let Some(g) = first_holds(send.text, send.run, send.to, send.within) {
             return g;
         }
         self.judged(send).await

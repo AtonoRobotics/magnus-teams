@@ -26,8 +26,11 @@ use std::time::{Duration, Instant};
 pub(crate) const MAX_REPLY_OBJECTIVE_CHARS: usize = 2_000;
 /// Poll interval for the detached reply completion watcher.
 const REPLY_WATCH_POLL_MS: Duration = Duration::from_millis(250);
-/// Maximum wall-clock time a reply watcher waits before stopping quietly.
-const REPLY_WATCH_MAX_SECS: Duration = Duration::from_secs(15 * 60);
+/// How long a reply watcher polls at `REPLY_WATCH_POLL_MS`; after that it
+/// polls at `REPLY_WATCH_SLOW_POLL_SECS` until the run ends, so an answer that
+/// waited on an ask still posts (2026-11-28-projects-without-hoops).
+const REPLY_WATCH_FAST_SECS: Duration = Duration::from_secs(15 * 60);
+const REPLY_WATCH_SLOW_POLL_SECS: Duration = Duration::from_secs(5);
 /// Audience description passed to Auto Review for a post into a shared chat.
 const ROOM_AUDIENCE: &str = "it is posted into a shared conversation, where its other members, who are other people, read it";
 
@@ -158,6 +161,9 @@ impl Kernel {
                 };
                 if r.status.terminal() {
                     if r.status != Status::Completed {
+                        // Said to the asker on their private answer, never
+                        // dropped without a word.
+                        set_held_reason(&task, stopped_reason(&r));
                         return;
                     }
                     let summary = reply_summary(&r);
@@ -181,10 +187,8 @@ impl Kernel {
                     }
                     return;
                 }
-                if started.elapsed() > REPLY_WATCH_MAX_SECS {
-                    return;
-                }
-                tokio::time::sleep(REPLY_WATCH_POLL_MS).await;
+                let pause = if started.elapsed() > REPLY_WATCH_FAST_SECS { REPLY_WATCH_SLOW_POLL_SECS } else { REPLY_WATCH_POLL_MS };
+                tokio::time::sleep(pause).await;
             }
         });
     }
@@ -211,9 +215,21 @@ impl Kernel {
             content: vec![],
             to: "the conversation",
             covered: false,
+            within: true,
             standing: format!("the person asked for this in the conversation themselves; {ROOM_AUDIENCE}"),
         };
         self.checked_send(send).await
+    }
+}
+
+/// What the asker reads when their answer stopped before it finished.
+fn stopped_reason(r: &crate::state::Run) -> String {
+    match r.status {
+        Status::Cancelled => "it was stopped before it finished, so nothing was posted".to_string(),
+        _ => match r.reason.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(why) => format!("it could not finish ({why}), so nothing was posted; ask again"),
+            None => "it could not finish, so nothing was posted; ask again".to_string(),
+        },
     }
 }
 

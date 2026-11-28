@@ -208,19 +208,28 @@ impl Kernel {
                 .of_member_lane(&run.task)
                 .map(|m| (m.workspace.as_str(), m.room.as_str(), m.requester.as_str()))
                 .or_else(|| s.team.whisper_of(&run.task).map(|w| (w.workspace.as_str(), w.channel.as_str(), w.owner.as_str())))?;
-            let p = lane_project(s, workspace, room, &run.person, requester)?;
             let w = s.team.workspace(workspace)?;
-            let name = w.projects.get(&p).map(|x| x.name.as_str()).unwrap_or(p.as_str());
+            // The shared project's own base always, and a sub-project's when
+            // the channel is tied to one (2026-11-28-projects-without-hoops).
+            let p = lane_project(s, workspace, room, &run.person, requester);
+            let mut bases = vec![("This shared project's knowledge base", None)];
+            if let Some(p) = p.as_deref() {
+                bases.push(("This sub-project's knowledge base", Some(p)));
+            }
             let shown = |e: &Entry| e.weight != Weight::Outside && (run.untrusted || !super::owner::from_others(&run.person, e.writers()));
-            let (listed, left_out) = knowledge_text(w, &[("This project's knowledge base", Some(&p))], shown);
-            let mut text = format!("You are working in a channel of the project \"{name}\" in the workspace \"{}\".{listed}", w.name);
+            let (listed, left_out) = knowledge_text(w, &bases, shown);
+            let mut text = format!("You are working in the shared project \"{}\" (workspace \"{workspace}\").{listed}", w.name);
             if left_out > 0 {
                 let noun = if left_out == 1 { "entry" } else { "entries" };
+                let scope = p.as_deref().map(|p| format!(" and project \"{p}\"")).unwrap_or_default();
                 text.push_str(&format!(
-                    "\n({left_out} more {noun} in this project's base, from outside sources or other people; read them with team_read_knowledge, workspace \"{workspace}\" and project \"{p}\".)"
+                    "\n({left_out} more {noun} in its base, from outside sources or other people; read them with team_read_knowledge, workspace \"{workspace}\"{scope}.)"
                 ));
             }
-            (!listed.is_empty() || left_out > 0).then_some(text)
+            if w.files.values().any(|f| w.sees_file(&f.name, &run.person)) {
+                text.push_str(&format!("\nIts shared files are yours to read: team_files lists them and team_read_file opens one, workspace \"{workspace}\"."));
+            }
+            Some(text)
         })
     }
 

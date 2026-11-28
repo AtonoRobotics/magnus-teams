@@ -43,8 +43,24 @@ impl Kernel {
     pub(crate) fn app_owner(&self, run: &Run, c: &Connector) -> String {
         match self.team_of(&run.task) {
             Some(t) if signs_in_per_person(c) => owner_key(&t.workspace),
+            None if signs_in_per_person(c) && !self.connected(c, &run.person) => self.room_app_workspace(run, c).map_or_else(|| run.person.clone(), |w| owner_key(&w)),
             _ => run.person.clone(),
         }
+    }
+
+    /// The shared project whose sign-in to `c` a person's own run asked in
+    /// one of its chats acts through, when the person has none of their own:
+    /// one that granted `c` to their role and is signed in to it
+    /// (2026-11-28-projects-without-hoops). Before, only the retired team
+    /// agent's runs used a shared project's apps, so granting one did nothing.
+    fn room_app_workspace(&self, run: &Run, c: &Connector) -> Option<String> {
+        let ws = self.read(|s| {
+            let ws = s.lineage(&run.id).iter().find_map(|t| s.team.whisper_of(t).map(|w| w.workspace.clone()))?;
+            let w = s.team.workspace(&ws)?;
+            let role = w.members.get(&run.person)?;
+            (*role != super::Role::Guest && w.connectors.get(&c.name).is_some_and(|roles| roles.contains(role))).then_some(ws)
+        })?;
+        self.workspace_signed_in(&ws, c).then_some(ws)
     }
 
     /// What a team run is told of apps: each the workspace was granted,

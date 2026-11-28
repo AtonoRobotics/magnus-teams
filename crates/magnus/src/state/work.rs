@@ -124,6 +124,10 @@ pub struct Run {
     pub outside: bool,
     /// Apps whose private content this run has read.
     pub private_from: std::collections::BTreeSet<String>,
+    /// A tool brought it private data, beyond what it started with (a
+    /// shared chat's own words): what holds a shared chat's answer
+    /// (`team::lane_release`, 2026-11-28-projects-without-hoops).
+    pub read_private: bool,
     pub model_calls: u32,
     /// Of `model_calls`, those the kernel's own modules made (verifier,
     /// reviewer, memory, extraction, read aloud, drafting): see `run::loop_calls`.
@@ -387,6 +391,7 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             }
             if label.private && !*check {
                 r.private = true;
+                r.read_private = true;
                 r.private_from.extend(sources.iter().cloned());
                 if sources.is_empty() {
                     r.private_from.insert(String::new());
@@ -527,6 +532,7 @@ pub(super) fn created(tasks: &mut BTreeMap<String, Task>, runs: &mut HashMap<Str
             } else {
                 Default::default()
             },
+            read_private: false,
             model_calls: 0,
             aux_calls: 0,
             actions: 0,

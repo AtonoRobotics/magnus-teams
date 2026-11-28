@@ -211,6 +211,12 @@ pub enum Change {
     TeamAdminsSeeded {
         people: Vec<String>,
     },
+    /// A shared project's new name (2026-11-28-projects-without-hoops).
+    Renamed {
+        workspace: String,
+        #[serde(default)]
+        name: String,
+    },
     /// Shared project instructions (mirrors personal Project::instructions).
     Instructions {
         workspace: String,

@@ -26,7 +26,7 @@ const MAX_UPLOAD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MESSAGE_CHARS: usize = 20_000;
 const MAX_NAME_CHARS: usize = 80;
 /// The channel every new workspace starts with.
-const FIRST_CHANNEL: &str = "general";
+pub(super) const FIRST_CHANNEL: &str = "general";
 
 pub(super) type K = State<Arc<Kernel>>;
 pub(super) type Reply = Response;
@@ -34,7 +34,7 @@ pub(super) type Reply = Response;
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
         .route("/v1/workspaces", get(list).post(create))
-        .route("/v1/workspaces/{ws}", get(one).delete(remove))
+        .route("/v1/workspaces/{ws}", get(one).patch(rename).delete(remove))
         .route("/v1/workspaces/{ws}/instructions", axum::routing::put(set_instructions))
         .route("/v1/workspaces/{ws}/members", post(set_member))
         .route("/v1/workspaces/{ws}/members/{person}", delete(remove_member))
@@ -46,6 +46,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::kb_routes::router())
         .merge(super::chat_routes::router())
         .merge(super::project_routes::router())
+        .merge(super::promote::router())
         .merge(super::spend::router())
         .merge(super::search::router())
         .merge(super::whisper::router())
@@ -125,6 +126,17 @@ async fn one(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pat
     Ok(Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines.iter().filter(|(_, r)| w.sees(&r.channel, &p.id)).collect::<BTreeMap<_, _>>(), "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response())
 }
 
+/// Rename the shared project: any member may, as anyone in it may write its
+/// instructions (2026-11-28-projects-without-hoops).
+async fn rename(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<Named>) -> ApiResult {
+    let name = b.name.trim().to_string();
+    if !short(&name) {
+        return refuse(StatusCode::BAD_REQUEST, "a shared project needs a short name");
+    }
+    send(&k, &p, Change::Renamed { workspace: ws, name }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
+}
+
 /// Delete the shared project: only its creator (or legacy workspace admin) may
 /// delete it for everyone; any collaborator may leave on their own.
 async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>) -> ApiResult {
@@ -187,7 +199,7 @@ async fn remove_member(State(k): K, Member { person: p, role, .. }: Member<at::G
 }
 
 /// A role given or a member taken out, once the rules of who may allow it.
-async fn membership(k: &Kernel, p: &Person, mine: Role, ws: &str, person: &str, to: Option<Role>) -> Result<(), Box<Reply>> {
+pub(super) async fn membership(k: &Kernel, p: &Person, mine: Role, ws: &str, person: &str, to: Option<Role>) -> Result<(), Box<Reply>> {
     let why = k.read(|s| s.team.workspace(ws).and_then(|w| super::membership::refuse(w, &p.id, mine, person, to)));
     if let Some(why) = why {
         return Err(Box::new(err(StatusCode::FORBIDDEN, why)));

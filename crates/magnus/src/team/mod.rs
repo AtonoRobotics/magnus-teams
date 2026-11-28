@@ -69,6 +69,9 @@ mod presence;
 #[cfg(test)]
 mod privacy_tests;
 mod project_routes;
+mod promote;
+#[cfg(test)]
+mod promote_tests;
 #[cfg(test)]
 mod recorded_run;
 mod reply;
@@ -155,8 +158,6 @@ pub struct Ledger {
     /// A task, then its working notes.
     notes: BTreeMap<String, Vec<Note>>,
     whispers: BTreeMap<String, Whisper>,
-    /// Tasks started for a workspace routine (background work that asks no one).
-    routine_tasks: std::collections::BTreeSet<String>,
     /// A message, then the events that hold its text: its own and its edits.
     seqs: BTreeMap<String, Vec<i64>>,
     /// Where messages are read again, or were copied (`copies`).
@@ -355,11 +356,14 @@ impl Ledger {
             | Change::RoutineFailed { workspace, .. }
             | Change::RoutineSkipped { workspace, .. }
             | Change::RoutineStopped { workspace, .. } => {
-                if let Change::RoutineRan { task, .. } = c {
-                    self.routine_tasks.insert(task.clone());
-                }
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     routines::apply(w, c);
+                }
+            }
+            Change::Renamed { workspace, name } => {
+                // A deleted name reads empty: the name before it stands.
+                if let Some(w) = self.workspaces.get_mut(workspace).filter(|_| !name.is_empty()) {
+                    w.name = name.clone();
                 }
             }
             Change::Instructions { workspace, text, by } => {
@@ -454,10 +458,6 @@ impl Ledger {
 
     pub fn runs_by(&self, workspace: &str, person: &str) -> Vec<&TeamRun> {
         self.runs.values().filter(|r| r.workspace == workspace && r.requester == person).collect()
-    }
-
-    pub fn is_routine_task(&self, task: &str) -> bool {
-        self.routine_tasks.contains(task)
     }
 }
 

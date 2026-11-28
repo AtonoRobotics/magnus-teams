@@ -214,11 +214,14 @@ fn readable(k: &Kernel, ws: &str, id: &str, p: &Person) -> Option<(Workspace, En
     w.may_read(e.project.as_deref(), &p.id).then_some((w, e))
 }
 
-/// The entry and its base, if this person may also keep it.
+/// The entry and its base, if this person may also keep it: a curator of
+/// its base, or the member whose words alone it holds, who fixes their own
+/// fact without an admin (2026-11-28-projects-without-hoops).
 fn curated(k: &Kernel, ws: &str, id: &str, p: &Person) -> ApiResult<(Workspace, Entry)> {
     let Some((w, e)) = readable(k, ws, id, p) else { return refuse(StatusCode::NOT_FOUND, "no such entry") };
-    if !w.may_curate(e.project.as_deref(), &p.id) {
-        return refuse(StatusCode::FORBIDDEN, "the project's owner and curators keep its base");
+    let theirs = w.members.get(&p.id).is_some_and(|r| *r >= super::Role::Member) && !super::owner::from_others(&p.id, e.writers());
+    if !theirs && !w.may_curate(e.project.as_deref(), &p.id) {
+        return refuse(StatusCode::FORBIDDEN, "someone else added this; the project's owner or an admin changes it");
     }
     Ok((w, e))
 }
