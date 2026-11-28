@@ -47,10 +47,20 @@ impl Kernel {
             .collect();
         // The new turn reads the thread as it will show, and carries the
         // taint of the runs that wrote that (I2).
+        let history = self.thread_history(None);
         let shown: Vec<Entry> = entries.iter().filter(|e| !(e.has_id() && gone.contains(&e.id))).cloned().collect();
         let label = self.label_of(&shown);
         let o = NewRun {
-            chat: Some(ChatOrigin { thread: thread.into(), turn: true, from_run: None, conversation: Self::transcript_of(&shown), opener: None }),
+            chat: Some(ChatOrigin {
+                thread: thread.into(),
+                turn: true,
+                from_run: None,
+                conversation: vec![],
+                history: Some(history),
+                selected_message: false,
+                delegated: false,
+                opener: None,
+            }),
             label: (label != Label::PRINCIPAL).then_some(label),
             model: again.model,
             files: again.files,

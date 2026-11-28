@@ -265,7 +265,7 @@ impl Kernel {
     /// A sub-agent's are its requester's: its goal is the parent's words.
     async fn said_in(&self, run: &Run, magnus: bool) -> anyhow::Result<Vec<String>> {
         let trust: &[Source] = if magnus { &[Source::Person, Source::Model] } else { &[Source::Person] };
-        let mut said: Vec<String> = self.run_words(run).await?.said(trust).into_iter().map(String::from).collect();
+        let mut said: Vec<String> = self.run_words_with_history(run).await?.said(trust).into_iter().map(String::from).collect();
         if magnus {
             // What Magnus has said in this run so far.
             let r = self.read(|s| s.runs.get(&run.id).cloned()).unwrap_or_else(|| run.clone());

@@ -11,14 +11,33 @@ pub struct ChatOrigin {
     /// For a task: the chat turn that started it.
     #[serde(default)]
     pub from_run: Option<String>,
-    /// For a task: the conversation that led to it, carried into its contract.
-    #[serde(default)]
+    /// Inline history from older events. New runs use a reference.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conversation: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<ThreadHistory>,
+    /// The person selected this exact message as a task from the thread.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub selected_message: bool,
+    /// This task was delegated by the originating turn, including old events.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delegated: bool,
     /// A turn Magnus started itself (behavior spec, cold start and a newly
     /// connected app): its text is the appliance's instruction, never the
     /// person's message. Absent in logs from before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opener: Option<Box<Opener>>,
+}
+
+/// A fixed point in a thread's existing log. No copied message text.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ThreadHistory {
+    pub through: i64,
+    pub at: chrono::DateTime<chrono::Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upto: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_replies: Option<usize>,
 }
 
 /// Why Magnus opened a conversation itself: the person's cold start (no app), or their first connection of `app`.

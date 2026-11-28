@@ -22,7 +22,7 @@ impl Kernel {
         if crate::tools_core::memories_written(&run) >= cap {
             return Ok((format!("memory change limit ({cap}) reached for this run; skip further changes."), true, None));
         }
-        let person_spoke = self.run_words(&run).await?.said(&[crate::run_words::Source::Person]).iter().any(|t| !t.trim().is_empty());
+        let person_spoke = self.run_words(&run).await?.asked(&[crate::run_words::Source::Person]).iter().any(|t| !t.trim().is_empty());
         if !person_spoke {
             return Ok(("Not forgotten: memory changes only on what the person says, and the person said nothing in this run.".into(), true, None));
         }

@@ -166,6 +166,7 @@ pub(crate) mod tainted_recall;
 pub(crate) mod task_budget;
 pub mod task_goal;
 pub mod team;
+mod thread_history;
 pub mod tls;
 pub(crate) mod token_endpoint;
 pub mod tool_gate;

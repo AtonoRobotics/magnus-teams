@@ -183,6 +183,9 @@ pub(super) static DECLS: &[Decl] = &[
     Decl::tool("bundle_write", mine("bundle", Risk::ReversibleWrite), Exec::Core(Op::Bundle), ALWAYS, |_| {
         obj(json!({ "path": { "type": "string" }, "frontmatter": { "type": "object" }, "body": { "type": "string" } }), &["path", "frontmatter", "body"])
     }),
+    Decl::tool("conversation_history", mine("chat", Risk::Read), Exec::Core(Op::ConversationHistory), ALWAYS, |_| {
+        obj(json!({ "before": { "type": "string" }, "entry": { "type": "string" }, "offset": { "type": "integer" } }), &[])
+    }).taint(Taint::Returned),
     Decl::tool("memory_search", mine("memory", Risk::Read), Exec::Core(Op::MemorySearch), ALWAYS, |_| obj(json!({ "query": { "type": "string" } }), &["query"])).taint(Taint::Memory),
     // The company knowledge base. A search's result carries the taint of
     // what it returns; filing research changes nothing outside the server.

@@ -51,6 +51,10 @@ impl Kernel {
     }
 
     pub(crate) fn entries_with(&self, person: &str, thread: &str, w: &Words) -> Option<Vec<Entry>> {
+        self.entries_with_history(person, thread, w, None)
+    }
+
+    pub(crate) fn entries_with_history(&self, person: &str, thread: &str, w: &Words, history: Option<&crate::events::ThreadHistory>) -> Option<Vec<Entry>> {
         let runs = self.thread(person, thread);
         let branch = self.read(|s| s.thread_extras.branches().get(thread).filter(|b| b.person == person).cloned());
         if runs.is_empty() && branch.is_none() {
@@ -59,7 +63,7 @@ impl Kernel {
         let mut out: Vec<Placed> = vec![];
         // A branch starts with the conversation it was made from, as it was then.
         if let Some(b) = &branch {
-            for (n, e) in b.entries.iter().enumerate() {
+            for (n, e) in b.entries.iter().enumerate().filter(|_| history.is_none_or(|h| b.at <= h.at)) {
                 let e = Entry::copied(e.clone());
                 out.push((e.at.unwrap_or(b.at), n as i64 - i64::MAX / 2, e));
             }
@@ -67,25 +71,30 @@ impl Kernel {
         // The tasks one message started, as one card in the order they began.
         let mut started: BTreeMap<String, (DateTime<Utc>, Vec<TaskRow>)> = Default::default();
         // A task's result follows the reply of the message that started it, even when the task finished first.
-        let answered: HashMap<String, DateTime<Utc>> = runs.iter().filter(|(t, _)| t.is_chat_turn()).filter_map(|(_, r)| r.ended_at.map(|e| (r.id.clone(), e))).collect();
+        let ended = |r: &Run| r.ended_at.filter(|at| history.is_none_or(|h| *at <= h.at));
+        let answered: HashMap<String, DateTime<Utc>> = runs.iter().filter(|(t, _)| t.is_chat_turn()).filter_map(|(_, r)| ended(r).map(|e| (r.id.clone(), e))).collect();
         // Work posts only what needs the person or is done (outcomes.rs).
         let started_by = self.read(crate::outcomes::starters);
-        for (t, r) in &runs {
+        for (t, r) in runs.iter().filter(|(t, _)| history.is_none_or(|h| t.seq <= h.through)) {
             if let Some(of) = self.read(|s| s.outcomes.of(&t.task_id).map(String::from)) {
                 // An outcome turn: what it asks the person, and its reply only when that is what needs them.
-                out.extend(self.turn_cards(person, t, r));
-                if self.read(|s| crate::outcomes::reply_shows(s, &started_by, &of, r)) {
-                    out.push(self.turn_reply(t, r));
+                out.extend(self.turn_cards(person, t, r, history));
+                if (history.is_none() || ended(r).is_some()) && self.read(|s| crate::outcomes::reply_shows(s, &started_by, &of, r)) {
+                    out.push(self.turn_reply(t, r, history.is_none()));
                 }
             } else if t.is_chat_turn() {
                 out.extend(self.turn_message(t, w));
-                out.extend(self.turn_cards(person, t, r));
-                out.extend(self.sub_agents_entry(t, r, w));
-                out.push(self.turn_reply(t, r));
+                out.extend(self.turn_cards(person, t, r, history));
+                if history.is_none() {
+                    out.extend(self.sub_agents_entry(t, r, w));
+                }
+                if history.is_none() || ended(r).is_some() {
+                    out.push(self.turn_reply(t, r, history.is_none()));
+                }
             } else {
                 let title = crate::api::title_of(t, Some(r), w);
                 let (start_shows, result_shows) = self.read(|s| (crate::outcomes::start_shows(s, t), crate::outcomes::result_shows(s, &started_by, t)));
-                if let Some(end) = r.ended_at.filter(|_| result_shows) {
+                if let Some(end) = ended(r).filter(|_| result_shows) {
                     let after = t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| answered.get(f)).map_or(end, |a| end.max(*a));
                     out.push((after, i64::MAX, self.result_entry(t, r, title.clone(), w, end)));
                 }
@@ -180,8 +189,13 @@ impl Kernel {
 
     /// The cards a turn put to the person, in the order it made them, each
     /// with its answer.
-    fn turn_cards(&self, person: &str, t: &Task, r: &Run) -> Vec<Placed> {
-        let mut cards: Vec<_> = r.results.values().filter_map(|res| res.data.as_ref().filter(|d| d["card"].is_string()).map(|d| (res.seq, d.clone()))).collect();
+    fn turn_cards(&self, person: &str, t: &Task, r: &Run, history: Option<&crate::events::ThreadHistory>) -> Vec<Placed> {
+        let mut cards: Vec<_> = r
+            .results
+            .values()
+            .filter(|res| history.is_none_or(|h| res.seq <= h.through))
+            .filter_map(|res| res.data.as_ref().filter(|d| d["card"].is_string()).map(|d| (res.seq, d.clone())))
+            .collect();
         cards.sort_by_key(|(seq, _)| *seq);
         let mut out = vec![];
         for (seq, d) in cards {
@@ -225,13 +239,13 @@ impl Kernel {
     }
 
     /// The turn's answer, or where the turn stands while it has none.
-    fn turn_reply(&self, t: &Task, r: &Run) -> Placed {
+    fn turn_reply(&self, t: &Task, r: &Run, live: bool) -> Placed {
         let at = r.ended_at.unwrap_or(t.created_at);
         if r.status == Status::Completed {
             let e = ChatEntry {
                 id: format!("a:{}", t.task_id),
                 kind: Kind::Answer.as_str(),
-                text: self.read(|s| crate::ui::docs::current_text(s, &t.person, &r.summary)).unwrap_or_default(),
+                text: if live { self.read(|s| crate::ui::docs::current_text(s, &t.person, &r.summary)) } else { r.summary.clone() }.unwrap_or_default(),
                 view: r.outcome_view.clone(),
                 spoken: r.spoken.clone(),
                 at: r.ended_at,
@@ -286,12 +300,6 @@ impl Kernel {
             };
             s.runs.get(&from_run).map(|r| r.task.clone())
         })
-    }
-
-    /// Entries as the model reads them: who said what, in the form a
-    /// conversation is stored in (`ChatOrigin.conversation`).
-    pub(crate) fn transcript_of(entries: &[Entry]) -> Vec<Value> {
-        entries.iter().filter_map(Entry::transcript_line).map(|(role, said)| json!({ "role": role, "text": said })).collect()
     }
 
     pub(crate) fn sub_agents_entry(&self, turn: &Task, r: &Run, w: &Words) -> Option<Placed> {

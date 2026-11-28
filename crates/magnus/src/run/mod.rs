@@ -134,7 +134,18 @@ fn scope_line(scheduled: bool, scope: &str) -> String {
 
 /// A conversation as the model reads it: who said what, in order.
 fn transcript(conversation: &[Value]) -> String {
-    conversation.iter().map(|e| format!("{}: {}", e["role"].as_str().unwrap_or("?"), e["text"].as_str().unwrap_or_default())).collect::<Vec<_>>().join("\n\n")
+    conversation
+        .iter()
+        .map(|e| {
+            let role = e["role"].as_str().unwrap_or("?");
+            let text = e["text"].as_str().unwrap_or_default();
+            match e["id"].as_str().filter(|id| !id.is_empty()) {
+                Some(id) => format!("{role} [{id}]: {text}"),
+                None => format!("{role}: {text}"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn clip(s: &str) -> String {
@@ -222,15 +233,13 @@ impl Kernel {
         let said = task.as_ref().map(|t| words.text(t.seq).to_string()).unwrap_or_default();
         let scope = task.as_ref().and_then(|t| words.opt(t.seq, "scope"));
         let project = task.as_ref().and_then(|t| t.project.clone());
-        let chat = task.as_ref().and_then(|t| t.chat.clone());
+        let (history, origin) = match &task {
+            Some(t) => (self.recent_thread_history(t, run).await?, self.originating_request(t).await?),
+            None => (vec![], None),
+        };
         let mut first = vec![];
-        // A chat turn sees the thread so far, as recorded when the person
-        // wrote; a task from chat, the conversation that started it.
-        match &chat {
-            Some(c) if c.turn && !c.conversation.is_empty() => {
-                first.push(Block::Text { text: format!("Earlier conversation (background and evidence):\n\n{}\n\nCurrent request follows.", transcript(&c.conversation)) });
-            }
-            _ => {}
+        if !history.is_empty() {
+            first.push(Block::Text { text: format!("Earlier conversation (background and evidence):\n\n{}\n\nCurrent request follows.", transcript(&history)) });
         }
         // The person's apps, as they stand at this call, before what they said (connectors spec,
         // How the agent uses connectors: "the context always holds the
@@ -239,6 +248,9 @@ impl Kernel {
             first.push(Block::Text { text: index });
         }
         first.push(Block::Text { text: said.clone() });
+        if let Some(origin) = origin {
+            first.push(Block::Text { text: format!("The person's request that started this task:\n\n{origin}") });
+        }
         // A schedule's run keeps to the scope the person confirmed for it;
         // a one-off task from an accepted card was approved, not scheduled.
         if let Some(scope) = scope {
@@ -288,10 +300,6 @@ impl Kernel {
                 }
             }
             first.push(Block::Text { text: t });
-        }
-        if let Some(c) = chat.as_ref().filter(|c| !c.turn && !c.conversation.is_empty()) {
-            // The goal is one line; the conversation says the rest (spec rev 138).
-            first.push(Block::Text { text: format!("Originating conversation (background and evidence):\n\n{}", transcript(&c.conversation)) });
         }
         first.extend(crate::attachment::prompt_blocks(&attachments));
         let (playbook, untrusted_playbook) = self.playbook_for(run);
@@ -417,6 +425,9 @@ impl Kernel {
         let mut specs =
             tools::builtin_specs(self.sandboxes.available(), self.web.can_search(), self.browser.available() || self.cfg.computer.is_some(), self.cfg.computer.is_some());
         specs.extend(tools::chat_specs());
+        if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.chat).is_some_and(|c| c.history.is_some() || !c.conversation.is_empty())) {
+            specs.retain(|t| t.name != "conversation_history");
+        }
         // project_read only where there are reference files to read.
         if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {
             specs.retain(|t| t.name != "project_read");

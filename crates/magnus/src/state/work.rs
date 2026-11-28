@@ -475,6 +475,11 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
 pub(super) fn created(tasks: &mut BTreeMap<String, Task>, runs: &mut HashMap<String, Run>, e: &Event, start: Label) {
     let Ev::TaskCreated { task, run, person, config, attachments, experiment, chat, files, project, grant, .. } = &e.ev else { return };
     let uploads = !attachments.is_empty() || !files.is_empty();
+    let chat = chat.clone().map(|mut c| {
+        // Older task-created events named the delegating run in the actor.
+        c.delegated = !c.turn && c.from_run.as_deref().is_some_and(|id| e.actor.strip_prefix("chat:") == Some(id));
+        c
+    });
     tasks.insert(
         task.clone(),
         Task {
@@ -482,7 +487,7 @@ pub(super) fn created(tasks: &mut BTreeMap<String, Task>, runs: &mut HashMap<Str
             run_id: run.clone(),
             person: person.clone(),
             created_at: e.at,
-            chat: chat.clone(),
+            chat,
             // Known from the start, so its first step knows it is scheduled.
             schedule: e.actor.strip_prefix("schedule:").map(String::from),
             review: e.actor == "review",

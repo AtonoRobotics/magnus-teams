@@ -84,12 +84,21 @@ impl Kernel {
             }
             None => (new_id("thread"), project),
         };
-        let conversation = self.conversation(person, &thread).await?;
+        let history = self.thread_history(None);
         // What the turn reads in the conversation carries the taint of the
         // runs that wrote it, as their tasks would (I2).
         let label = self.thread_label(person, &thread, None);
         let o = NewRun {
-            chat: Some(ChatOrigin { thread: thread.clone(), turn: true, from_run: None, conversation, opener: None }),
+            chat: Some(ChatOrigin {
+                thread: thread.clone(),
+                turn: true,
+                from_run: None,
+                conversation: vec![],
+                history: Some(history),
+                selected_message: false,
+                delegated: false,
+                opener: None,
+            }),
             label: (label != Label::PRINCIPAL).then_some(label),
             model,
             reasoning,
@@ -228,11 +237,6 @@ impl Kernel {
             .collect())
     }
 
-    /// The thread as the model reads it in the next turn: who said what.
-    pub(crate) async fn conversation(&self, person: &str, thread: &str) -> Result<Vec<Value>> {
-        Ok(Self::transcript_of(&self.thread_entries(person, thread).await?.unwrap_or_default()))
-    }
-
     /// `create_task` from a chat turn: the task starts at once for the
     /// person with its one-line goal, carries the conversation, the turn's
     /// taint and the turn's model, and posts its result to the thread.
@@ -275,12 +279,20 @@ impl Kernel {
         let Some(chat) = task.chat.clone() else { anyhow::bail!("task {} is not from chat", task.task_id) };
         let (task_id, run_id) = (derived("task", key), derived("run", key));
         if !self.read(|s| s.tasks.contains_key(&task_id)) {
-            // Only the person's own message: an opener's or an outcome's text is the server's instruction.
-            let asked = self.run_words(run).await?.text(&[crate::run_words::Source::Person]).map(String::from);
-            let said: Vec<String> = run.replies.iter().map(|r| r.text()).filter(|t| !t.is_empty()).collect();
-            let conversation = crate::task_goal::carried(chat.conversation.clone(), asked, &said.join("\n\n"));
+            let mut history =
+                chat.history.unwrap_or_else(|| crate::events::ThreadHistory { through: task.seq.saturating_sub(1), at: task.created_at, upto: None, origin_replies: None });
+            history.origin_replies = Some(run.replies.len());
             let o = NewRun {
-                chat: Some(ChatOrigin { thread: chat.thread.clone(), turn: false, from_run: Some(run.id.clone()), conversation, opener: None }),
+                chat: Some(ChatOrigin {
+                    thread: chat.thread.clone(),
+                    turn: false,
+                    from_run: Some(run.id.clone()),
+                    conversation: vec![],
+                    history: Some(history),
+                    selected_message: false,
+                    delegated: actor.starts_with("chat:"),
+                    opener: None,
+                }),
                 label: Some(Label { untrusted: run.untrusted, private: run.private }),
                 ids: Some((task_id.clone(), run_id)),
                 model: Some((run.config.adapter.clone(), run.config.model.clone())),

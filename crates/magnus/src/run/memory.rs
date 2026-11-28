@@ -146,12 +146,13 @@ impl Kernel {
     pub(crate) async fn exchange(&self, run: &Run) -> Result<Option<(String, String)>> {
         let words = self.run_words(run).await?;
         let Some(asked) = person_said(&words).filter(|text| text.len() <= MAX_MEMORY_REQUEST_BYTES) else { return Ok(None) };
-        let text = self.read(|s| {
-            let earlier = s.tasks.get(&run.task).and_then(|t| t.chat.as_ref()).map_or(&[][..], |c| c.conversation.as_slice());
-            let prior = recent_exchange(earlier);
-            let answer = excerpt(run.summary.as_deref().unwrap_or_default(), MAX_MEMORY_REPLY_BYTES);
-            format!("Earlier exchange (reference):\n{prior}\n\nThe person said:\n{asked}\n\nMagnus replied (reference):\n{answer}")
-        });
+        let task = self.read(|s| s.tasks.get(&run.task).cloned());
+        let prior = match task {
+            Some(task) => recent_exchange(&self.recent_thread_history(&task, run).await?),
+            None => String::new(),
+        };
+        let answer = excerpt(run.summary.as_deref().unwrap_or_default(), MAX_MEMORY_REPLY_BYTES);
+        let text = format!("Earlier exchange (reference):\n{prior}\n\nThe person said:\n{asked}\n\nMagnus replied (reference):\n{answer}");
         Ok(Some((asked, text)))
     }
 }

@@ -34,6 +34,7 @@ pub(crate) enum Op {
     MemoryWrite,
     MemoryForget,
     MemorySearch,
+    ConversationHistory,
     KnowledgeSearch,
     Bundle,
     Relationship,
@@ -49,7 +50,7 @@ pub(crate) enum Op {
 
 /// Every op, for the test that each is declared: a new one is added here too.
 #[cfg(test)]
-pub(crate) const ALL: [Op; 32] = [
+pub(crate) const ALL: [Op; 33] = [
     Op::WebFetch,
     Op::WebSearch,
     Op::CreateTask,
@@ -71,6 +72,7 @@ pub(crate) const ALL: [Op; 32] = [
     Op::MemoryWrite,
     Op::MemoryForget,
     Op::MemorySearch,
+    Op::ConversationHistory,
     Op::KnowledgeSearch,
     Op::Bundle,
     Op::Relationship,
@@ -123,6 +125,7 @@ impl Kernel {
                     _ => self.offer_app(&person, &a.input, crate::chat::derived("card", key)),
                 })
             }
+            Op::ConversationHistory => self.thread_history_tool(a).await,
             Op::Control => {
                 let t = a.tool.as_str();
                 let (person, turn) = self.read(|s| s.runs.get(&a.run).map(|r| (r.person.clone(), r.task.clone())).unwrap_or_default());
@@ -218,7 +221,7 @@ impl Kernel {
                     return Ok((format!("memory write limit ({}) reached for this run; skip further writes.", crate::memory_index::MAX_MEMORY_WRITES_PER_RUN), true, None));
                 }
                 let fact = s("fact").trim().to_string();
-                let person_spoke = self.run_words(&run).await?.said(&[crate::run_words::Source::Person]).iter().any(|t| !t.trim().is_empty());
+                let person_spoke = self.run_words(&run).await?.asked(&[crate::run_words::Source::Person]).iter().any(|t| !t.trim().is_empty());
                 if let Some(refusal) = crate::memory_index::fact_refusal(&fact, person_spoke) {
                     return Ok((refusal, true, None));
                 }

@@ -3,7 +3,7 @@
 //! never restates it, and the rules the task works under are the server's
 //! to enforce, not the model's to list.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// The longest goal `create_task` takes, in characters: one sentence.
 pub const GOAL_MAX_CHARS: usize = 200;
@@ -30,24 +30,10 @@ pub fn one_line(goal: &str) -> Result<String, String> {
     Ok(goal.to_string())
 }
 
-/// The conversation a task from chat carries: the thread so far, the
-/// person's message that started it (none for an opener's or an outcome's
-/// turn, whose prompt is the server's), and what Magnus said in that turn
-/// before starting it, so the task sees what the goal leaves out.
-pub fn carried(mut conversation: Vec<Value>, asked: Option<String>, said: &str) -> Vec<Value> {
-    if let Some(asked) = asked {
-        conversation.push(json!({ "role": "person", "text": asked }));
-    }
-    let said = said.trim();
-    if !said.is_empty() {
-        conversation.push(json!({ "role": "you", "text": said }));
-    }
-    conversation
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     /// A goal is one line: several lines, or more than a sentence's length,
     /// are refused with a word that the conversation is already carried.
@@ -63,21 +49,6 @@ mod tests {
         // A call recorded before the goal gave its task as text: it is read as the goal, under the same rule.
         assert_eq!(goal_of(&json!({ "title": "t", "text": "Email bob hello." })).as_deref(), Ok("Email bob hello."));
         assert!(goal_of(&json!({ "text": "Email bob.\n\nNever send anything else." })).is_err(), "the old field slipped past the rule");
-    }
-
-    /// The task's run sees the conversation it came from: earlier turns, the
-    /// message that started it, and what Magnus said in that turn, with the
-    /// goal named beside it.
-    #[test]
-    fn the_task_context_carries_the_originating_conversation() {
-        let before = vec![json!({ "role": "person", "text": "We are a two-person consultancy in Ohio." }), json!({ "role": "you", "text": "Noted." })];
-        let c = carried(before, Some("Which entity should we be?".into()), "I'll compare LLC and S-corp for you.");
-        let roles: Vec<&str> = c.iter().filter_map(|m| m["role"].as_str()).collect();
-        assert_eq!(roles, ["person", "you", "person", "you"]);
-        assert_eq!(c[2]["text"], "Which entity should we be?");
-        assert_eq!(c[3]["text"], "I'll compare LLC and S-corp for you.");
-        // An outcome's turn has no message of the person's, and silence adds nothing.
-        assert!(carried(vec![], None, "  ").is_empty());
     }
 
     /// create_task's schema has one goal, a string, beside its title and

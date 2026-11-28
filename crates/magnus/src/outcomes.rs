@@ -360,13 +360,27 @@ impl Kernel {
             return Ok(());
         }
         let attempt = self.read(|s| attempt(s, &t.task_id));
-        let text = turn_text(&t.task_id, r.status, attempt, self.cfg.outcomes.max_retry_count);
-        let conversation = self.conversation(&t.person, &thread).await?;
+        let mut text = turn_text(&t.task_id, r.status, attempt, self.cfg.outcomes.max_retry_count);
+        let words = self.words_of(&t.person, t.seq).await?;
+        let objective = words.text(t.seq);
+        if !objective.trim().is_empty() {
+            text.push_str(&format!("\nOriginal task objective: {objective}"));
+        }
+        let history = self.thread_history(None);
         // It reads what the thread shows, the result among it, so it
         // carries the taint of the runs that wrote it (I2).
         let label = self.thread_label(&t.person, &thread, None);
         let o = NewRun {
-            chat: Some(ChatOrigin { thread: thread.clone(), turn: true, from_run: None, conversation, opener: None }),
+            chat: Some(ChatOrigin {
+                thread: thread.clone(),
+                turn: true,
+                from_run: None,
+                conversation: vec![],
+                history: Some(history),
+                selected_message: false,
+                delegated: false,
+                opener: None,
+            }),
             label: (label != Label::PRINCIPAL).then_some(label),
             ids: Some((task, run)),
             model: Some((r.config.adapter.clone(), r.config.model.clone())),
@@ -452,10 +466,25 @@ mod tests {
     fn an_ended_task_returns_to_its_thread_once() {
         let mut s = State::default();
         let mut modules = BTreeMap::new();
-        mark(&mut modules, Some(&ChatOrigin { thread: "th".into(), turn: false, from_run: Some("r_turn".into()), conversation: vec![], opener: None }));
+        mark(
+            &mut modules,
+            Some(&ChatOrigin {
+                thread: "th".into(),
+                turn: false,
+                from_run: Some("r_turn".into()),
+                conversation: vec![],
+                history: None,
+                selected_message: false,
+                delegated: false,
+                opener: None,
+            }),
+        );
         assert_eq!(modules.get(MODULE), Some(&true), "a task from chat is not marked to return its outcome");
         let mut turn_modules = BTreeMap::new();
-        mark(&mut turn_modules, Some(&ChatOrigin { thread: "th".into(), turn: true, from_run: None, conversation: vec![], opener: None }));
+        mark(
+            &mut turn_modules,
+            Some(&ChatOrigin { thread: "th".into(), turn: true, from_run: None, conversation: vec![], history: None, selected_message: false, delegated: false, opener: None }),
+        );
         assert!(turn_modules.is_empty(), "a chat turn would return its own outcome");
         let on = json!({ MODULE: true });
         task(&mut s, "person:carol", "turn", json!({ "thread": "th", "turn": true }), json!({}));

@@ -6,8 +6,8 @@
 //!
 //! The words are always the requester's: a sub-agent's goal is its parent
 //! model's words, never the person's. A chat task's text is the model's (the
-//! turn that started it wrote it); the person's words are their own lines of
-//! the conversation it carries. A schedule's text is what the person set up
+//! turn that started it wrote it); only the source turn's user message can
+//! authorize delegated work. Earlier conversation supplies evidence. A schedule's text is what the person set up
 //! once, not a live request, when they set it up themselves; one a run set
 //! (`create_schedule`) is the model's words (2026-11-23, who wrote a
 //! schedule). A task someone else made for the person (a
@@ -24,7 +24,7 @@ use std::collections::BTreeSet;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
     /// The person themselves: a task they started, their chat message,
-    /// their own lines of the conversation a chat task carries.
+    /// or the originating message of a delegated chat task.
     Person,
     /// The model: a chat task's goal, Magnus's lines of a conversation, the
     /// text of a schedule a run set.
@@ -43,8 +43,8 @@ pub enum Source {
 enum Part {
     /// A chat turn's thread before it: said, but not this request.
     Earlier,
-    /// The conversation a chat task carries: the request it came from.
-    Carried,
+    /// The exact originating request of a task delegated by chat.
+    Origin,
     /// The task's own text.
     Text,
 }
@@ -63,7 +63,7 @@ pub struct RunWords(Vec<Said>);
 
 impl RunWords {
     /// The parts of the request itself these sources wrote: the task's text
-    /// and the conversation a chat task carries, not a turn's earlier thread
+    /// and its originating request, excluding earlier conversation
     /// (write authority resets each turn, 2026-11-20).
     pub fn request_by<'a>(&'a self, trust: &'a [Source]) -> impl Iterator<Item = &'a Said> + 'a {
         self.0.iter().filter(move |w| w.part != Part::Earlier && trust.contains(&w.source))
@@ -104,6 +104,7 @@ pub struct Request {
     pub task: Task,
     outcome_turn: bool,
     schedule: Option<Source>,
+    origin_seq: Option<i64>,
 }
 
 /// The task whose words `run` acts on (its requester's: the top of a
@@ -112,7 +113,40 @@ pub fn request_of(s: &State, run: &Run) -> Option<Request> {
     let top = s.requester_run(run);
     let task = s.tasks.get(&top.task)?;
     let schedule = task.schedule.as_deref().map(|id| schedule_source(s, id));
-    Some(Request { task: task.clone(), outcome_turn: s.outcomes.of(&task.task_id).is_some(), schedule })
+    let origin_seq = task.chat.as_ref().filter(|c| c.delegated).and_then(|_| delegated_request(s, task)).map(|t| t.seq);
+    Some(Request { task: task.clone(), outcome_turn: s.outcomes.of(&task.task_id).is_some(), schedule, origin_seq })
+}
+
+/// Follow server-recorded delegation and retry links back to a user message.
+fn delegated_request<'a>(s: &'a State, task: &'a Task) -> Option<&'a Task> {
+    let thread = &task.chat.as_ref()?.thread;
+    let mut task = task;
+    loop {
+        let chat = task.chat.as_ref()?;
+        if task.by_other || task.schedule.is_some() || task.review || &chat.thread != thread {
+            return None;
+        }
+        let prev = if !chat.turn && chat.delegated {
+            let r = s.runs.get(chat.from_run.as_deref()?)?;
+            s.tasks.get(&r.task)?
+        } else if chat.turn {
+            if let Some(of) = s.outcomes.of(&task.task_id) {
+                s.tasks.get(of)?
+            } else {
+                let id = format!("m:{}", task.task_id);
+                if chat.opener.is_some() || s.thread_extras.hidden(thread).is_some_and(|h| h.contains(&id)) || s.trash.gone(&id) {
+                    return None;
+                }
+                return Some(task);
+            }
+        } else {
+            return None;
+        };
+        if prev.person != task.person || prev.seq >= task.seq {
+            return None;
+        }
+        task = prev;
+    }
 }
 
 /// Who wrote a schedule's text: its person, when they set it up themselves
@@ -144,7 +178,6 @@ pub fn of_task(r: &Request, text: &str) -> RunWords {
     let person = if task.by_other { Source::Other } else { Source::Person };
     let mut words = vec![];
     if let Some(c) = &task.chat {
-        let part = if c.turn { Part::Earlier } else { Part::Carried };
         for m in &c.conversation {
             // A task result's or a card's line is the work's or the server's record, nobody's words.
             let source = match m["role"].as_str() {
@@ -153,7 +186,7 @@ pub fn of_task(r: &Request, text: &str) -> RunWords {
                 _ => continue,
             };
             if let Some(t) = m["text"].as_str().filter(|t| !t.trim().is_empty()) {
-                words.push(Said { source, part, text: t.to_string() });
+                words.push(Said { source, part: Part::Earlier, text: t.to_string() });
             }
         }
     }
@@ -165,7 +198,7 @@ pub fn of_task(r: &Request, text: &str) -> RunWords {
         Source::Server
     } else {
         match &task.chat {
-            Some(c) if !c.turn => Source::Model,
+            Some(c) if !c.turn && !c.selected_message => Source::Model,
             Some(c) if c.opener.is_some() || r.outcome_turn => Source::Server,
             _ => Source::Person,
         }
@@ -182,8 +215,45 @@ impl Kernel {
     /// (or a sub-agent whose top run is gone) has none.
     pub async fn run_words(&self, run: &Run) -> Result<RunWords> {
         let Some(r) = self.read(|s| request_of(s, run)) else { return Ok(RunWords::default()) };
-        let w = self.words_of(&r.task.person, r.task.seq).await?;
-        Ok(of_task(&r, w.text(r.task.seq)))
+        let w = self.words(std::iter::once(r.task.seq).chain(r.origin_seq).map(|seq| (r.task.person.clone(), seq))).await?;
+        let mut words = of_task(&r, w.text(r.task.seq));
+        append_origin(&mut words, r.origin_seq.map(|seq| w.text(seq)));
+        Ok(words)
+    }
+
+    pub(crate) async fn originating_request(&self, task: &Task) -> Result<Option<String>> {
+        let seq = self.read(|s| {
+            task.chat.as_ref().filter(|c| c.delegated || s.outcomes.of(&task.task_id).is_some())?;
+            delegated_request(s, task).map(|t| t.seq)
+        });
+        let Some(seq) = seq else { return Ok(None) };
+        let words = self.words_of(&task.person, seq).await?;
+        Ok(words.opt(seq, "text"))
+    }
+
+    /// Quotes can refer to what the model saw in conversation, separately from authority.
+    pub(crate) async fn run_words_with_history(&self, run: &Run) -> Result<RunWords> {
+        let mut words = self.run_words(run).await?;
+        let task = self.read(|s| request_of(s, run).map(|r| r.task));
+        if let Some(task) = task.filter(|t| t.chat.as_ref().is_some_and(|c| c.history.is_some())) {
+            for entry in self.recent_thread_history(&task, run).await? {
+                let source = match entry["role"].as_str() {
+                    Some("person") => Source::Person,
+                    Some("you") => Source::Model,
+                    _ => continue,
+                };
+                if let Some(text) = entry["text"].as_str() {
+                    words.0.push(Said { source, part: Part::Earlier, text: text.to_string() });
+                }
+            }
+        }
+        Ok(words)
+    }
+}
+
+fn append_origin(words: &mut RunWords, text: Option<&str>) {
+    if let Some(text) = text.filter(|t| !t.trim().is_empty()) {
+        words.0.push(Said { source: Source::Person, part: Part::Origin, text: text.to_string() });
     }
 }
 
