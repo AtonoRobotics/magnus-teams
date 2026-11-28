@@ -204,9 +204,10 @@ pub(super) async fn list_tasks(State(k): K, Caller(p): Caller, h: HeaderMap) -> 
     let tasks: Vec<Value> = k.read(|s| {
         s.tasks
             .values()
-            // Polls fire dozens a day: they stay out of the person's
-            // lists, auditable by id and in the log (#406).
-            .filter(|t| visible_task(&p, t) && s.listed(t) && !t.poll)
+            // Polls and reviews fire dozens a day: they stay out of the
+            // person's lists, auditable by id and in the log (#406). The
+            // reviews alone made the list megabytes, fetched on each refresh.
+            .filter(|t| visible_task(&p, t) && s.listed(t) && !t.background())
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .collect()
     });
@@ -269,7 +270,7 @@ pub(super) async fn search(State(k): K, Caller(p): Caller, Query(q): Query<std::
         let tasks: Vec<Value> = s
             .tasks
             .values()
-            .filter(|t| visible_task(&p, t) && s.listed(t) && !t.poll)
+            .filter(|t| visible_task(&p, t) && s.listed(t) && !t.background())
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .filter(|v| {
                 all(&format!("{} {} {}", v["title"].as_str().unwrap_or_default(), v["text"].as_str().unwrap_or_default(), v["summary"].as_str().unwrap_or_default()).to_lowercase())
@@ -597,12 +598,18 @@ pub(super) async fn inbox_opened(State(k): K, Caller(p): Caller, Body(b): Body<r
     Ok(Json(json!({ "opened": marked })).into_response())
 }
 
+/// The inbox kinds that are news, not asks: once resolved, out of the list.
+const DISMISSABLE_NEWS: [&str; 2] = ["observation", "interrupt"];
+
 pub(super) async fn inbox_list(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
     let etag = seq_etag(&k, &p.id);
     if let Some(r) = not_modified(&h, &etag) {
         return Ok(r);
     }
-    let mut items: Vec<Value> = k.read(|s| s.inbox.items().values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
+    // News the person has dismissed is hidden: it never shows again, and
+    // hundreds of them made the list most of a megabyte on each refresh.
+    let shown = |i: &crate::state::Item| !(i.resolution.is_some() && DISMISSABLE_NEWS.contains(&i.kind.as_str()));
+    let mut items: Vec<Value> = k.read(|s| s.inbox.items().values().filter(|i| inbox::visible(s, &p, i) && shown(i)).map(|i| inbox::render(s, &p, i)).collect());
     // An approval for an app's action carries the app's card, as the person
     // whose task it is stands with it (connectors spec: the same card in the
     // Library, in chat, in a task and in approvals).

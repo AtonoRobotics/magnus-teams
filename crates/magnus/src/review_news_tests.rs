@@ -129,3 +129,52 @@ async fn older_tellings_of_the_same_news_are_dismissed() {
     assert_eq!(s.k.dismiss_repeated_news().await.unwrap(), 0, "once dismissed, nothing more at the next boot");
     s.done().await;
 }
+
+/// Production, 2026-11-27: the person's task list carried every review
+/// run, two thousand rows and 2.4 MB the app threw away, downloaded again
+/// on each refresh, so a reply showed half a minute late. The list holds
+/// what the person asked for; a review is not one.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_task_list_leaves_out_reviews() {
+    let s = server_with("", |_| Router::new()).await;
+    let review = review_run(&s).await;
+    let (task, _) = s.k.create_run("person:mo", "mo", "Write a note.".into(), vec![], crate::kernel::NewRun::default()).await.unwrap();
+    let token = s.token("mo").await;
+    let (status, v) = s.get(&token, "/v1/tasks").await;
+    assert_eq!(status, 200, "{v}");
+    let ids: Vec<&str> = v["tasks"].as_array().unwrap().iter().filter_map(|t| t["task_id"].as_str()).collect();
+    let review_task = s.k.read(|st| st.runs[&review].task.clone());
+    assert!(ids.contains(&task.as_str()), "the person's own task is listed: {ids:?}");
+    assert!(!ids.contains(&review_task.as_str()), "a review is not listed: {ids:?}");
+    s.done().await;
+}
+
+/// The same day: the inbox list carried every observation the person had
+/// dismissed, hundreds of them. Dismissed news stays out of it; an answered
+/// question stays in, for the approvals history.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_inbox_list_leaves_out_dismissed_news() {
+    let s = server_with("", |_| Router::new()).await;
+    let item = |id: &str, kind: &str| Ev::Item {
+        id: id.into(),
+        item_kind: kind.into(),
+        task: None,
+        run: None,
+        person: "mo".into(),
+        summary: "Two schedules are paused.".into(),
+        details: json!({}),
+    };
+    for (id, kind) in [("item_seen", "observation"), ("item_open", "observation"), ("item_asked", "question")] {
+        s.k.emit("kernel", item(id, kind)).await.unwrap();
+    }
+    for (id, decision) in [("item_seen", "dismiss"), ("item_asked", "answer")] {
+        s.k.emit("person:mo", Ev::ItemResolved { id: id.into(), decision: decision.into(), scope: None, text: Some("yes".into()) }).await.unwrap();
+    }
+    let token = s.token("mo").await;
+    let (status, v) = s.get(&token, "/v1/inbox").await;
+    assert_eq!(status, 200, "{v}");
+    let ids: Vec<&str> = v["items"].as_array().unwrap().iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(ids.contains(&"item_open") && ids.contains(&"item_asked"), "{ids:?}");
+    assert!(!ids.contains(&"item_seen"), "dismissed news is not listed: {ids:?}");
+    s.done().await;
+}
