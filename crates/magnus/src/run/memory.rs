@@ -183,6 +183,12 @@ fn recent_exchange(entries: &[serde_json::Value]) -> String {
     lines.join("\n")
 }
 
+/// The person's own words in a run, if they said anything: memory is made
+/// of what the person said, never of the system's dialog with itself.
+pub(crate) fn person_said(words: &crate::run_words::RunWords) -> Option<String> {
+    words.text(SAID_BY).map(str::trim).filter(|t| !t.is_empty()).map(String::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,10 +205,4 @@ mod tests {
         assert_eq!(recent_exchange(&lines), "Person: Recent request\nMagnus: Recent reply");
         assert_eq!(excerpt("abé", 3), "ab");
     }
-}
-
-/// The person's own words in a run, if they said anything: memory is made
-/// of what the person said, never of the system's dialog with itself.
-pub(crate) fn person_said(words: &crate::run_words::RunWords) -> Option<String> {
-    words.text(SAID_BY).map(str::trim).filter(|t| !t.is_empty()).map(String::from)
 }
