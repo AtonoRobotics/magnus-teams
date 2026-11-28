@@ -172,6 +172,10 @@ const Server = (() => {
       /** @param {{name: string, instructions: string}} body */
       create: body => post("/v1/projects", body),
       update: (/** @type {Id} */ id, /** @type {any} */ body) => put(`/v1/projects/${enc(id)}`, body),
+      /** Make a shared project from this one (its name, instructions and
+       * files) with these people in it. @param {Id} id @param {Id[]} people
+       * @returns {Promise<{workspace: Id}>} */
+      share: (id, people) => post(`/v1/projects/${enc(id)}/share`, { people }),
     },
 
     /** The models the person's agent runs on, and their providers' sign-ins. */
@@ -373,6 +377,7 @@ const Server = (() => {
       list: () => get("/v1/workspaces"),
       create: (/** @type {string} */ name) => post("/v1/workspaces", { name }),
       remove: (/** @type {Id} */ w) => del(ws(w)),
+      rename: (/** @type {Id} */ w, /** @type {string} */ name) => patch(ws(w), { name }),
       join: (/** @type {string} */ code) => post(`/v1/invites/${enc(code)}/join`),
       home: (/** @type {Id} */ w) => get(`${ws(w)}/home`),
       setInstructions: (/** @type {Id} */ w, /** @type {string} */ instructions) => put(`${ws(w)}/instructions`, { instructions }),

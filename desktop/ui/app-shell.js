@@ -492,7 +492,7 @@ function wireDocument() {
     const cs = e.target.closest("[data-conv-share]");
     if (cs && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ thread: cs.dataset.convShare, title: cs.dataset.convTitle || "" }); return; }
     const ps = e.target.closest("[data-project-share]");
-    if (ps && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ projectId: ps.dataset.projectShare, projectName: ps.dataset.projectName || "" }); return; }
+    if (ps && typeof ProjectShare !== "undefined") { e.preventDefault(); ProjectShare.open(ps.dataset.projectShare || "", ps.dataset.projectName || ""); return; }
     const dm = e.target.closest("[data-start-dm]");
     if (!dm || e.button !== 0 || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
