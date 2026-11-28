@@ -4,26 +4,23 @@
 # writes release=true or release=false to $GITHUB_OUTPUT:
 #
 #   1. A commit whose fast run did not pass is not released.
-#   2. Otherwise the run waits until every release run created before it has
-#      completed. No release run cancels or replaces another, and two never
-#      build or publish at once. Fast runs complete in push order
+#   2. Every other commit is released, in commit order: the run waits until
+#      every release run created before it has completed, then builds and
+#      publishes. No release run cancels, replaces or skips another, and two
+#      never build or publish at once. Fast runs complete in push order
 #      (decisions/2026-11-27-fast-runs-fifo.md), and each starts its release
-#      run, so the release runs wait in push order too.
-#   3. When its turn comes, a fast run's release is superseded if a later
-#      push's fast run on the same branch has already passed: that later
-#      release holds this commit too and comes next, so this one completes,
-#      successfully, without building something about to be replaced. A
-#      manual run is never superseded.
+#      run, so the release runs wait, and release, in push order too.
 #
 # Usage: ci/release-queue.sh REPOSITORY RUN_ID EVENT FAST_RUN_ID FAST_CONCLUSION
 # EVENT is workflow_run or workflow_dispatch; for a manual run, FAST_RUN_ID
-# and FAST_CONCLUSION are empty. Needs GH_TOKEN with actions: read.
+# and FAST_CONCLUSION are empty. FAST_RUN_ID is kept for the log. Needs GH_TOKEN with actions: read.
 set -eu
 # The test (ci/release-queue-check.sh) polls faster.
 POLL_INTERVAL_SECONDS=${RELEASE_QUEUE_POLL_INTERVAL_SECONDS:-30}
-WAIT_LIMIT_SECONDS=14400
+# Under the hosted runner's six-hour job limit (release.yml's queue job).
+WAIT_LIMIT_SECONDS=19800
 
-repo=$1 run=$2 event=$3 fast_run=${4:-} fast_conclusion=${5:-}
+repo=$1 run=$2 event=$3 fast_conclusion=${5:-}
 out=${GITHUB_OUTPUT:-/dev/stdout}
 summary=${GITHUB_STEP_SUMMARY:-/dev/stderr}
 decide() { echo "release=$1" >> "$out"; echo "$2" | tee -a "$summary" >&2; exit 0; }
@@ -47,13 +44,7 @@ while :; do
   waited=$((waited + POLL_INTERVAL_SECONDS))
 done
 
-[ "$event" != workflow_dispatch ] || decide true "Releasing: a manual run."
-
-# 3. Superseded by a later push whose fast run already passed?
-branch=$(gh api "repos/$repo/actions/runs/$fast_run" --jq .head_branch)
-newer=$(gh api "repos/$repo/actions/workflows/fast.yml/runs?branch=$branch&event=push&status=success&per_page=50" \
-  --jq "[.workflow_runs[] | select(.id > $fast_run)] | max_by(.id) | .head_sha // empty")
-if [ -n "$newer" ]; then
-  decide false "Superseded: the later commit $newer has passed its fast run, and its release, next in the queue, includes this commit."
+if [ "$event" = workflow_dispatch ]; then
+  decide true "Releasing: a manual run, its turn in the queue."
 fi
-decide true "Releasing: no later commit has passed its fast run yet."
+decide true "Releasing: this commit's turn in the queue."

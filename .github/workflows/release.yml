@@ -28,9 +28,8 @@ on:
 # Releases are a queue (decisions/2026-11-28-release-queue.md), kept by the
 # queue job, not by a concurrency group: GitHub keeps one waiting run per
 # group and cancels the one before it, which replaced commits' releases.
-# Every run waits its turn and none is cancelled; a commit's release is
-# skipped only when its fast run failed, or when a later commit has passed
-# and its release, next in the queue, includes this one.
+# Every commit whose fast run passed is released, in commit order: each run
+# waits its turn, and none is cancelled, replaced or skipped.
 
 permissions:
   contents: read
@@ -39,7 +38,7 @@ permissions:
 jobs:
   queue:
     runs-on: ubuntu-latest
-    timeout-minutes: 250
+    timeout-minutes: 340
     outputs:
       release: ${{ steps.turn.outputs.release }}
     steps:

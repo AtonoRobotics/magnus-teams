@@ -67,10 +67,11 @@ echo "$fast_none" > "$tmp/waits/fast.json"
 [ "$(run waits workflow_run 100 success)" = true ] || bad "a release behind earlier runs is not released once they complete"
 [ "$(cat "$tmp/waits/calls")" = 3 ] || bad "the queue did not wait for every earlier release run (asked $(cat "$tmp/waits/calls") times, not 3)"
 
-# A later commit that passed supersedes it, and the newest one is named.
-case_ superseded; echo "$no_runs" > "$tmp/superseded/runs.1.json"; echo "$fast_newer" > "$tmp/superseded/fast.json"
-[ "$(run superseded workflow_run 100 success)" = false ] || bad "a commit whose later commit passed is built anyway"
-grep -q 'ccc' "$tmp/superseded/summary" || bad "a superseded release does not name the newest passed commit"
+# Every passed commit is released in its turn, even when later commits have
+# passed too: none is skipped for a newer one.
+case_ later; echo "$no_runs" > "$tmp/later/runs.1.json"; echo "$fast_newer" > "$tmp/later/fast.json"
+[ "$(run later workflow_run 100 success)" = true ] || bad "a passed commit is skipped because a later commit passed"
+! grep -qi 'supersed' "$queue" || bad "ci/release-queue.sh still supersedes a release"
 
 # A manual run is released after waiting, never superseded.
 case_ manual; echo "$no_runs" > "$tmp/manual/runs.1.json"; echo "$fast_newer" > "$tmp/manual/fast.json"
