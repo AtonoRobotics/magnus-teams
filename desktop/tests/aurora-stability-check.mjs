@@ -98,7 +98,10 @@ assert.match(app, /if \(App\.serverVersion && App\.serverVersion !== v\.version\
 assert.match(app, /let restartingUpdate = false;/, "restartToUpdate guards against concurrent clicks");
 assert.match(admin, /submit\.disabled = true/, "stepUp disables Confirm button while in flight");
 assert.match(stageCss, /@container aurora-main \(min-width: 820px\)/, "nova-stage.css adapts to container width");
-assert.match(updateRs, /\*ups\.ready\.lock\(\)\.unwrap\(\) = Some\(\(update, bytes\)\);/, "update_install restores ready update on install failure");
+// The restore takes the lock however a poisoned lock is handled (7b1847e
+// replaced `.unwrap()` with `.unwrap_or_else(PoisonError::into_inner)`).
+const installFailure = updateRs.slice(updateRs.indexOf("fn update_install"));
+assert.match(installFailure, /\*ups\.ready\.lock\(\)\.unwrap(?:\(\)|_or_else\(std::sync::PoisonError::into_inner\)) = Some\(\(update, bytes\)\);/, "update_install restores ready update on install failure");
 
 // 4. Send-to-Stop square, Steer, close deduplication, sizing harmony, and autonomy UX.
 const composerJs = read("ui/chat-composer.js");
