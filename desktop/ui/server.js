@@ -390,7 +390,7 @@ const Server = (() => {
       /** The side panel, for a project or the whole workspace. @param {Id} w @param {?Id} [project] */
       panel: (w, project) => get(`${ws(w)}/panel${query({ project })}`),
       search: (/** @type {Id} */ w, /** @type {string} */ q) => get(`${ws(w)}/search${query({ q })}`),
-      /** Open a direct conversation. @param {Id} w @param {{agent?: boolean, people?: Id[]}} body */
+      /** Open a direct conversation. @param {Id} w @param {{people: Id[]}} body */
       direct: (w, body) => post(`${ws(w)}/direct`, body),
       /** Start a channel or a project. @param {Id} w @param {{kind: string, name: string}} body */
       start: (w, body) => post(`${ws(w)}/start`, body),

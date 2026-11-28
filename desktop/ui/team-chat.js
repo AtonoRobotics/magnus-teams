@@ -15,7 +15,7 @@
  * @typedef {{ task_id: string, title: string, text: string, status: "running"|"suspended"|"completed"|"failed"|"cancelled", waiting_on: ?string, status_line: ?string, requester: string, steps: number, doing: ?string, long: boolean, thread: ?string, started: string }} TeamWork
  * @typedef {{ id: string, name: string, media_type?: string, size?: number }} TeamFile
  * @typedef {{ id: string, kind: "message"|"answer"|"tasks"|"deleted", files?: TeamFile[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, tasks?: TeamWork[], from_run?: string, task?: string, task_id?: string, private?: boolean, deleted?: boolean, may?: May, for?: string }} TeamMessage
- * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string>, caps?: ConversationCaps }} TeamView
+ * @typedef {{ messages: TeamMessage[], typing: string[], working?: string[], names: Object<string, string>, caps?: ConversationCaps }} TeamView
  * Who is reading, to read a channel's items into the chat view's kinds.
  * @typedef {{ me: string, ws: string, channel: string, name: (id: string) => string, inThread?: boolean }} TeamReader
  */
@@ -71,10 +71,10 @@ function teamEntry(m, r) {
   return { ...m, kind: m.kind === "tasks" ? "work" : m.kind, files: m.files || [], work: work ? teamWork(work, r) : undefined };
 }
 
-/** Who a partial @mention could be: the team agent first, then people. */
+/** Who a partial @mention could be: your own Magnus first, then people. */
 function mentionChoices(home, partial) {
   const q = (partial || "").toLowerCase();
-  const all = [{ id: home.agent.id, name: home.agent.name, agent: true }, ...home.members.filter(m => m.id !== home.me)];
+  const all = [{ id: home.agent.id, name: home.agent.mention, agent: true }, ...home.members.filter(m => m.id !== home.me)];
   return all.filter(p => p.name.toLowerCase().startsWith(q) || p.id.toLowerCase().startsWith(q)).slice(0, 6);
 }
 
@@ -90,7 +90,7 @@ function channelFaces(home, c, project) {
   const ids = c.direct ? c.direct.people : project ? [...new Set([project.owner, ...project.members])] : home.members.map(m => m.id);
   const people = ids.map(id => home.members.find(m => m.id === id)).filter(Boolean);
   const shown = people.slice(0, TEAM_HEAD_FACES), more = people.length - shown.length;
-  const names = [...people.map(m => m.name), home.agent.name].join(", ");
+  const names = [...people.map(m => m.name), home.agent.mention].join(", ");
   return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
@@ -129,7 +129,7 @@ const TeamChat = {
     // member's request runs on their pick (decisions/2026-11-13-team-composer-model.md).
     const view = await Conversation.open(root, {
       conv: teamConversation(s, thread), side: teamComposer(s, thread), record: Conversation.draft({ ws: s.ws, channel: s.channel, thread }),
-      placeholder: `${where}. Mention @${home.agent.name} to have your Magnus help and share its output.`, label: where, mentions: true,
+      placeholder: `${where}. Mention @${home.agent.mention} to have your Magnus help and share its output.`, label: where, mentions: true,
       bar: guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`,
       // A guest's messages never start the agent, so there is no model to pick.
       noModel: guest ? "Guests chat here; only members can ask Magnus, so no model runs for you." : undefined,
@@ -160,7 +160,7 @@ const TeamChat = {
   /** Ask in this conversation, from outside its composer (Catch me up). */
   async send(text, thread) {
     const s = this.s, r = await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined });
-    if (r.agent) toast(`${Team.home.agent.name} is on it.`);
+    if (r.agent) toast("Your Magnus is on it.");
     if (r.limited) toast(r.limited, 8000);
     await this.refresh();
   },

@@ -136,7 +136,7 @@ assert.doesNotMatch(teamsHtml, /data-del-shared-ws="ws_2"/, "non-creator should 
 assert.equal(sharedDeepLinkPanel({ kind: "project", id: "p1", tab: "overview" }), null, "project deep link must not auto-open Missions panel");
 
 // 7. Shared conversation header gives creator a direct delete button.
-const ownerHome = { id: "ws_1", name: "Launch", role: "owner", me: "sam", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam", role: "owner", online: true }], channels: [{ id: "c1", name: "general", direct: null }] };
+const ownerHome = { id: "ws_1", name: "Launch", role: "owner", me: "sam", agent: { id: "agent:me", name: "My Magnus", mention: "Magnus" }, members: [{ id: "sam", name: "Sam", role: "owner", online: true }], channels: [{ id: "c1", name: "general", direct: null }] };
 const tools = channelTools(ownerHome, { id: "c1", name: "general", mode: "mentions", direct: null }, null);
 assert.match(tools, /data-nav-del-shared="ws_1"/, "creator missing direct delete button in shared header");
 

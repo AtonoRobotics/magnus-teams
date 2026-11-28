@@ -18,7 +18,7 @@ const home = {
   role: "owner",
   me: "bob",
   me_name: "Bob",
-  agent: { id: "agent", name: "Magnus" },
+  agent: { id: "agent:me", name: "My Magnus", mention: "Magnus" },
   computer: "comp-ws1",
   members: [
     { id: "bob", name: "Bob", role: "owner", online: true },

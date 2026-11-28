@@ -37,7 +37,7 @@ function commandsFor(home, place, q) {
     if (channelSlug(t)) out.push({ group: "Create", label: `New channel #${channelSlug(t)}`, run: { kind: "start", what: "channel", name: t } });
     out.push({ group: "Create", label: `New task: ${t}`, hint: project ? `On ${home.projects.find(p => p.id === project)?.name || "this project"}'s board` : "On the project's board", run: { kind: "task", title: t, project } });
     if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) out.push({ group: "Create", label: `Invite ${t}`, run: { kind: "invite", email: t } });
-    out.push({ group: "Ask Magnus", label: `Ask ${home.agent.name}: ${t}`, hint: here && !here.direct?.agent ? `In ${channelTitle(home, here)}, your Magnus shares its output` : "In your conversation with it", run: { kind: "ask", text: t } });
+    out.push({ group: "Ask Magnus", label: `Ask your Magnus: ${t}`, hint: here ? `In ${channelTitle(home, here)}, your Magnus shares its output` : "In a new chat of your own", run: { kind: "ask", text: t } });
   }
   for (const p of home.projects.filter(p => match(p.name))) out.push({ group: "Go to", label: p.name, hint: `Project · ${p.progress.done}/${p.progress.total} done`, run: { kind: "go", place: { kind: "project", id: p.id } } });
   for (const c of home.channels.filter(c => match(channelTitle(home, c)))) out.push({ group: "Go to", label: channelTitle(home, c), hint: c.mentions ? `${c.mentions} mentions` : c.unread ? `${c.unread} unread` : "", run: { kind: "go", place: { kind: "channel", id: c.id } } });
@@ -46,12 +46,11 @@ function commandsFor(home, place, q) {
     { label: "Activity: mentions, replies and asks", run: { kind: "go", place: { kind: "activity" } } },
     { label: "People and invites", run: { kind: "go", place: { kind: "people" } } },
     { label: "Add people, remove them, or leave this workspace", run: { kind: "go", place: { kind: "people" } } },
-    { label: `Talk to ${home.agent.name} directly`, run: { kind: "dm", agent: true } },
     { label: "All workspaces", run: { kind: "hash", hash: "#/teams" } },
   ];
   if (here && !here.direct && member) {
-    actions.push({ label: `${home.agent.name} here: reply to mentions only`, run: { kind: "set", what: "agent", body: { mode: "mentions" } } });
-    actions.push({ label: `${home.agent.name} here: join when it can help`, run: { kind: "set", what: "agent", body: { mode: "when_helpful" } } });
+    actions.push({ label: "Magnus here: answer only when mentioned", run: { kind: "set", what: "agent", body: { mode: "mentions" } } });
+    actions.push({ label: "Magnus here: join when it can help", run: { kind: "set", what: "agent", body: { mode: "when_helpful" } } });
   }
   if (here) for (const [level, l] of [["all", "all messages"], ["mentions", "mentions only"], ["off", "off"]]) actions.push({ label: `Notifications here: ${l}`, run: { kind: "set", what: "notify", body: { level } } });
   if (here) actions.push({ label: `Mark ${channelTitle(home, here)} read`, run: { kind: "set", what: "read", body: {} } });
@@ -83,17 +82,16 @@ const TeamCommand = {
         else if (made.project) location.hash = teamHref(ws, { kind: "project", id: made.project });
       }
       if (r.kind === "dm") {
-        const c = await Server.workspaces.direct(ws, r.agent ? { agent: true } : { people: [r.person] });
+        const c = await Server.workspaces.direct(ws, { people: [r.person] });
         await loadHome(ws);
         location.hash = teamHref(ws, { kind: "channel", id: c.id });
       }
       if (r.kind === "ask") {
         const here = place.kind === "channel" && Team.home.channels.find(c => c.id === place.id);
-        if (here) { await TeamChat.send(here.direct?.agent ? r.text : `@${Team.home.agent.name} ${r.text}`, place.thread || null, false, []); return; }
-        const c = await Server.workspaces.direct(ws, { agent: true });
-        await Server.channels.post(ws, c.id, { text: r.text });
-        await loadHome(ws);
-        location.hash = teamHref(ws, { kind: "channel", id: c.id });
+        if (here) { await TeamChat.send(here.direct?.agent ? r.text : `@${Team.home.agent.mention} ${r.text}`, place.thread || null); return; }
+        // Outside a conversation it is a chat of one's own with one's Magnus.
+        const sent = await Server.chat.send({ text: r.text });
+        location.hash = sent?.thread ? `#/chat/${enc(sent.thread)}` : "#/chat/new";
       }
       if (r.kind === "task") { await Server.workspaces.addTask(ws, { title: r.title, project: r.project || undefined }); toast("Added to the board."); TeamPanel.refresh(); }
       if (r.kind === "invite") { const x = await Server.workspaces.invite(ws, r.email); toast(inviteOutcome(r.email, x), 8000); }

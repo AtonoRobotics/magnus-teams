@@ -139,7 +139,7 @@ function navigationTree() {
     const shown=open.has(key) || (here && !navShut.has(key));
     const list=chats.sort((a,b)=>b.at-a.at);
     const kids=shown ? `<div class="nav-project-chats" id="nav-chats-${esc(key)}">${list.slice(0,NAV_PROJECT_CHATS).map(c=>c.html()).join("") || '<p class="small faint pad">No chats yet.</p>'}${list.length>NAV_PROJECT_CHATS ? `<a class="conv nav-project-all" href="${href}"><span class="ttl">All ${list.length} chats</span></a>` : ""}</div>` : "";
-    const toggle=`<button type="button" class="icon-btn nav-project-toggle" data-nav-project="${esc(key)}" aria-expanded="${shown}" aria-controls="nav-chats-${esc(key)}" title="${shown ? "Hide" : "Show"} its chats" aria-label="${shown ? "Hide" : "Show"} the chats in ${esc(name)}">${icon("chev")}</button>`;
+    const toggle=`<button type="button" class="icon-btn nav-project-toggle" data-nav-project="${esc(key)}" aria-expanded="${shown}" aria-controls="nav-chats-${esc(key)}" aria-label="${shown ? "Hide" : "Show"} the chats in ${esc(name)}">${icon("chev")}</button>`;
     return {name,html:`<div class="nav-project${shown ? " open" : ""}"><div class="nav-project-head">${toggle}${row(href,name,{lead:icon("folder"),...extra},remove)}</div>${kids}</div>`};
   };
   const projects=[

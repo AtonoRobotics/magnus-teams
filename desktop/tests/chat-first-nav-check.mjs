@@ -86,6 +86,8 @@ assert.match(projects, /href="#\/team\/w1"[^>]*>.*Launch.*class="nav-shared"/s, 
 assert.doesNotMatch(projects, /<details/, "a project's chats open by its chevron, not a details element");
 // The project of the open chat shows its chats; the other is closed.
 assert.match(projects, /data-nav-project="p:p1" aria-expanded="true"/, "the open chat's project shows its chats");
+// Its toggle has no native tooltip: WebView2 keeps one up after the click.
+assert.doesNotMatch(projects, /data-nav-project="[^"]*"[^>]*\stitle=/, "the project toggle carries a title that lingers");
 assert.match(projects.slice(projects.indexOf('data-nav-project="p:p1"')), /href="#\/chat\/t2"[^>]*>.*Quarter plan/s, "a project's chat is under it");
 assert.match(projects, /data-nav-project="w:w1" aria-expanded="false"/, "another project is closed");
 assert.doesNotMatch(projects, /c\/c1"/, "a closed project's chats are not shown");

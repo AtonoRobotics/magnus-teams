@@ -1,8 +1,8 @@
-//! Magnus in a shared conversation. It is in every channel from the moment
-//! the workspace exists, answers when mentioned or named with no button to
-//! press, joins on its own where a channel allows it, and gives long work
-//! its own thread with live status and the requester named. Each answer is
-//! the asker's own personal Magnus at work (`orchestrator`).
+//! Each person's Magnus in a shared conversation: it answers its person when
+//! they mention @Magnus, joins on its own where a channel allows it, and
+//! gives long work its own thread with live status and the requester named.
+//! Each answer is the asker's own agent at work, posting as itself
+//! (`agent_id`, `orchestrator`).
 use super::chat::{AgentMode, Chat};
 use super::{Change, Role, Workspace};
 use crate::events::Ev;
@@ -13,9 +13,6 @@ use std::sync::Arc;
 
 type At = chrono::DateTime<chrono::Utc>;
 
-/// The team agent's id among a channel's members, and the name it answers to.
-pub const AGENT_ID: &str = "agent";
-pub const AGENT_NAME: &str = "Magnus";
 /// Work still going after this long, or past this many steps, is long work
 /// and gets its own thread.
 const LONG_WORK_AFTER_SECS: i64 = 20;
@@ -25,16 +22,13 @@ const QUIET_THREAD_AFTER_HOURS: i64 = 24;
 /// Older than this, a quiet thread is history and not followed up.
 const QUIET_THREAD_LOOKBACK_DAYS: i64 = 7;
 
-/// Why the team agent took a message on.
+/// Why a person's agent took a message on.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Why {
-    /// An older client asked for it outright.
+    /// Asked outright: by an older client, or in a chat with one's own Magnus.
     Asked,
     Mentioned,
-    Named,
-    /// A direct conversation with the agent: every message is to it.
-    Direct,
     /// The channel lets it join when it can help, and this is such a time.
     Helpful,
 }
@@ -43,7 +37,7 @@ pub enum Why {
 /// Bare occurrences of the word "Magnus" never start a task unasked.
 pub fn addressed(text: &str) -> Option<Why> {
     let lower = text.to_lowercase();
-    let name = AGENT_NAME.to_lowercase();
+    let name = crate::agent_id::MENTION.to_lowercase();
     for (i, _) in lower.match_indices(&name) {
         let before = lower[..i].chars().next_back();
         let after = lower[i + name.len()..].chars().next();
@@ -99,8 +93,10 @@ impl Workspace {
         if sender == Role::Guest || !self.channels.contains_key(channel) {
             return None;
         }
+        // A chat with Magnus from before each person had their own agent is
+        // still that person asking their own Magnus.
         if self.chat.direct.get(channel).is_some_and(|d| d.agent) {
-            return Some(Why::Direct);
+            return Some(Why::Asked);
         }
         addressed(text).or_else(|| (self.agent_mode(channel) == AgentMode::WhenHelpful && helpful_cue(text)).then_some(Why::Helpful))
     }
@@ -166,7 +162,6 @@ fn follow_up_objective(question: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::chat::Direct;
     use super::super::{Channel, Message};
     use super::*;
 
@@ -204,15 +199,15 @@ mod tests {
     }
 
     #[test]
-    fn a_new_channel_is_mentions_only() {
-        assert_eq!(Workspace::default().agent_mode("c"), AgentMode::Mentions);
+    fn an_old_chat_with_magnus_is_still_answered() {
+        let mut w = ws(AgentMode::Mentions);
+        w.chat.direct.insert("c".into(), super::super::chat::Direct { people: vec!["alice".into()], agent: true });
+        assert_eq!(w.agent_answers("c", Role::Owner, "draft the update"), Some(Why::Asked));
     }
 
     #[test]
-    fn in_a_direct_conversation_with_it_every_message_is_to_it() {
-        let mut w = ws(AgentMode::Mentions);
-        w.chat.direct.insert("c".into(), Direct { people: vec!["alice".into()], agent: true });
-        assert_eq!(w.agent_answers("c", Role::Owner, "draft the update"), Some(Why::Direct));
+    fn a_new_channel_is_mentions_only() {
+        assert_eq!(Workspace::default().agent_mode("c"), AgentMode::Mentions);
     }
 
     #[test]

@@ -9,7 +9,6 @@ use super::{takeover::runs_on, Computer, Owner};
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::state::{Item, Run, State, Status as RunStatus};
-use crate::team::conversation::AGENT_NAME;
 use crate::tools::obj;
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -103,7 +102,7 @@ pub(super) fn driving(s: &State, c: &Computer) -> Value {
     json!({
         "by": by,
         "person": c.controller,
-        "runs": on_it.iter().map(|r| { let (asker, sub) = asked_by(s, r); json!({ "run": r.id, "task": r.task, "status": r.status, "reason": r.reason, "agent": AGENT_NAME, "sub": sub, "for": asker }) }).collect::<Vec<_>>(),
+        "runs": on_it.iter().map(|r| { let (asker, sub) = asked_by(s, r); json!({ "run": r.id, "task": r.task, "status": r.status, "reason": r.reason, "agent": crate::agent_id::of(&asker), "sub": sub, "for": asker }) }).collect::<Vec<_>>(),
         "request": request,
     })
 }
@@ -134,7 +133,10 @@ pub(super) fn with_names(k: &Kernel, mut v: Value) -> Value {
     if let Some(runs) = v["driving"]["runs"].as_array_mut() {
         for r in runs {
             let id = r["for"].as_str().unwrap_or_default().to_string();
-            r["for_name"] = json!(k.person(&id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or(id));
+            let name = k.person(&id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or(id);
+            // The agent at work is the asker's, by its name.
+            r["agent"] = json!(crate::agent_id::name(&name));
+            r["for_name"] = json!(name);
         }
     }
     v
@@ -218,7 +220,7 @@ mod tests {
     fn a_run_on_it_names_its_agent_and_whom_it_works_for() {
         let mut s = world();
         let r = &driving(&s, &computer(&s))["runs"][0];
-        assert_eq!((r["agent"].clone(), r["for"].clone(), r["sub"].clone()), (json!(AGENT_NAME), json!("alice"), json!(false)), "{r}");
+        assert_eq!((r["agent"].clone(), r["for"].clone(), r["sub"].clone()), (json!(crate::agent_id::of("alice")), json!("alice"), json!(false)), "{r}");
         assert_eq!(computer_name(&s, &computer(&s)), "Your computer");
         s.apply(&ev(5, "kernel", json!({ "kind": "sub_agent", "child": "r1", "parent": "r0", "tools": [] })));
         assert_eq!(driving(&s, &computer(&s))["runs"][0]["sub"], json!(true), "a sub-agent is not said to be one");

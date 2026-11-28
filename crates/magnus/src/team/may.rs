@@ -14,7 +14,6 @@
 //!   deletes it, and so do the workspace's owners and admins outside a direct
 //!   conversation ("The teams admin can moderate and delete it only from
 //!   teams", the owner, 2026-11-11).
-use super::conversation::AGENT_ID;
 use super::items::{self, TeamItem};
 use super::member_view::{MemberView, Runs, Said};
 use super::Role;
@@ -36,7 +35,7 @@ pub fn may<R: Runs>(v: &MemberView<R>, channel: &str, e: &TeamItem) -> Option<Ma
     let role = w.members.get(me).copied().unwrap_or(Role::Guest);
     let guest = role == Role::Guest;
     let moderates = role >= Role::Admin && !w.chat.direct.contains_key(channel);
-    let agent = e.sender.as_deref() == Some(AGENT_ID);
+    let agent = e.sender.as_deref().is_some_and(crate::agent_id::is_agent);
     let mine = e.sender.as_deref() == Some(me);
     let for_me = agent && e.requester.as_deref() == Some(me);
     let asked = for_me && e.task.is_some();

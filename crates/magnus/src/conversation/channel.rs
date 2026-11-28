@@ -9,7 +9,6 @@ use crate::api_error::{ApiError, ApiResult};
 use crate::chat_entry::May;
 use crate::kernel::Kernel;
 use crate::state::State;
-use crate::team::conversation::{AGENT_ID, AGENT_NAME};
 use crate::team::items::{self, TeamItem};
 use crate::team::member_view::{author, MemberView, Runs};
 use crate::team::Role;
@@ -28,9 +27,15 @@ pub fn names(k: &Kernel, ws: &str) -> Names {
         let senders = w.channels.values().flat_map(|c| c.messages.iter()).map(|m| author(&m.sender).0.to_string());
         w.members.keys().cloned().chain(senders).collect()
     });
-    let mut out: Names = ids.into_iter().map(|id| (k.people().name(&id), id)).map(|(name, id)| (id, name)).collect();
-    out.insert(AGENT_ID.into(), AGENT_NAME.into());
-    out
+    ids.into_iter()
+        .map(|id| {
+            let name = match crate::agent_id::person(&id) {
+                Some(person) => crate::agent_id::name(&k.people().name(person)),
+                None => k.people().name(&id),
+            };
+            (id, name)
+        })
+        .collect()
 }
 
 /// A channel (`thread` None) or one of its threads, for one member, at `now`.

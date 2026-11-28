@@ -18,7 +18,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
 const calls = [];
 let confirm = true;
 const home = {
-  id: "w", name: "Alpha", role: "owner", me: "dana", me_name: "Dana", agent: { id: "agent", name: "Magnus" }, computer: null,
+  id: "w", name: "Alpha", role: "owner", me: "dana", me_name: "Dana", agent: { id: "agent:me", name: "My Magnus", mention: "Magnus" }, computer: null,
   members: [{ id: "dana", name: "Dana", role: "owner", online: true }, { id: "sam", name: "Sam", role: "admin", online: true }, { id: "leo", name: "Leo", role: "member", online: false }],
   channels: [{ id: "c1", name: "general", project: null, mode: "mentions", notify: "all", unread: 0, mentions: 0, direct: null }],
   projects: [],

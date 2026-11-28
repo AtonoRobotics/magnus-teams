@@ -3,7 +3,6 @@
 //! conversations, read markers, typing and the activity view.
 use super::caller::{at, Member};
 use super::chat::{AgentMode, Chat, Direct, Notify};
-use super::conversation::{AGENT_ID, AGENT_NAME};
 use super::items;
 use super::may::{allow, Act};
 use super::member_view::MemberView;
@@ -20,7 +19,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 const MAX_MESSAGE_CHARS: usize = 20_000;
@@ -43,11 +42,12 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/channels/{channel}/typing", post(typing))
 }
 
+/// A person's name, or an agent's: "Samuel's Magnus" (`agent_id`).
 pub(super) fn name_of(k: &Kernel, id: &str) -> String {
-    if id == AGENT_ID {
-        return AGENT_NAME.to_string();
+    match crate::agent_id::person(id) {
+        Some(person) => crate::agent_id::name(&k.people().name(person)),
+        None => k.people().name(id),
     }
-    k.people().name(id)
 }
 
 fn workspace(k: &Kernel, ws: &str) -> Option<Workspace> {
@@ -86,7 +86,8 @@ async fn home(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pa
     Ok(Json(json!({
         "id": w.id, "name": w.name, "role": role, "me": p.id, "me_name": me,
         "instructions": w.instructions,
-        "agent": { "id": AGENT_ID, "name": AGENT_NAME },
+        // The viewer's own agent, and what they type to ask it.
+        "agent": { "id": crate::agent_id::of(&p.id), "name": crate::agent_id::name(&me), "mention": crate::agent_id::MENTION },
         "members": members, "channels": channels, "projects": projects,
         "computer": k.team_computer(&ws), "spend": super::spend::summary(&w, &spent),
         "apps": k.workspace_app_list(&w),
@@ -119,14 +120,22 @@ async fn view(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pa
     let now = chrono::Utc::now();
     let none = conv::Names::new();
     let items = k.read(|s| MemberView::of(s, &ws, &p.id).map(|view| conv::Channel { view, channel: &channel, thread: None, now, names: &none }.entries()).unwrap_or_default());
-    let working = k.read(|s| s.team.runs_in(&ws, &channel).iter().any(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|run| !run.status.terminal())));
+    // The agents at work here, each by its own name.
+    let working: BTreeSet<String> = k.read(|s| {
+        s.team
+            .runs_in(&ws, &channel)
+            .iter()
+            .filter_map(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)))
+            .filter(|run| !run.status.terminal())
+            .map(|run| crate::agent_id::of(&run.person))
+            .collect()
+    });
     let mut typing: Vec<String> = presence::typing_in(&ws, &channel).into_iter().filter(|t| t != &p.id).map(|t| name_of(&k, &t)).collect();
-    if working {
-        typing.push(AGENT_NAME.to_string());
-    }
+    typing.dedup();
+    let working: Vec<String> = working.iter().map(|a| name_of(&k, a)).collect();
     let names: BTreeMap<String, String> = items.iter().flat_map(|i| i.sender.iter().chain(i.requester.as_ref())).map(|id| (id.clone(), name_of(&k, id))).collect();
     let caps = conv::Channel::<crate::state::State>::caps_for(role);
-    Ok(Json(json!({ "messages": items::for_the_app(items, &names), "typing": typing, "names": names, "caps": caps })).into_response())
+    Ok(Json(json!({ "messages": items::for_the_app(items, &names), "typing": typing, "working": working, "names": names, "caps": caps })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -230,9 +239,6 @@ async fn typing(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((
 struct NewDirect {
     #[serde(default)]
     people: Vec<String>,
-    /// A conversation with the team agent.
-    #[serde(default)]
-    agent: bool,
 }
 
 /// The direct conversation between these people, made the first time.
@@ -245,21 +251,21 @@ async fn direct(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, 
     if !people.iter().all(|x| w.members.contains_key(x)) {
         return refuse(StatusCode::BAD_REQUEST, "a direct message is between members");
     }
-    allow(role, &p.id, Act::Post { with_agent: b.agent })?;
-    let id = direct_between(&k, &p, &w, people, b.agent).await?;
+    allow(role, &p.id, Act::Post { with_agent: false })?;
+    let id = direct_between(&k, &p, &w, people).await?;
     Ok(Json(json!({ "id": id })).into_response())
 }
 
 /// The direct conversation between these people (the caller among them),
 /// made the first time.
-pub(super) async fn direct_between(k: &Kernel, p: &Person, w: &Workspace, people: Vec<String>, agent: bool) -> Result<String, Box<Reply>> {
-    let found = Direct { people: people.clone(), agent };
+pub(super) async fn direct_between(k: &Kernel, p: &Person, w: &Workspace, people: Vec<String>) -> Result<String, Box<Reply>> {
+    let found = Direct { people: people.clone(), agent: false };
     if let Some((id, _)) = w.chat.direct.iter().find(|(_, d)| **d == found) {
         return Ok(id.clone());
     }
     let id = new_id();
     send(k, p, Change::Channel { workspace: w.id.clone(), channel: id.clone(), name: String::new() }).await?;
-    send(k, p, Change::Chat { workspace: w.id.clone(), chat: Chat::Direct { channel: id.clone(), people, agent } }).await?;
+    send(k, p, Change::Chat { workspace: w.id.clone(), chat: Chat::Direct { channel: id.clone(), people, agent: false } }).await?;
     Ok(id)
 }
 

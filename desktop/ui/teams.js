@@ -18,7 +18,7 @@ const teamRoleLabel = r => ({ owner: "Creator", admin: "Collaborator", member: "
  * @typedef {{ id: string, name: string, owner: string, members: string[], progress: { done: number, total: number }, channels: string[] }} TeamProject
  * @typedef {{ spent_usd: number, limit_usd: ?number, channels: Object<string, { spent_usd: number, limit_usd: ?number }> }} TeamSpend
  * @typedef {{ name: string, title: string, roles: string[], signs_in: boolean, signed_in: boolean }} TeamApp
- * @typedef {{ id: string, name: string, role: string, me: string, me_name: string, agent: { id: string, name: string }, members: TeamMember[], channels: TeamChannel[], projects: TeamProject[], computer: ?string, spend?: TeamSpend, apps?: TeamApp[] }} TeamHome
+ * @typedef {{ id: string, name: string, role: string, me: string, me_name: string, agent: { id: string, name: string, mention: string }, members: TeamMember[], channels: TeamChannel[], projects: TeamProject[], computer: ?string, spend?: TeamSpend, apps?: TeamApp[] }} TeamHome
  * @typedef {{ kind: "home"|"channel"|"project"|"activity"|"search"|"people", id?: string, thread?: string, tab?: string, q?: string }} TeamPlace
  */
 
@@ -106,6 +106,17 @@ function avatar(name, agent = false, personId = null) {
   }
   const letters = agent ? "M" : String(name || "?").split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
   return `<span class="team-avatar${agent ? " agent" : ""}" aria-hidden="true">${esc(letters)}</span>`;
+}
+
+/**
+ * A name for anyone who speaks here: a member, or a member's own agent
+ * (`agent:<person>`), "Samuel's Magnus".
+ * @param {TeamHome} home @param {string} id
+ */
+function teamName(home, id) {
+  const person = id.startsWith("agent:") ? id.slice("agent:".length) : null;
+  if (person !== null) return person === home.me ? home.agent.name : `${home.members.find(m => m.id === person)?.name || person}'s ${home.agent.mention}`;
+  return home.members.find(m => m.id === id)?.name || id;
 }
 
 /** A direct conversation's title: who else is in it, or the agent. */

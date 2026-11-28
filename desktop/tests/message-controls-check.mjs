@@ -116,13 +116,13 @@ vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globa
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
-const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : !String(m.sender).startsWith("agent:") ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
 const { Team, TeamChat } = sandbox.__x;
-Team.home = { me: "sam", role: "member", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1" }], projects: [] };
+Team.home = { me: "sam", role: "member", agent: { id: "agent:sam", name: "Sam's Magnus", mention: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1" }], projects: [] };
 TeamChat.refresh = async () => {};
 const state = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {} };
 const view = { section: {}, ui: { editing: null, sharing: null, people: [] }, draw: async () => {} };
-const answer = sandbox.teamEntry(served({ id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", at: "" }), sandbox.teamReader(state, null));
+const answer = sandbox.teamEntry(served({ id: "agent:t1", sender: "agent:sam", requester: "sam", task: "t1", text: "done", at: "" }), sandbox.teamReader(state, null));
 const conv = sandbox.teamConversation(state, null);
 for (const [act, route, body_] of [["save", "save", {}], ["share-send", "share", { person: "dana" }], ["retry", "retry", {}]]) {
   calls.length = 0;

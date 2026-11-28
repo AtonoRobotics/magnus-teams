@@ -108,8 +108,8 @@ fn task_fits(w: &Workspace, person: &str, t: &Task) -> Result<(), &'static str> 
     if !w.may_read(t.project.as_deref(), person) {
         return Err("no such project");
     }
-    if t.assignee.as_ref().is_some_and(|a| !w.members.contains_key(a) && a != super::conversation::AGENT_ID) {
-        return Err("a task is assigned to a member or the team agent");
+    if t.assignee.as_ref().is_some_and(|a| !w.members.contains_key(crate::agent_id::person(a).unwrap_or(a))) {
+        return Err("a task is assigned to a member or a member's agent");
     }
     if t.from.as_ref().is_some_and(|o| !w.sees(&o.channel, person)) {
         return Err("no such channel");
@@ -286,8 +286,10 @@ mod tests {
         let t = Task { title: "Fix it".into(), project: Some("p".into()), ..Default::default() };
         assert!(task_fits(&w, "ann", &t).is_ok());
         assert!(task_fits(&w, "bo", &t).is_err(), "bo is not in the project");
-        let to_agent = Task { assignee: Some("agent".into()), project: None, ..t.clone() };
-        assert!(task_fits(&w, "bo", &to_agent).is_ok());
+        let to_agent = Task { assignee: Some(crate::agent_id::of("bo")), project: None, ..t.clone() };
+        assert!(task_fits(&w, "bo", &to_agent).is_ok(), "a member's own Magnus takes tasks");
+        let stranger = Task { assignee: Some(crate::agent_id::of("zed")), ..to_agent.clone() };
+        assert!(task_fits(&w, "bo", &stranger).is_err(), "the agent of someone not here takes no task");
         assert!(task_fits(&w, "ann", &Task { title: " ".into(), ..t }).is_err());
     }
 }

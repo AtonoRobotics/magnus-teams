@@ -43,7 +43,7 @@ const SharedCanvas = (() => {
     const arg = colon < 0 ? "" : subId.slice(colon + 1);
     const titles = { files: "Files", tasks: "Tasks", routines: "Routines", knowledge: "Knowledge", settings: "Project settings", activity: "Activity", search: arg ? `Search: ${arg}` : "Search" };
     const head = `<h2>${esc(titles[kind] || "Shared project")}</h2><p class="small muted">${esc(home.name)}</p>`;
-    const nameOf = id => id === "agent" ? home.agent.name : home.members.find(m => m.id === id)?.name || id;
+    const nameOf = id => teamName(home, id);
     const where = id => { const c = home.channels.find(x => x.id === id); return c ? esc(channelTitle(home, c)) : ""; };
     const edit = home.role !== "guest";
     const redraw = () => { if (typeof drawPanel === "function") drawPanel(); if (typeof AuroraStage !== "undefined") AuroraStage.refresh(); };

@@ -10,7 +10,7 @@
 function teamReader(s, thread) {
   return {
     me: Team.home.me, ws: s.ws, channel: s.channel, inThread: !!thread,
-    name: id => id === "agent" ? Team.home.agent.name : s.view.names?.[id] || Team.home.members.find(m => m.id === id)?.name || id,
+    name: id => s.view.names?.[id] || teamName(Team.home, id),
   };
 }
 
@@ -66,7 +66,7 @@ function teamComposer(s, thread) {
       const r = await Server.channels.post(s.ws, s.channel, { text: full, thread: thread || undefined, model: Team.home.role === "guest" ? undefined : chosenModel(form) });
       if (!r?.agent && record) record.pendingRun = false;
       return async () => {
-        if (r.agent) toast(`${Team.home.agent.name} is on it.`);
+        if (r.agent) toast("Your Magnus is on it.");
         if (r.limited) toast(r.limited, 8000);
         await TeamChat.refresh();
       };
@@ -120,8 +120,8 @@ function teamConversation(s, thread) {
   const replies = () => s.view.messages.filter(m => m.thread === thread);
   return {
     me: Team.home.me, agentName: Team.home.agent.name, name: r.name,
-    names: () => [Team.home.agent.name, ...Team.home.members.map(m => m.name)],
-    get hello() { return thread ? "This thread is empty." : `No messages yet. ${Team.home.agent.name} is here: mention @${Team.home.agent.name} to ask for anything.`; },
+    names: () => [Team.home.agent.mention, ...Team.home.members.map(m => m.name)],
+    get hello() { return thread ? "This thread is empty." : `No messages yet. Mention @${Team.home.agent.mention} to ask your Magnus for anything.`; },
     voice: e => `team:${e.id}`,
     load: async () => {
       const all = s.view.messages;
@@ -157,8 +157,10 @@ function teamConversation(s, thread) {
       ? `<div class="team-unread-divider" role="separator"><span>New messages</span></div>` : "",
     after: () => thread ? "" : s.whispers.filter(w => !w.shared && !s.hidden.has(w.task)).map(whisperHtml).join(""),
     status: () => {
-      const typing = thread || !teamCaps(s).typing ? [] : s.view.typing || [];
-      return typing.length ? `${esc(typing.join(", "))} ${typing.length === 1 ? "is" : "are"} ${typing.includes(Team.home.agent.name) && typing.length === 1 ? "working" : "typing"}…` : "";
+      if (thread || !teamCaps(s).typing) return "";
+      // People typing, and each person's Magnus at work here, by name.
+      const part = (who, verb) => who.length ? `${esc(who.join(", "))} ${who.length === 1 ? "is" : "are"} ${verb}…` : "";
+      return [part(s.view.typing || [], "typing"), part(s.view.working || [], "working")].filter(Boolean).join(" · ");
     },
     actions: (e, view, b, el) => MessageControls.adapter(e, view, b, el, transport),
     click: (ev, view) => teamClick(s, ev, view),
@@ -176,8 +178,8 @@ function teamConversation(s, thread) {
  */
 function teamTransport(s, r) {
   const home = () => Team.home, at = id => `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/messages/${enc(id)}`;
-  const who = e => e.sender === "agent" ? home().agent.name : r.name(e.sender);
-  const asked = x => { if (x.agent) toast(`${home().agent.name} is on it.`); if (x.limited) toast(x.limited, 8000); };
+  const who = e => r.name(e.sender);
+  const asked = x => { if (x.agent) toast("Your Magnus is on it."); if (x.limited) toast(x.limited, 8000); };
   return {
     text: e => String(e.text || ""),
     resend: (e, text) => Server.messages.edit(s.ws, s.channel, e.id, [text, ...(e.files || []).map(f => `📎 ${f.name}`)].join("\n")),
@@ -222,7 +224,7 @@ function whisperHtml(w) {
 async function teamClick(s, ev, view) {
   const t = ev.target, home = Team.home, base = `/v1/workspaces/${enc(s.ws)}`;
   const run = async f => { try { await f(); } catch (err) { toast(err.message); } };
-  if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; return run(() => TeamChat.send(`@${home.agent.name} catch me up on what I missed here`, null)); }
+  if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; return run(() => TeamChat.send(`@${home.agent.mention} catch me up on what I missed here`, null)); }
   if (t.closest("[data-file-download]")) { const n = t.closest("[data-file-download]").dataset.fileDownload; return run(() => Magnus.download(`${base}/files/${enc(n)}`, n)); }
   if (t.closest("[data-share-answer]")) return run(async () => { await Server.workspaces.shareAnswer(s.ws, t.closest("[data-share-answer]").dataset.shareAnswer); await TeamChat.refresh(); });
   if (t.closest("[data-whisper-share]")) return run(async () => { await Server.workspaces.shareWhisper(s.ws, t.closest("[data-whisper-share]").dataset.whisperShare); await TeamChat.refresh(); });

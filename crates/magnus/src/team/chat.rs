@@ -371,16 +371,6 @@ impl Workspace {
         self.chat.notify.get(person).and_then(|c| c.get(channel)).copied().unwrap_or_default()
     }
 
-    /// Who is in a channel. The team agent is in every one, from the start.
-    pub fn channel_members(&self, channel: &str) -> Vec<String> {
-        let mut out: Vec<String> = match self.chat.direct.get(channel) {
-            Some(d) => d.people.clone(),
-            None => self.members.keys().filter(|m| self.sees(channel, m)).cloned().collect(),
-        };
-        out.push(super::conversation::AGENT_ID.to_string());
-        out
-    }
-
     /// Messages since this person last read the channel, others' only, and
     /// how many of those mention them.
     pub fn unread(&self, channel: &str, person: &str, name: &str) -> (usize, usize) {
@@ -435,16 +425,6 @@ mod tests {
     }
 
     #[test]
-    fn the_team_agent_is_in_every_channel_and_every_direct_message() {
-        let mut l = ws();
-        assert!(l.workspace("w").unwrap().channel_members("c").contains(&"agent".to_string()));
-        l.apply(&Change::Channel { workspace: "w".into(), channel: "d".into(), name: String::new() });
-        chat(&mut l, Chat::Direct { channel: "d".into(), people: vec!["alice".into(), "bob".into()], agent: false });
-        let w = l.workspace("w").unwrap();
-        assert_eq!(w.channel_members("d"), vec!["alice", "bob", "agent"]);
-    }
-
-    #[test]
     fn a_direct_message_is_seen_only_by_its_people() {
         let mut l = ws();
         l.apply(&Change::Channel { workspace: "w".into(), channel: "d".into(), name: String::new() });
@@ -470,7 +450,6 @@ mod tests {
             assert!(!w.sees("c", outsider), "{outsider} sees a project channel they are not in");
             assert!(!w.sees_file("plan.pdf", outsider), "{outsider} reads a project file they are not in");
         }
-        assert_eq!(w.channel_members("c"), vec!["alice", "agent"]);
     }
 
     #[test]

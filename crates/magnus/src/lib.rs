@@ -12,6 +12,7 @@ pub mod account_removal;
 pub mod accounts;
 pub mod adapters;
 pub mod admin_app;
+pub mod agent_id;
 pub mod ambient_watch;
 pub mod anonymize;
 pub mod api;

@@ -31,7 +31,7 @@ function page({ whisper = false, project = "p1" } = {}) {
     chosenModel: () => ({ adapter: "a", model: "m", reasoning: "high" }),
     FileReader: class { readAsDataURL(f) { this.result = `data:${f.type};base64,AAAA`; this.onload(); } },
     MessageDrafts: { originals },
-    Team: { home: { me: "sam", role: "member", agent: { id: "agent", name: "Magnus" }, members: [], channels: [{ id: "c1", project }, { id: "c2", project: "p2" }], projects: [] } },
+    Team: { home: { me: "sam", role: "member", agent: { id: "agent:me", name: "My Magnus", mention: "Magnus" }, members: [], channels: [{ id: "c1", project }, { id: "c2", project: "p2" }], projects: [] } },
     TeamChat: { refresh: async () => {} },
     Conversation: { track: () => {}, stop: async () => {} },
     upload: async list => list.map(f => { calls.push(["library", f.name]); return { id: `file_${f.name}` }; }),

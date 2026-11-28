@@ -50,7 +50,7 @@ function element() {
 }
 
 const home = {
-  id: "w", name: "Alpha", role: "member", me: "alice", agent: { id: "agent", name: "Magnus" },
+  id: "w", name: "Alpha", role: "member", me: "alice", agent: { id: "agent:me", name: "My Magnus", mention: "Magnus" },
   members: [{ id: "alice", name: "Alice" }, { id: "bob", name: "Bob" }],
   channels: [{ id: "c1", name: "launch", project: null, mode: "mentions", unread: 0, direct: null }], projects: [],
 };

@@ -88,7 +88,8 @@ const ChatView = (() => {
   /** Who wrote it and when, over the message. @param {ChatEntry} e @param {ChatConversation} conv @param {string} [extra] */
   function byline(e, conv, extra = "") {
     const agent = e.kind !== "message";
-    const who = agent ? (several(conv) ? conv.agentName || "Magnus" : "Magnus") : mine(e, conv) ? "You" : conv.name(e.sender);
+    // In a shared chat each person's own Magnus answers, under its own name.
+    const who = agent ? (several(conv) ? (e.sender && conv.name(e.sender)) || conv.agentName || "Magnus" : "Magnus") : mine(e, conv) ? "You" : conv.name(e.sender);
     const face = several(conv) && typeof avatar === "function" ? avatar(who === "You" ? conv.name(conv.me) : who, agent) : "";
     return `<div class="small faint byline">${face}<span class="by-who">${esc(who)}</span><span class="by-meta">${extra} · ${esc(when(e.at))}${e.edited ? " · edited" : ""}${e.pinned ? " · pinned" : ""}</span></div>`;
   }
@@ -126,7 +127,7 @@ const ChatView = (() => {
 
   /** The agent's answer. @param {ChatEntry} e @param {ChatUi} ui @param {ChatConversation} conv @param {ChatViewState} view */
   function answer(e, ui, conv, view) {
-    const extra = `${e.model ? ` · ${esc(e.model.model)}` : ""}${e.for ? ` · for ${esc(e.for)}` : ""}`;
+    const extra = `${e.model ? ` · ${esc(e.model.model)}` : ""}${e.for && !e.sender?.startsWith("agent:") ? ` · for ${esc(e.for)}` : ""}`;
     return `<div class="msg magnus" data-answer data-task="${esc(e.task_id)}">${byline(e, conv, extra)}<div class="answer-body">${answerBody(e.text || "", conv)}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}${conv.note?.(e, view) || ""}</div>`;
   }
 
@@ -198,7 +199,7 @@ const ChatView = (() => {
       ? { follow: true }
       : ui.drawn ? ReadingAnchors.capture(el) : view.record?.anchor || { follow: true };
     const newActivity = newEntries.length > 0;
-    const newAnswer = newEntries.some(e => e.kind === "answer" || (e.sender === "agent" && e.text));
+    const newAnswer = newEntries.find(e => e.kind === "answer" || (e.sender?.startsWith("agent:") && e.text));
     ui.entryIds = new Set(entries.map(e => e.id)); ui.drawn = true;
     const painted = paint(el, listHtml(entries, view));
     if (painted) {
@@ -223,7 +224,7 @@ const ChatView = (() => {
     if (newAnswer) {
       const announce = $("[data-chat-announce]", view.section);
       if (announce) {
-        const who = conv.agentName || "Magnus";
+        const who = several(conv) && newAnswer.sender ? conv.name(newAnswer.sender) : conv.agentName || "Magnus";
         announce.textContent = "";
         announce.textContent = `${who} replied.`;
       }

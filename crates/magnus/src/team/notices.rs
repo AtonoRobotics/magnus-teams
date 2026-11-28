@@ -6,7 +6,6 @@
 //! spec's per-channel notifications say; their own messages never count.
 use super::chat::{mentions, Notify};
 use super::chat_routes::name_of;
-use super::conversation::{AGENT_ID, AGENT_NAME};
 use super::member_view::{author, MemberView, Runs};
 use super::routes::{Reply, K};
 use crate::api::who;
@@ -94,7 +93,7 @@ pub fn of_workspace<R: Runs>(v: &MemberView<R>, name: &str, after: At, now: At) 
             continue;
         }
         let direct = w.chat.direct.get(cid);
-        let others = direct.map(|d| if d.agent { vec![AGENT_ID.to_string()] } else { d.people.iter().filter(|p| *p != person).cloned().collect() });
+        let others = direct.map(|d| if d.agent { vec![crate::agent_id::of(person)] } else { d.people.iter().filter(|p| *p != person).cloned().collect() });
         let read = w.chat.read.get(person).and_then(|c| c.get(cid)).copied();
         let since = Some(after).max(read);
         let notice = |id: String, kind: Kind, sender: String, thread: Option<String>, at: At, text: &str| Notice {
@@ -123,7 +122,7 @@ pub fn of_workspace<R: Runs>(v: &MemberView<R>, name: &str, after: At, now: At) 
             out.push(notice(m.id.clone(), kind, author(&m.sender).0.to_string(), m.thread.clone(), m.at, &m.text));
         }
         for a in v.answers(cid, now).into_iter().filter(|a| a.requester == person && a.at > after) {
-            out.push(notice(a.id.clone(), Kind::Answer, AGENT_ID.to_string(), a.thread.clone(), a.at, &a.text));
+            out.push(notice(a.id.clone(), Kind::Answer, crate::agent_id::of(&a.requester), a.thread.clone(), a.at, &a.text));
         }
     }
     out
@@ -145,7 +144,7 @@ async fn notices(State(k): K, h: HeaderMap, Query(q): Query<After>) -> Reply {
     let found = k.read(|s| collect(s, &p.id, &me, after));
     let mut names = serde_json::Map::new();
     for id in found.iter().flat_map(|n| std::iter::once(&n.sender).chain(n.direct.iter().flatten())) {
-        let name = if id == AGENT_ID { AGENT_NAME.to_string() } else { name_of(&k, id) };
+        let name = name_of(&k, id);
         names.insert(id.clone(), json!(name));
     }
     Json(json!({ "now": now, "notices": found, "names": names })).into_response()

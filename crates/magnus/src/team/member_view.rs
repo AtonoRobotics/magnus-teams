@@ -11,14 +11,15 @@
 //!
 //! It reads the ledger and each request's outcome, and nothing else, so it is
 //! tested with no server and no database.
-use super::conversation::{is_long, placement, AGENT_ID};
+use super::conversation::{is_long, placement};
 use super::{Channel, File, Ledger, Message, Workspace};
 use crate::state::Status;
 use std::collections::BTreeMap;
 
 type At = chrono::DateTime<chrono::Utc>;
 
-/// How an agent's answer is named among a channel's messages: by its request.
+/// How an agent's answer is named among a channel's messages: by its request,
+/// `agent:<task>`. Its sender is the asker's agent (`agent_id`).
 pub(crate) const ANSWER_PREFIX: &str = "agent:";
 /// How much of the asking message names its work card.
 const MAX_TITLE_CHARS: usize = 80;
@@ -92,13 +93,10 @@ pub(crate) fn answer_as(private: bool, text: String, requester: &str, viewer: &s
     }
 }
 
-/// Who wrote a message, and for whom when it was the agent: its posts are
-/// sent as `agent:<requester>`.
+/// Who wrote a message, and for whom when it was an agent: a person's agent
+/// posts as itself, `agent:<person>` (`agent_id`).
 pub(crate) fn author(sender: &str) -> (&str, Option<&str>) {
-    match sender.strip_prefix(ANSWER_PREFIX) {
-        Some(r) => (AGENT_ID, Some(r)),
-        None => (sender, None),
-    }
+    (sender, crate::agent_id::person(sender))
 }
 
 /// The agent's answer to one request, as this viewer reads it.
@@ -153,14 +151,6 @@ impl Said<'_> {
         }
     }
 
-    /// Who wrote it: a person, or the agent.
-    pub fn author(&self) -> &str {
-        match self {
-            Said::Message(m) => author(&m.sender).0,
-            Said::Answer(_) => AGENT_ID,
-        }
-    }
-
     /// Whom the agent wrote it for, when it did.
     pub fn requester(&self) -> Option<&str> {
         match self {
@@ -200,7 +190,7 @@ impl Said<'_> {
     pub fn as_message(&self) -> Message {
         match self {
             Said::Message(m) => (*m).clone(),
-            Said::Answer(a) => Message { id: a.id.clone(), sender: format!("{ANSWER_PREFIX}{}", a.requester), text: a.text.clone(), thread: a.thread.clone(), at: a.at },
+            Said::Answer(a) => Message { id: a.id.clone(), sender: crate::agent_id::of(&a.requester), text: a.text.clone(), thread: a.thread.clone(), at: a.at },
         }
     }
 }

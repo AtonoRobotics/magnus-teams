@@ -84,7 +84,7 @@ function teamSideHead(d, ws, tab) {
   const titleHtml = esc(home.name);
   const people = d.members.length;
   const subText = `${people} ${people === 1 ? "person" : "people"} · Isolated personal agents`;
-  return `${SidePanel.head({ letter: home.agent.name || "M", dot: st.dot, tone: st.dot, label: st.label, titleHtml, subText })}${SidePanel.tabs(TEAM_SIDE_TABS, tab, { label: "Team panel", buttonAttr: "data-team-side-tab" })}`;
+  return `${SidePanel.head({ letter: "M", dot: st.dot, tone: st.dot, label: st.label, titleHtml, subText })}${SidePanel.tabs(TEAM_SIDE_TABS, tab, { label: "Team panel", buttonAttr: "data-team-side-tab" })}`;
 }
 
 /**
@@ -100,18 +100,20 @@ function teamSideFoot() {
  * @param {TeamPanelData} d @param {string} ws @param {?string} [channel]
  */
 function overviewHtml(d, ws, channel = null) {
-  const home = Team.home, agent = esc(home.agent.name);
+  const home = Team.home;
+  // Each run is its requester's own Magnus.
+  const theirs = w => w.requester === home.me ? "Your Magnus" : `${esc(w.requester_name)}'s ${esc(home.agent.mention)}`;
   const where = id => { const c = home.channels.find(x => x.id === id); return c ? esc(channelTitle(home, c)) : ""; };
   const waiting = d.work.filter(w => w.waiting), busy = d.work.filter(w => !w.waiting);
   const banner = SidePanel.waitingBanner({
     several: true,
     count: waiting.length,
-    rowsHtml: waiting.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} is waiting for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)}</span></span></a>`).join(""),
+    rowsHtml: waiting.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span><span class="gbox-main"><span class="gbox-lbl">${theirs(w)} is waiting for ${w.requester === home.me ? "you" : esc(w.requester_name)}</span><span class="small muted">${where(w.channel)}</span></span></a>`).join(""),
   });
   const active = busy[0] ? SidePanel.activeCard({
     href: teamHref(ws, { kind: "channel", id: busy[0].channel }),
     rightMeta: `Step ${busy[0].steps + 1}`,
-    title: `${home.agent.name} is working for ${busy[0].requester_name}`,
+    title: `${theirs(busy[0])} is working`,
     footHtml: `<span class="small muted">${where(busy[0].channel)}</span>`,
     inspectLabel: "Open →",
   }) : "";
@@ -299,7 +301,7 @@ const TeamPanel = {
     this.draw(first);
   },
 
-  name(id) { return id === "agent" ? Team.home.agent.name : Team.home.members.find(m => m.id === id)?.name || id; },
+  name(id) { return teamName(Team.home, id); },
 
   draw() {
     const s = this.s, d = s.data, ws = s.ws, edit = Team.home.role !== "guest";

@@ -344,7 +344,7 @@ const Projects = (() => {
    * @returns {Promise<string>}
    */
   async function askShared(ws, home, text) {
-    const agentName = home?.agent?.name || "Magnus";
+    const agentName = home?.agent?.mention || "Magnus";
     const body = new RegExp(`^@${agentName}\\b`, "i").test(text) ? text : `@${agentName} ${text}`;
     const open = (home.channels || []).filter(c => !c.direct && !c.archived && !c.deleted);
     const name = chatName(text);

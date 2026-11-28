@@ -109,7 +109,7 @@ async fn share(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((w
     }
     let mut people = vec![p.id.clone(), b.person.clone()];
     people.sort();
-    let dm = direct_between(&k, &p, w, people, false).await?;
+    let dm = direct_between(&k, &p, w, people).await?;
     let message = Message { id: new_id(), sender: p.id.clone(), text: quoted(&m.author, &m.text), thread: None, at: chrono::Utc::now() };
     let posted = message.id.clone();
     send(&k, &p, Change::Message { workspace: ws, channel: dm.clone(), message }).await?;

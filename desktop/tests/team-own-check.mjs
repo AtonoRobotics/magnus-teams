@@ -29,11 +29,11 @@ vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globa
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
-const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : !String(m.sender).startsWith("agent:") ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
 const { Team, Notices, ChatView } = sandbox.__x;
 
 const home = {
-  id: "w", name: "Alpha", role: "admin", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, computer: null,
+  id: "w", name: "Alpha", role: "admin", me: "sam", me_name: "Sam", agent: { id: "agent:sam", name: "Sam's Magnus", mention: "Magnus" }, computer: null,
   members: [{ id: "sam", name: "Sam", role: "admin", online: true }, { id: "dana", name: "Dana", role: "owner", online: true }, { id: "leo", name: "Leo", role: "member", online: false }],
   channels: [
     { id: "c1", name: "general", project: null, mode: "mentions", notify: "all", unread: 0, mentions: 0, direct: null },
@@ -129,7 +129,7 @@ assert.equal(Notices.offer(), true, "a browser not yet asked is not offered syst
 assert.equal(Notices.systemOn(), false);
 // The team chat has the personal chat's message controls (owner, 2026-11-13).
 const acts = html => [...html.matchAll(/data-msg-act="([a-z-]+)"/g)].map(x => x[1]);
-const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", thread: null, at: "", may: M("retry feedback share save task pin delete") };
+const answer = { id: "agent:t1", sender: "agent:sam", requester: "sam", task: "t1", text: "done", thread: null, at: "", may: M("retry feedback share save task pin delete") };
 for (const a of ["copy", "listen", "retry", "branch", "share", "export", "save", "task", "pin", "feedback", "delete"]) assert.ok(acts(messageHtml(answer)).includes(a), `the agent's answer to me offers no ${a}`);
 for (const a of ["edit", "copy", "branch", "share", "export", "save", "task", "pin", "delete"]) assert.ok(acts(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "", may: M("edit share save task pin delete") })).includes(a), `my message offers no ${a}`);
 const theirs = acts(messageHtml({ ...answer, requester: "dana", may: M("share save task pin") }));
@@ -142,7 +142,7 @@ assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer 
 const post = messageHtml(answer);
 assert.match(post, /^<div class="entry them" data-entry="agent:t1" data-kind="answer"><div class="msg magnus"[^]*<div class="msg-actions small"[^]*<\/div>$/, "a post's controls are not under it, as the personal chat's are");
 // A post with no words, a work card, can still be reacted to and replied to.
-const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task_id: "t9", requester: "dana", status: "running", steps: 0, doing: null, title: "x", long: false, thread: null, waiting_on: null } });
+const card = messageHtml({ id: "m9", sender: "agent:dana", requester: "dana", text: "", thread: null, at: "", work: { task_id: "t9", requester: "dana", status: "running", steps: 0, doing: null, title: "x", long: false, thread: null, waiting_on: null } });
 assert.ok(card.includes("data-reply") && card.includes('data-react="'), "a work card cannot be reacted to or replied to");
 // The reactions menu is a row, and says so, so Left and Right move along it.
 assert.match(post, /class="action-menu reactions"[^>]*aria-orientation="horizontal"/, "the reactions row does not say it is a row");

@@ -66,7 +66,7 @@ const ComposerCommands = (() => {
         out.push({
           token: `@${p.name}`,
           label: p.name,
-          hint: p.agent ? "personal agent" : "Person",
+          hint: p.agent ? "Your Magnus" : "Person",
           kind: "person",
           inline: true,
           agent: !!p.agent,

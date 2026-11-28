@@ -6,7 +6,6 @@
 //! `tasks` entry with its one row, and a request's work rides on its message
 //! as that row. A deleted message's place is `deleted`. The app's JSDoc
 //! (`TeamMessage` in desktop/ui/team-chat.js) follows them.
-use super::conversation::AGENT_ID;
 use super::member_view::{author, Answer, MemberView, Runs, Work};
 use super::{Message, Workspace};
 use crate::chat_entry::{ChatEntry, EntryFile, TaskRow};
@@ -55,7 +54,7 @@ pub fn message(w: &Workspace, m: &Message) -> TeamItem {
     let deleted = w.chat.unsent.contains(&m.id);
     let kind = if deleted {
         "deleted"
-    } else if sender == AGENT_ID {
+    } else if crate::agent_id::is_agent(sender) {
         "answer"
     } else {
         "message"
@@ -75,7 +74,7 @@ pub fn work(w: &Work) -> TeamItem {
     ChatEntry {
         from_run: Some(w.task.clone()),
         tasks: Some(vec![task_row(w)]),
-        ..bare("tasks", format!("work:{}", w.task), AGENT_ID.into(), Some(w.requester.clone()), String::new(), w.asked_in.clone(), w.started)
+        ..bare("tasks", format!("work:{}", w.task), crate::agent_id::of(&w.requester), Some(w.requester.clone()), String::new(), w.asked_in.clone(), w.started)
     }
 }
 
@@ -85,7 +84,7 @@ pub fn answer(a: &Answer) -> TeamItem {
         task: Some(a.task.clone()),
         task_id: Some(a.task.clone()),
         private: Some(a.private),
-        ..bare("answer", a.id.clone(), AGENT_ID.into(), Some(a.requester.clone()), a.text.clone(), a.thread.clone(), a.at)
+        ..bare("answer", a.id.clone(), crate::agent_id::of(&a.requester), Some(a.requester.clone()), a.text.clone(), a.thread.clone(), a.at)
     }
 }
 
@@ -169,7 +168,7 @@ mod tests {
         let v = serde_json::to_value(&said).unwrap_or_default();
         assert_eq!(v["kind"], "message");
         assert_eq!(v["files"], serde_json::json!([{ "id": "plan.pdf", "name": "plan.pdf" }, { "id": "shot.png", "name": "shot.png" }]), "a team file is not a chat entry's file");
-        let quiet = serde_json::to_value(bare("answer", "a1".into(), AGENT_ID.into(), None, "done".into(), None, at())).unwrap_or_default();
+        let quiet = serde_json::to_value(bare("answer", "a1".into(), crate::agent_id::of("mo"), None, "done".into(), None, at())).unwrap_or_default();
         assert_eq!(quiet["kind"], "answer");
         assert!(quiet.get("files").is_none(), "an item with no files says it has some");
     }
@@ -180,7 +179,7 @@ mod tests {
     fn the_app_is_sent_words_and_whom_an_answer_is_for() {
         let names: BTreeMap<String, String> = [("mo".to_string(), "Mo".to_string())].into();
         let said = bare("message", "m1".into(), "sam".into(), None, "see this\n📎 plan.pdf\nand that".into(), None, at());
-        let answer = bare("answer", "a1".into(), AGENT_ID.into(), Some("mo".into()), "done".into(), None, at());
+        let answer = bare("answer", "a1".into(), crate::agent_id::of("mo"), Some("mo".into()), "done".into(), None, at());
         let out = for_the_app(vec![said, answer], &names);
         assert_eq!(out[0].text, "see this\nand that", "a file's line is still in the words");
         assert_eq!(out[0].files.as_ref().map(Vec::len), Some(1), "the files went with the lines");
