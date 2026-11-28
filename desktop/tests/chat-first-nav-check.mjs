@@ -1,7 +1,8 @@
 // The app is navigated as a chat agent is (decisions/2026-11-28-chat-first-navigation.md):
 // - the sidebar is New chat and Search, then Projects (personal and shared
-//   in one list, a shared one marked with the people icon), then Recents,
-//   every conversation newest first; the rest is one row of icons at its foot;
+//   in one list, a shared one marked with the people icon, each opening its
+//   own chats by its chevron), then Recents, the chats in no project and the
+//   direct ones, newest first; the rest is one row of icons at its foot;
 // - a message asked from a project's page is sent, by the chat's composer;
 // - Add people shares a project in one step: the people, then Share, which
 //   calls POST /v1/projects/{id}/share and invites an email after it;
@@ -66,25 +67,46 @@ const navCtx = {
       { id: "d1", name: "dm", direct: { people: ["sam", "mo"], agent: false }, last_at: newer },
     ] } } },
   Projects: { inlineNewHtml: () => "" },
+  localStorage: { store: {}, getItem(k) { return this.store[k] ?? null; }, setItem(k, v) { this.store[k] = v; } },
+  sidebar: () => {},
 };
 navCtx.globalThis = navCtx;
 vm.createContext(navCtx);
-vm.runInContext(`${extractFn(app, "function navigationTree()")}\n${extractFn(app, "function nav()")}`, navCtx, { filename: "app-shell-nav.js" });
+const navConsts = ["NAV_PROJECT_CHATS", "NAV_OPEN_KEY", "navShut"].map(n => app.slice(app.indexOf(`const ${n} =`), app.indexOf(";", app.indexOf(`const ${n} =`)) + 1).replace(/^const /, "var ")).join("\n");
+vm.runInContext(`${navConsts}\n${extractFn(app, "function navOpen()")}\n${extractFn(app, "function navProjectShown(key, show)")}\n${extractFn(app, "function navigationTree()")}\n${extractFn(app, "function nav()")}`, navCtx, { filename: "app-shell-nav.js" });
 const side = vm.runInContext("nav()", navCtx);
 const order = ["New chat", 'data-quick-jump', 'aria-label="Projects"', 'aria-label="Recents"', 'class="nav-more"', 'class="foot"'].map(s => side.indexOf(s));
 assert.ok(order.every(i => i >= 0) && order.every((v, i) => !i || order[i - 1] < v), `the sidebar is New chat, Search, Projects, Recents, the rest, the person: ${order}`);
 assert.match(side, /<span class="nav-label">Search<\/span>/, "Search is named Search");
 assert.doesNotMatch(side, /aria-label="People"|Start or join a shared project|Quick Jump|companion-theme-nav|<span>Today<\/span>|<span>Previous<\/span>/, "no People list, Quick Jump, theme button or date groups");
-const projects = side.slice(side.indexOf('aria-label="Projects"'), side.indexOf('aria-label="Recents"'));
+const section = (html, from, to) => html.slice(html.indexOf(from), html.indexOf(to));
+const projects = section(side, 'aria-label="Projects"', 'aria-label="Recents"');
 assert.match(projects, /href="#\/project\/p1"[^>]*>.*Q4/s, "a personal project is listed");
 assert.match(projects, /href="#\/team\/w1"[^>]*>.*Launch.*class="nav-shared"/s, "a shared project is in the same list, with the people mark");
-assert.doesNotMatch(projects, /Quarter plan|<details/, "a project's chats are not nested under it");
-const recents = side.slice(side.indexOf('aria-label="Recents"'), side.indexOf('class="nav-more"'));
+assert.doesNotMatch(projects, /<details/, "a project's chats open by its chevron, not a details element");
+// The project of the open chat shows its chats; the other is closed.
+assert.match(projects, /data-nav-project="p:p1" aria-expanded="true"/, "the open chat's project shows its chats");
+assert.match(projects.slice(projects.indexOf('data-nav-project="p:p1"')), /href="#\/chat\/t2"[^>]*>.*Quarter plan/s, "a project's chat is under it");
+assert.match(projects, /data-nav-project="w:w1" aria-expanded="false"/, "another project is closed");
+assert.doesNotMatch(projects, /c\/c1"/, "a closed project's chats are not shown");
+// Opening it shows its chats, newest first, and not an archived or direct one.
+vm.runInContext('navProjectShown("w:w1", true)', navCtx);
+const opened = section(vm.runInContext("nav()", navCtx), 'data-nav-project="w:w1"', 'aria-label="Recents"');
+const inShared = ['href="#/team/w1/c/c1"', 'href="#/team/w1/c/c2"'].map(h => opened.indexOf(h));
+assert.ok(inShared.every((v, i) => v >= 0 && (!i || inShared[i - 1] < v)), `a shared project's chats, newest first: ${inShared}`);
+assert.doesNotMatch(opened, /c\/c3"|c\/d1"/, "an archived chat or a direct one is not a project's chat");
+assert.match(opened, /<span class="ttl">general<\/span>/, "a project's chat is named by its own name under it");
+assert.ok(JSON.parse(navCtx.localStorage.store["magnus.nav.projects.open"]).includes("w:w1"), "an opened project stays open");
+// Closing the open chat's project keeps it closed.
+vm.runInContext('navProjectShown("p:p1", false)', navCtx);
+assert.match(vm.runInContext("nav()", navCtx), /data-nav-project="p:p1" aria-expanded="false"/, "a project closed by hand stays closed");
+// Recents: the chats in no project and the direct ones, newest first.
+const recents = section(side, 'aria-label="Recents"', 'class="nav-more"');
 const at = s => recents.indexOf(s);
-assert.ok(at("Launch") >= 0 && at("Mo") >= 0 && at("Quarter plan") >= 0 && at("site-copy · Launch") >= 0 && at("Old personal chat") >= 0, "Recents holds personal, project and shared conversations");
-const seq = ['href="#/team/w1/c/c1"', 'href="#/chat/t2"', 'href="#/team/w1/c/d1"', 'href="#/chat/t1"', 'href="#/team/w1/c/c2"'].map(at);
-assert.ok(seq.every((v, i) => v >= 0 && (!i || seq[i - 1] < v)), `Recents is newest first across personal and shared: ${seq}`);
-assert.doesNotMatch(recents, /c\/c3"/, "an archived chat is not recent");
+assert.ok(at("Old personal chat") >= 0 && at("Mo") >= 0, "Recents holds chats in no project and direct ones");
+assert.doesNotMatch(recents, /Quarter plan|c\/c1"|c\/c2"|c\/c3"/, "a project's chat is not listed again in Recents");
+const seq = ['href="#/team/w1/c/d1"', 'href="#/chat/t1"'].map(at);
+assert.ok(seq.every((v, i) => v >= 0 && (!i || seq[i - 1] < v)), `Recents is newest first across personal and direct: ${seq}`);
 const more = side.slice(side.indexOf('class="nav-more"'), side.indexOf('class="foot"'));
 for (const href of ["#/inbox", "#/briefing", "#/explore", "#/library", "#/trash"]) assert.match(more, new RegExp(`href="${href}"`), `${href} is in the row at the foot`);
 assert.match(more, /class="nav-inbox-count"[^>]*>1</, "the waiting decisions are counted on their icon");

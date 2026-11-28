@@ -144,6 +144,8 @@ const snippets = [
   app.slice(app.indexOf("const FILE_SVG_SHEET = "), app.indexOf("\n", app.indexOf("const FILE_SVG_DOC = "))),
   extractFn(app, "function fileBadge(f)"),
   extractFn(app, "async function filesView()"),
+  ...["NAV_PROJECT_CHATS", "NAV_OPEN_KEY", "navShut"].map(n => app.slice(app.indexOf(`const ${n} =`), app.indexOf(";", app.indexOf(`const ${n} =`)) + 1)),
+  extractFn(app, "function navOpen()"),
   extractFn(app, "function navigationTree()"),
   extractFn(app, "function appearanceSection(el)"),
 ].join("\n");

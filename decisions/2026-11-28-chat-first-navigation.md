@@ -39,11 +39,16 @@ modern chat agents."
 ## The choice
 
 - **Sidebar.** New chat; Search (⌘K); Projects, personal and shared in one list
-  by name, a shared one carrying a small people icon; Recents, every
-  conversation newest first, personal, in a project and shared alike (a
-  shared chat reads "general" as its project's name, others "name ·
-  project"; a shared chat is ordered by its latest message, the server's
-  `last_at`). Approvals (with its count), Briefing & Routines, Explore, Apps
+  by name, a shared one carrying a small people icon. Each project opens a
+  list of its own chats under it by its chevron, newest first, at most six
+  and then "All n chats" to its page; the project of the open chat opens by
+  itself, and one the person opens stays open between visits. The
+  difference between a personal and a shared project is inside it, not in
+  the navigation (owner, 2026-11-28). Recents is the chats in no project and
+  the direct ones with people, newest first: a chat is listed in one place,
+  under its project or in Recents, not both, as a chat agent's projects do.
+  A shared chat is ordered by its latest message, the server's `last_at`.
+  Approvals (with its count), Briefing & Routines, Explore, Apps
   and Trash are one row of icons at the foot, above the person; Settings is
   the person's initial or gear. Nothing is deleted: each page is where it was.
   The open sidebar has one control that collapses it; the rail's sidebar

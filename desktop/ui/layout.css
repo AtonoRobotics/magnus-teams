@@ -273,6 +273,15 @@ nav.side .nav-group-add { width: 22px; height: 22px; padding: 0; border-radius: 
 /* A shared project or chat carries the people mark. */
 nav.side .nav-shared { display: inline-flex; flex: none; color: var(--muted); }
 nav.side .nav-shared svg.ic { width: 13px; height: 13px; }
+/* Each project opens its own chats under it, by its chevron. */
+nav.side .nav-project-head { display: flex; align-items: center; }
+nav.side .nav-project-head > .nav-conv-row { flex: 1; min-width: 0; }
+nav.side .nav-project-toggle { width: 20px; height: 20px; min-width: 20px; min-height: 20px; padding: 0; flex: none; color: var(--muted); }
+nav.side .nav-project-toggle svg.ic { width: 12px; height: 12px; transition: transform 0.12s ease; }
+nav.side .nav-project-toggle[aria-expanded="true"] svg.ic { transform: rotate(90deg); }
+nav.side .nav-project-chats { display: flex; flex-direction: column; margin-left: 20px; padding-left: 8px; border-left: 1px solid var(--line); }
+nav.side .nav-project-chats a.conv { font-size: 13px; }
+nav.side .nav-project-all { color: var(--muted); }
 /* Projects is a heading in the sidebar, and an icon only in the rail. */
 nav.side .nav-projects { display: none; }
 body[data-navigation=compact] nav.side .nav-projects { display: flex; }

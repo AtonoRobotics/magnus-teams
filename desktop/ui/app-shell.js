@@ -86,9 +86,26 @@ function displayTitle(title) {
   return plain || t;
 }
 
+/** How many of a project's chats its list in the sidebar shows. */
+const NAV_PROJECT_CHATS = 6;
+/** The projects whose chats the person opened, kept between visits. */
+const NAV_OPEN_KEY = "magnus.nav.projects.open";
+/** The ones they closed this visit, though a chat in them is open. */
+const navShut = new Set();
+function navOpen() {
+  try { return new Set(JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || "[]")); } catch { return new Set(); }
+}
+/** Shows or hides a project's chats in the sidebar. @param {string} key @param {boolean} show */
+function navProjectShown(key, show) {
+  const open = navOpen();
+  if (show) { open.add(key); navShut.delete(key); } else { open.delete(key); navShut.add(key); }
+  try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...open])); } catch {}
+  sidebar();
+}
+
 // The sidebar is a chat agent's (decisions/2026-11-28-chat-first-navigation.md):
 // New chat and Search, then the projects, personal and shared in one list,
-// then Recents, every conversation newest first, personal and shared alike.
+// each opening its own chats, then Recents, the chats in no project.
 // The rest of the app is one row of icons at its foot, above the person.
 function navigationTree() {
   const current=href=>(location.hash || "#/home")===href ? 'class="on" aria-current="page"' : "";
@@ -103,25 +120,43 @@ function navigationTree() {
   const shared=`<span class="nav-shared" role="img" aria-label="Shared" title="Shared">${icon("team")}</span>`;
   const row=(href,name,extra,del)=>{const on=route===href;return `<div class="nav-conv-row"><a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(name)}">${extra.lead || ""}<span class="ttl">${esc(name)}</span>${extra.tail || ""}</a>${del}</div>`;};
   const del=(attr,id,name)=>`<button type="button" class="nav-conv-del" ${attr}="${esc(id)}" data-nav-del-name="${esc(name)}" title="Delete ${esc(name)}" aria-label="Delete ${esc(name)}">${icon("trash")}</button>`;
-  // Projects: personal and shared in one list, by name; a shared one carries the people mark.
-  const projects=[
-    ...(App.projects || []).map(p=>({name:p.name, html:row(`#/project/${enc(p.id)}`,p.name,{lead:icon("folder")},del("data-nav-del-project",p.id,p.name))})),
-    ...(App.workspaces || []).map(w=>({name:w.name, html:row(`#/team/${enc(w.id)}`,w.name,{lead:icon("folder"),tail:`${shared}${teamBadge(w)}`},(w.role==="owner" || w.role==="admin") ? del("data-nav-del-shared",w.id,w.name) : "")})),
-  ].sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(x=>x.html).join("");
-  // Recents: every conversation, newest first, a shared chat by its latest
-  // message.
   const at=(v,fallback)=>{const ts=Date.parse(v || "");return Number.isNaN(ts) ? fallback : ts;};
-  const recents=(App.threads || []).map(t=>({at:at(t.updated_at || t.created_at,Date.now()),html:conv(t)}));
+  // A shared chat, by its name in the list: a direct one by its people.
+  const sharedChat=(w,home,c)=>{
+    const href=`#/team/${enc(w.id)}/c/${enc(c.id)}`;
+    const on=route===href || route.startsWith(`${href}/`);
+    const others=(c.direct?.people || []).filter(p=>p!==home.me);
+    const name=c.direct ? (others.map(p=>home.members.find(m=>m.id===p)?.name || p).join(", ") || `${home.me_name} (you)`) : c.name;
+    const lead=c.direct ? `<span class="nav-dot${others[0] && home.members.find(m=>m.id===others[0])?.online ? " ok" : ""}" aria-hidden="true"></span>` : "";
+    return {at:at(c.last_at || c.updated_at,c.unread ? Date.now() : 0),on,name,html:(label=name)=>`<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(label)}">${lead}<span class="ttl">${esc(label)}</span>${c.direct ? shared : ""}${countBadge(c)}</a>`};
+  };
+  // Projects: personal and shared in one list, by name; a shared one carries
+  // the people mark. Each opens a list of its own chats, newest first; a
+  // chat that is in a project is listed there, not again in Recents.
+  const open=navOpen();
+  const project=(key,href,name,extra,remove,chats)=>{
+    const here=route===href || chats.some(c=>c.on);
+    const shown=open.has(key) || (here && !navShut.has(key));
+    const list=chats.sort((a,b)=>b.at-a.at);
+    const kids=shown ? `<div class="nav-project-chats" id="nav-chats-${esc(key)}">${list.slice(0,NAV_PROJECT_CHATS).map(c=>c.html()).join("") || '<p class="small faint pad">No chats yet.</p>'}${list.length>NAV_PROJECT_CHATS ? `<a class="conv nav-project-all" href="${href}"><span class="ttl">All ${list.length} chats</span></a>` : ""}</div>` : "";
+    const toggle=`<button type="button" class="icon-btn nav-project-toggle" data-nav-project="${esc(key)}" aria-expanded="${shown}" aria-controls="nav-chats-${esc(key)}" title="${shown ? "Hide" : "Show"} its chats" aria-label="${shown ? "Hide" : "Show"} the chats in ${esc(name)}">${icon("chev")}</button>`;
+    return {name,html:`<div class="nav-project${shown ? " open" : ""}"><div class="nav-project-head">${toggle}${row(href,name,{lead:icon("folder"),...extra},remove)}</div>${kids}</div>`};
+  };
+  const projects=[
+    ...(App.projects || []).map(p=>project(`p:${p.id}`,`#/project/${enc(p.id)}`,p.name,{},del("data-nav-del-project",p.id,p.name),
+      (App.threads || []).filter(t=>t.project?.id===p.id).map(t=>{const ttl=displayTitle(t.title);const on=t.thread===App.thread;return {at:at(t.updated_at || t.created_at,0),on,html:()=>`<a class="conv${on ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${on ? 'aria-current="page"' : ""} title="${esc(ttl)}">${dot(t)}<span class="ttl">${esc(ttl)}</span></a>`};}))),
+    ...(App.workspaces || []).map(w=>{const home=homes[w.id];return project(`w:${w.id}`,`#/team/${enc(w.id)}`,w.name,{tail:`${shared}${teamBadge(w)}`},(w.role==="owner" || w.role==="admin") ? del("data-nav-del-shared",w.id,w.name) : "",
+      home ? (home.channels || []).filter(c=>!c.archived && !c.deleted && !c.direct).map(c=>sharedChat(w,home,c)) : []);}),
+  ].sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(x=>x.html).join("");
+  // Recents: the chats in no project, newest first, and the direct ones
+  // with people.
+  const recents=(App.threads || []).filter(t=>!t.project?.id).map(t=>({at:at(t.updated_at || t.created_at,Date.now()),html:conv(t)}));
   for (const w of (App.workspaces || [])) {
     const home=homes[w.id];
     if (!home) continue;
-    for (const c of (home.channels || []).filter(x=>!x.archived && !x.deleted && !x.direct?.agent)) {
-      const href=`#/team/${enc(w.id)}/c/${enc(c.id)}`;
-      const on=route===href || route.startsWith(`${href}/`);
-      const others=(c.direct?.people || []).filter(p=>p!==home.me);
-      const name=c.direct ? (others.map(p=>home.members.find(m=>m.id===p)?.name || p).join(", ") || `${home.me_name} (you)`) : c.name==="general" ? w.name : `${c.name} · ${w.name}`;
-      const lead=c.direct ? `<span class="nav-dot${others[0] && home.members.find(m=>m.id===others[0])?.online ? " ok" : ""}" aria-hidden="true"></span>` : "";
-      recents.push({at:at(c.last_at || c.updated_at,c.unread ? Date.now() : 0),html:`<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(name)}">${lead}<span class="ttl">${esc(name)}</span>${shared}${countBadge(c)}</a>`});
+    for (const c of (home.channels || []).filter(x=>!x.archived && !x.deleted && x.direct && !x.direct.agent)) {
+      const chat=sharedChat(w,home,c);
+      recents.push({at:chat.at,html:chat.html()});
     }
   }
   recents.sort((a,b)=>b.at-a.at);
@@ -473,6 +508,8 @@ function wireDocument() {
     openPanel(o.dataset.open,{history:true,focus:true,opener:o});
   });
   document.addEventListener("click", async e => {
+    const np = e.target.closest("[data-nav-project]");
+    if (np) { e.preventDefault(); e.stopPropagation(); navProjectShown(np.dataset.navProject || "", np.getAttribute("aria-expanded") !== "true"); return; }
     const cs = e.target.closest("[data-conv-share]");
     if (cs && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ thread: cs.dataset.convShare, title: cs.dataset.convTitle || "" }); return; }
     const ps = e.target.closest("[data-project-share]");
