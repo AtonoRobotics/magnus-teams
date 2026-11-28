@@ -475,7 +475,7 @@ impl Kernel {
             crate::auto_review::Verdict::Allow(_) => {
                 self.raise(a, run, f, shown, Reason::OutsideRequest, OUTSIDE_REQUEST, "the owner's policy does not let Auto Review decide this alone").await
             }
-            crate::auto_review::Verdict::Deny(why) => Ok(Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?)),
+            crate::auto_review::Verdict::Deny(why) | crate::auto_review::Verdict::Unavailable(why) => Ok(Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?)),
             crate::auto_review::Verdict::Ask(why) => self.raise(a, run, f, shown, Reason::OutsideRequest, OUTSIDE_REQUEST, &why).await,
         }
     }

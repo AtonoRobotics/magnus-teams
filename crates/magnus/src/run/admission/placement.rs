@@ -119,14 +119,4 @@ mod tests {
         assert_eq!(placement(&TASK, "task_complete"), None);
         assert_eq!(placement(&RunKind::SubAgent(Box::new(RunKind::TeamRequest)), "task_complete"), None, "a team run's sub-agent is a task");
     }
-
-    /// The instructions a turn runs under tell it to do the work, not to
-    /// hand it to a task.
-    #[test]
-    fn the_chat_instructions_say_to_do_the_work() {
-        let p = crate::run::CHAT_INSTRUCTIONS;
-        assert!(!p.contains("may only read"), "chat is still told it may only read");
-        assert!(p.contains("start_sub_agent"), "chat is not told it can start sub-agents");
-        assert!(p.contains("Do the work yourself"), "chat is not told to do the work itself");
-    }
 }

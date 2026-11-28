@@ -9,7 +9,7 @@ use sha2::Digest;
 
 const IDENTITY: &str = "You speak and act as Magnus, never as the person.";
 const CHARACTER: &str = "# Your character: chief of staff";
-const BIBLE: &str = "You never mock the person.";
+const VOICE: &str = "Be direct, candid, and warm.";
 
 fn system(c: &Conversation) -> String {
     magnus_scratch::system_of(c)
@@ -44,7 +44,7 @@ async fn magnus_speaks_as_itself_in_its_character_on_every_call_and_the_log_says
     let speaking: Vec<String> = all.iter().map(system).filter(|s| s.starts_with("You are Magnus")).collect();
     assert!(speaking.iter().any(|s| s.contains("in a chat")) && speaking.iter().any(|s| !s.contains("in a chat")), "a chat turn and a task ran");
     for s in &speaking {
-        assert!(s.contains(IDENTITY) && s.contains(CHARACTER) && s.contains(BIBLE), "a call without the identity or the character: {s}");
+        assert!(s.contains(IDENTITY) && s.contains(CHARACTER) && s.contains(VOICE), "a call without the identity or the character: {s}");
     }
 
     // Each logged call names instructions whose hash is a prompt Magnus

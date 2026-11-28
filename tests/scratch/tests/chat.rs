@@ -237,7 +237,7 @@ async fn a_task_from_chat_starts_carries_the_conversation_and_posts_its_result()
     assert_eq!(t["status"], "completed", "{t}");
     assert_eq!(t["person"], "alice", "the task does not act for the person");
     let first = m.requests().into_iter().find(|c| !is_chat(c)).unwrap();
-    assert!(first.text().contains("to this goal: Compare the three") && first.text().contains("offers for me."), "the task's context does not carry the conversation");
+    assert!(first.text().contains("Compare the three") && first.text().contains("offers for me."), "the task's context does not carry the conversation");
     let result = wait_entry(&alice, &thread, |e| e["kind"] == "result").await;
     assert_eq!(result["summary"], "Offer B is cheapest at 1.10/h.");
     // The next turn knows the result.

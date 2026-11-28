@@ -438,17 +438,6 @@ impl Kernel {
                         self.end_chat_turn(&run, answer).await?;
                         return Ok(Flow::Stop);
                     }
-                    if !has_call {
-                        self.emit(
-                            "kernel",
-                            Ev::Notice {
-                                run: run_id.into(),
-                                step: step + 1,
-                                text: "Your reply called no tool, so nothing happened. Every reply must call at least one tool: continue the work, or call task_complete or task_fail.".into(),
-                            },
-                        )
-                        .await?;
-                    }
                     return Ok(Flow::Continue);
                 }
                 Err(e) => {

@@ -13,7 +13,7 @@ use magnus_invariants::*;
 use magnus_scratch::*;
 use serde_json::{json, Value};
 
-const NOTE: &str = "You were going in circles";
+const NOTE: &str = "Context reset after";
 
 fn spec() -> Spec {
     let mut s = Spec::default();

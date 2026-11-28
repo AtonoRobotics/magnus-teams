@@ -133,7 +133,7 @@ impl crate::kernel::Kernel {
         self.suspend_with_notice(
             &run.id,
             "lost",
-            format!("Stopped: the agent is going in circles ({signal}) and has nothing left to try. Tell it how to go on, or cancel."),
+            format!("Paused after repeated steps ({signal})."),
             serde_json::json!({ "signal": signal, "since_reply": from, "resets": run.cuts.len(), "escalated": run.escalated.is_some(), "model": format!("{}/{}", run.model().0, run.model().1) }),
         )
         .await?;
@@ -155,10 +155,7 @@ impl crate::kernel::Kernel {
         } else {
             format!("Their calls still happened: {}.", done.iter().map(|(n, k)| format!("{n} ×{k}")).collect::<Vec<_>>().join(", "))
         };
-        let note = format!(
-            "You were going in circles: {signal}. Your {} latest replies were taken out of this conversation. {did} Do not repeat that approach: try a different one, or call task_fail if the task cannot be done.",
-            to - from
-        );
+        let note = format!("Context reset after {signal}. {} replies were removed from context. {did}", to - from);
         self.emit("kernel", crate::events::Ev::ContextReset(crate::events::ContextResetPayload { run: run.id.clone(), from, to, signal: signal.into(), note })).await?;
         Ok(())
     }

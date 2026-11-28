@@ -1,7 +1,7 @@
 {
   "task_complete": "Report the task done, with the deliverable itself. The server attaches the receipts (what was sent, created, changed or booked, from its own log) and what it read back after each irreversible action; you do not list them. If a read-back did not match, do not report that action as done: say it in not_done. What you could not do, or a check that could not run or failed, is one line in the result.",
   "task_fail": "Declare that you cannot finish the task, with the reason and what you observed.",
-  "ask_principal": "Ask the person a question and wait for the answer. Use only when an assumption changes the outcome or an action cannot be undone.",
+  "ask_principal": "Ask the person for information or a decision needed to finish the work. The task waits for their answer.",
   "propose_policy": "Propose a policy change (Cedar rules for a layer such as org or user/<id>) to the person who owns that layer, citing evidence. It changes nothing until they accept it.",
   "wait_until": "Pause the task until a time (RFC 3339), for example to wait for a reply or a scheduled moment.",
   "notify": "Send the person a short note without waiting for an answer.",

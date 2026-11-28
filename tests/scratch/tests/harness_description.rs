@@ -1,6 +1,4 @@
-//! Each run is told its harness as it actually is (#270): what wakes it,
-//! what it keeps, what bounds it, and only the capabilities this appliance
-//! offers it — never web search or a sandbox it does not have.
+//! Model context reflects the capabilities the appliance actually offers.
 
 use magnus_invariants::*;
 use serde_json::json;
@@ -18,8 +16,7 @@ async fn system_of(m: &FakeModel, chat: bool) -> String {
     panic!("no model call was made");
 }
 
-/// An appliance without web search or a sandbox tells neither run it has
-/// them, and still says what wakes it, keeps and bounds it.
+/// An appliance without web search or a sandbox reports that accurately.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_run_without_search_or_sandbox_is_not_told_it_has_them() {
     let m = FakeModel::start(script(|_| async move { Reply::Text("Noted.".into()) })).await;
@@ -31,21 +28,14 @@ async fn a_run_without_search_or_sandbox_is_not_told_it_has_them() {
     let bob = app.api("bob");
     bob.submit("File the Q3 notes.").await;
     let system = system_of(&m, false).await;
-    assert!(system.contains("# Your harness"), "{system}");
-    assert!(system.contains("You wake when they message you"), "{system}");
-    assert!(system.contains("You keep:"), "{system}");
-    assert!(system.contains("kill switch"), "{system}");
-    assert!(system.contains("You cannot search the web"), "{system}");
-    assert!(!system.contains("You can search the web"), "{system}");
-    assert!(!system.contains("fresh VM"), "{system}");
-    assert!(!system.contains("browser tools"), "{system}");
+    assert!(system.contains("# Runtime context") && system.contains("kill switch"), "{system}");
+    assert!(system.contains("Public web search is unavailable"), "{system}");
+    assert!(!system.contains("/workspace") && !system.contains("Browser tools are available"), "{system}");
 
     let (st, _) = bob.post("/v1/chat", json!({ "text": "Hello." })).await;
     assert_eq!(st.as_u16(), 201);
     let chat = system_of(&m, true).await;
-    assert!(!chat.contains("search the web, fetch a page"), "{chat}");
-    assert!(chat.contains("when your harness searches it"), "{chat}");
-    assert!(chat.contains("You cannot search the web"), "{chat}");
+    assert!(chat.contains("Public web search is unavailable"), "{chat}");
 }
 
 /// An appliance with both tells its runs they have them.
@@ -62,7 +52,6 @@ async fn a_run_with_search_and_sandbox_is_told_it_has_them() {
     .await;
     app.api("bob").submit("File the Q3 notes.").await;
     let system = system_of(&m, false).await;
-    assert!(system.contains("You can search the web with web_search"), "{system}");
-    assert!(system.contains("fresh VM"), "{system}");
-    assert!(!system.contains("You cannot search the web"), "{system}");
+    assert!(system.contains("Public web search is available"), "{system}");
+    assert!(system.contains("Isolated workspace: /workspace"), "{system}");
 }

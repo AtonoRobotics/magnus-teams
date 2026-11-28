@@ -262,7 +262,7 @@ impl Kernel {
             // set up what covers it (their standing release).
             Ok(Verdict::Allow(_)) if self.auto_review_acts() || covered => Gate::Post,
             Ok(Verdict::Allow(_)) => hold("the owner's policy does not let Auto Review decide this alone"),
-            Ok(Verdict::Deny(why) | Verdict::Ask(why)) => hold(format!("Auto Review held it: {why}")),
+            Ok(Verdict::Deny(why) | Verdict::Ask(why) | Verdict::Unavailable(why)) => hold(format!("Auto Review held it: {why}")),
             Err(e) => {
                 tracing::warn!("Auto Review of {call_id}: {e:#}");
                 hold("Auto Review could not be reached")

@@ -45,15 +45,6 @@ pub fn carried(mut conversation: Vec<Value>, asked: Option<String>, said: &str) 
     conversation
 }
 
-/// The block of a task's context that gives it the chat it came from: its
-/// goal, and the conversation as recorded (`transcript`), which says what
-/// the person wants in their own words.
-pub fn from_chat(goal: &str, transcript: &str) -> String {
-    format!(
-        "This task was started from a chat with the person, to this goal: {goal}\n\nThe conversation it came from follows; the goal does not restate it. Write the task's contract from what the person said there:\n\n{transcript}"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,11 +74,8 @@ mod tests {
         let c = carried(before, Some("Which entity should we be?".into()), "I'll compare LLC and S-corp for you.");
         let roles: Vec<&str> = c.iter().filter_map(|m| m["role"].as_str()).collect();
         assert_eq!(roles, ["person", "you", "person", "you"]);
-        let transcript = c.iter().map(|m| format!("{}: {}", m["role"].as_str().unwrap(), m["text"].as_str().unwrap())).collect::<Vec<_>>().join("\n\n");
-        let block = from_chat("Compare LLC and S-corp.", &transcript);
-        for said in ["two-person consultancy in Ohio", "Which entity should we be?", "I'll compare LLC and S-corp", "goal: Compare LLC and S-corp."] {
-            assert!(block.contains(said), "the task's context lost {said:?}: {block}");
-        }
+        assert_eq!(c[2]["text"], "Which entity should we be?");
+        assert_eq!(c[3]["text"], "I'll compare LLC and S-corp for you.");
         // An outcome's turn has no message of the person's, and silence adds nothing.
         assert!(carried(vec![], None, "  ").is_empty());
     }
