@@ -28,7 +28,7 @@ await d.step("connect it from its card in the Library, through its connect scree
   // the app's router is ready loses to its initial route, and the step then
   // waits for the card on the wrong page (run 42059799939, #200). The link
   // exists only once the app can navigate.
-  await d.click(d.xpath("//nav//a[normalize-space()='Apps']"));
+  await d.click(d.xpath("//nav//a[@aria-label='Apps']"));
   await d.click(d.xpath("//*[@data-connector='calendar']//button[starts-with(@aria-label,'Connect ')]"));
   // The one screen: what Magnus can read, what it can change and send, the
   // risks. Accepting it is the consent; nothing per tool follows.

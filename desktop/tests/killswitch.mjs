@@ -70,7 +70,7 @@ await step("one control stops everything, with no question", async () => {
   await page.locator('[data-revoked] tr[data-secret="oa_credential"]', { hasText: "revoked by the provider" }).waitFor({ timeout: T });
   await page.locator('[data-sealed] [data-secret="mail_token"]').waitFor({ timeout: T });
   // Above the conversation, it says so, naming who.
-  await page.getByRole("link", { name: "New conversation", exact: true }).click();
+  await page.getByRole("link", { name: "New chat", exact: true }).click();
   await page.getByText("The kill switch is on.").waitFor({ timeout: T });
 });
 

@@ -12,7 +12,7 @@ const until=async(fn,arg)=>{const end=Date.now()+30000;while(Date.now()<end){if(
 // Unsent messages are kept for the session (#544): text and attachments
 // survive moving around the app, nothing is saved on the device, and a
 // send that fails or loses its reply leaves the message where it was.
-const back=async()=>{await page.getByRole('link',{name:'New conversation',exact:true}).click();await until(()=>location.hash==='#/chat/new' && App.draftRecord?.id==='new:' && document.querySelector('#msg'));};
+const back=async()=>{await page.getByRole('link',{name:'New chat',exact:true}).click();await until(()=>location.hash==='#/chat/new' && App.draftRecord?.id==='new:' && document.querySelector('#msg'));};
 const invalidModel=()=>page.locator('#say [data-model]').evaluate(select=>{const option=new Option('Removed model',JSON.stringify(['missing-adapter','removed-model']));select.append(option);select.value=option.value;});
 try {
  await page.goto(base);await signIn('alice');await back();

@@ -27,7 +27,7 @@ try{
  await page.route('**/v1/model',r=>r.request().method()==='GET'?r.fulfill({status:503,contentType:'application/json',body:'{"error":"offline"}'}):r.continue());
  await page.evaluate(()=>refresh());assert.equal(await page.locator('#madapter').inputValue(),selected);assert.ok(await page.locator('#madapter').evaluate(e=>e===document.activeElement));await page.locator('#connection-status').getByText(/Model may be stale/).waitFor();
  await page.unroute('**/v1/model');await page.evaluate(()=>refresh());await until(()=>document.querySelector('#connection-status').hidden);
- await page.getByRole('link',{name:'New conversation',exact:true}).click();await page.locator('#msg').waitFor();await page.evaluate(()=>{background.forEach(clearInterval);background=[];});
+ await page.getByRole('link',{name:'New chat',exact:true}).click();await page.locator('#msg').waitFor();await page.evaluate(()=>{background.forEach(clearInterval);background=[];});
  // A completed real task leads with its result and keeps optional evidence/feedback compact.
  await page.evaluate(id=>openPanel(`task:${id}`),process.env.MAGNUS_RESULT_TASK);await page.frameLocator('#pview').getByText('Actual stored deliverable').waitFor();assert.equal(await page.locator('.verification-detail').count(),0);assert.equal(await page.getByRole('button',{name:'Right',exact:true}).isVisible(),false);await page.locator('[data-work-feedback] > summary').click();await page.getByRole('button',{name:'Right',exact:true}).click();await until(async id=>(await Magnus.api('GET',`/v1/tasks/${id}`)).verdict?.verdict==='right',process.env.MAGNUS_RESULT_TASK);await page.evaluate(()=>closePanel());
  await page.evaluate(async()=>{await Magnus.api('POST','/v1/projects',{name:'Retained project'});await refresh();});
