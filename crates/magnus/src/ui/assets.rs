@@ -148,7 +148,7 @@ static UI_GZIP: LazyLock<HashMap<&'static str, Vec<u8>>> = LazyLock::new(|| {
     UI.iter().filter(|(name, _, _)| name.ends_with(".js") || name.ends_with(".css")).filter_map(|(name, _, body)| gzip_bytes(body).map(|gz| (*name, gz))).collect()
 });
 
-fn accepts_gzip(headers: &HeaderMap) -> bool {
+pub(crate) fn accepts_gzip(headers: &HeaderMap) -> bool {
     headers
         .get(axum::http::header::ACCEPT_ENCODING)
         .and_then(|v| v.to_str().ok())

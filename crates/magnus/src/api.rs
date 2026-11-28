@@ -5,6 +5,7 @@
 //! sandbox has no network and no tool calls this API).
 
 pub(crate) mod events_sse;
+mod gzip;
 mod owner;
 mod schedules;
 mod sign_in;
@@ -199,6 +200,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .merge(crate::commitments::router())
         .merge(crate::knowledge::router().merge(crate::chat_actions::router()).merge(crate::spend::routes::router()))
         .merge(crate::trash::router().merge(crate::admin_app::router(k.clone())))
+        .layer(axum::middleware::from_fn(gzip::gzip_json)) // JSON answers gzipped for a client that asks
         .layer(axum::middleware::from_fn_with_state(k.clone(), crate::admin_app::settings_gate::gate)) // an admin change outside Admin: step-up and audit
         .layer(axum::middleware::from_fn(cookie_guard))
         .layer(axum::middleware::from_fn(crate::update::app_version))

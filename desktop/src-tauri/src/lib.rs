@@ -11,6 +11,7 @@ mod display;
 mod events_sse;
 mod files;
 mod frames;
+mod gunzip;
 mod live;
 mod local;
 mod look;
@@ -132,7 +133,7 @@ impl App {
 
 async fn body_of(r: reqwest::Response) -> (u16, Value) {
     let status = r.status().as_u16();
-    let text = r.text().await.unwrap_or_default();
+    let text = gunzip::text(r).await;
     let body = if text.is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text)) };
     (status, body)
 }
@@ -349,7 +350,7 @@ async fn api(app: State<'_, App>, method: String, path: String, body: Option<Val
     allowed(&path)?;
     let (url, c, token) = app.session()?;
     let m = methods::method(&method)?;
-    let mut req = c.request(m, format!("{url}{path}")).bearer_auth(&token);
+    let mut req = c.request(m, format!("{url}{path}")).bearer_auth(&token).header(reqwest::header::ACCEPT_ENCODING, gunzip::ACCEPT);
     if let Some(tag) = etag.filter(|s| !s.is_empty()) {
         req = req.header(reqwest::header::IF_NONE_MATCH, tag);
     }
