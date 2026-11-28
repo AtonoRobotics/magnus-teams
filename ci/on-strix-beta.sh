@@ -19,15 +19,19 @@
 # --bins`): the scratch and invariant tests run the programs but do not build
 # them.
 #
-# `STRIX_BETA` overrides the SSH destination (default the LAN address: the
-# tailnet name has hung). `STRIX_BETA_HOST_KEY_ALIAS` overrides the known-host
-# lookup name; by default it is the destination host with any user removed.
+# `STRIX_BETA` overrides the SSH destination. By default it is the wired link
+# when it answers, else the LAN address (ci/strix-beta-host.sh); the tailnet
+# name has hung. `STRIX_BETA_HOST_KEY_ALIAS` overrides the known-host lookup
+# name.
 set -eu
 [ $# -ge 2 ] || { echo "usage: ci/on-strix-beta.sh NAME COMMAND..." >&2; exit 2; }
 name=$1; shift
 case $name in *[!A-Za-z0-9._-]*) echo "NAME: letters, digits, dot, dash, underscore" >&2; exit 2 ;; esac
-host=${STRIX_BETA:-samuel@192.168.0.51}
-host_key_alias=${STRIX_BETA_HOST_KEY_ALIAS:-${host#*@}}
+# The wired link when it answers, the Wi-Fi LAN address otherwise
+# (ci/strix-beta-host.sh).
+read -r host host_key_alias <<EOF
+$(sh "$(dirname "$0")/strix-beta-host.sh")
+EOF
 ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=$host_key_alias"
 root=$(cd "$(dirname "$0")/.." && pwd)
 dir=magnus-teams-ci/$name

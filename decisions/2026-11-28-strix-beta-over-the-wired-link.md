@@ -1,0 +1,9 @@
+# Strix Beta is reached over the wired link
+
+**Choice.** `release/fetch-build.sh` and `ci/on-strix-beta.sh` reach Strix Beta at its wired address, `samuel@10.0.1.11`, when it answers an SSH probe within 3 s, and at its Wi-Fi LAN address, `samuel@192.168.0.51`, otherwise. The choice is made in one place, `ci/strix-beta-host.sh`. `STRIX_BETA` still sets the destination outright. `ci/strix-beta-host-check.sh`, run by `ci/fast.sh`, checks the fallback and the override, and that both scripts use the helper.
+
+**Why.** magnus-server and Strix Beta share a 2.5 Gb/s wired network, 10.0.1.0/24, with static addresses on both: 10.0.1.2 on magnus-server's `enp1s0`, set never to be the default route, and 10.0.1.11 on Strix Beta's `enp193s0`, set in its netplan. Both scripts used the Wi-Fi address. On 2026-11-27 and 2026-11-28, a ping between the two machines over Wi-Fi took 126 to 522 ms. A release's sandbox image is 8.6 GB as rsync sends it: its sparse zeros cross the network too. It came over at about 3.8 MB/s, roughly 38 minutes per release. Release run 46082033566 failed during that copy, with "the self-hosted runner lost communication with the server", and run 46084926747 spent about 30 minutes on it. Over the wired link, a ping takes 0.3 ms, SSH carries about 270 MB/s, and the same build, image included, was fetched in 32 s.
+
+**Fallback.** A machine not on the wired network, such as a laptop running `ci/on-strix-beta.sh`, or a pulled cable, gets the LAN address as before, after at most a 3 s probe. Over the LAN address, each script keeps the known-host name it used before. Over the wired address, the name is `strix-beta`.
+
+**Not done here.** Leaving Wi-Fi as magnus-server's default route, the Wi-Fi watchdog, and allowing SSH from the wired networks (proposed 2026-11-12) are separate changes.

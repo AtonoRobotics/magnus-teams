@@ -11,13 +11,19 @@
 # an image is a few gigabytes and changes only with the sandbox's sources.
 # Prints the image's directory.
 #
-# STRIX_BETA overrides the ssh destination (default the LAN address).
+# Strix Beta is reached over the wired link when it answers, the Wi-Fi LAN
+# address otherwise (ci/strix-beta-host.sh); STRIX_BETA overrides it.
 set -eu
 [ $# = 2 ] || { echo "usage: release/fetch-build.sh RUN_ID DEST" >&2; exit 2; }
 run=$1 dest=$2
 case $run in *[!0-9]*) echo "RUN_ID: digits only" >&2; exit 2 ;; esac
-host=${STRIX_BETA:-samuel@192.168.0.51}
-ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=strix-beta"
+STRIX_BETA_LAN_HOST_KEY_ALIAS=strix-beta
+export STRIX_BETA_LAN_HOST_KEY_ALIAS
+read -r host host_key_alias <<EOF
+$(sh "$(dirname "$0")/../ci/strix-beta-host.sh")
+EOF
+echo "fetching from $host" >&2
+ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=$host_key_alias"
 src=magnus-teams-release/$run
 mkdir -p "$dest"
 rsync -a -e "$ssh_" "$host:$src/programs" "$host:$src/dist" "$host:$src/brokered" "$dest/" >&2
