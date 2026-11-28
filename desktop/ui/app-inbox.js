@@ -358,7 +358,7 @@ async function clearObservations(btn) {
   btn.disabled = false;
   await refresh();
 }
-addEventListener("click", e => {
+if (typeof addEventListener === "function") addEventListener("click", e => {
   const btn = e.target.closest?.("button[data-clear-observations]");
   if (btn) clearObservations(btn);
 });
