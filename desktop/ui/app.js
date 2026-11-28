@@ -518,7 +518,7 @@ async function refreshDomains(domains) {
   const want = new Set(domains);
   const get = (path, k) => Resources.read(({ tasks: "Tasks", schedules: "Schedules", threads: "Conversations", projects: "Projects", connectors: "Apps" })[k], path, k);
   const computers = want.has("computers") && typeof Server !== "undefined" && Server.computers?.list
-    ? Server.computers.list().then(c => { App.computers = c; }, () => {})
+    ? Server.computers.list().then(r => { App.computers = Array.isArray(r) ? r : (r?.computers || []); }, () => {})
     : Promise.resolve();
   const workspaces = want.has("workspaces") && typeof Server !== "undefined" && Server.workspaces?.list
     ? Server.workspaces.list().then(w => {
