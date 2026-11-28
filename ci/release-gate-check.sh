@@ -61,6 +61,9 @@ if [ -f "$earlier" ]; then
   grep -qx 'on:' "$earlier" && has "$earlier" "  push:" || bad "fast-earlier.yml does not run on a push"
   has "$earlier" "run: sh ci/fast.sh" || bad "fast-earlier.yml does not run ci/fast.sh on each commit"
   has "$earlier" "fail-fast: false" || bad "fast-earlier.yml lets one commit's failure cancel the others' checks"
+  for want in "image: pgvector/pgvector:pg16" "POSTGRES_PASSWORD: magnus_dev" "- 54340:5432"; do
+    has "$earlier" "$want" || bad "fast-earlier.yml lacks the test database fast.yml has ('$want'), so the lib tests cannot connect"
+  done
   has "$earlier" "statuses: write" || bad "fast-earlier.yml cannot put a status on a commit"
   has "$earlier" "ref: \${{ matrix.sha }}" || bad "fast-earlier.yml does not check out each commit it checks"
   case $release in *) grep -qF 'fast-earlier' "$release" && bad "release.yml mentions fast-earlier; it must wait for fast alone" ;; esac

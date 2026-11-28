@@ -43,6 +43,19 @@ jobs:
         sha: ${{ fromJSON(needs.plan.outputs.commits) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # The same database as fast.yml's fast job: the lib tests connect to it.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: magnus_dev
+        ports:
+          - 54340:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
