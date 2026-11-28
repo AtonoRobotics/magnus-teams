@@ -1,6 +1,6 @@
 //! A run records a thread boundary and reads its shared entries through the owner's wall.
 use crate::boundary::Action;
-use crate::chat_thread::{Entry, Kind};
+use crate::chat_thread::{Body, Entry, Kind};
 use crate::events::{ChatOrigin, ThreadHistory};
 use crate::kernel::Kernel;
 use crate::recall::Words;
@@ -27,34 +27,59 @@ impl Kernel {
             let Some(end) = entries.iter().position(|e| &e.id == upto) else { return vec![] };
             entries.truncate(end);
         }
-        entries.retain(|e| e.has_id() && !matches!(e.kind, Kind::Turn | Kind::SubAgents));
+        entries.retain(|e| e.has_id() && !matches!(e.kind, Kind::Turn | Kind::SubAgents | Kind::Other));
         entries
     }
 
-    async fn read_entries(&self, person: &str, chat: &ChatOrigin, history: &ThreadHistory, ids: &[String]) -> Result<Vec<Entry>> {
+    async fn read_entries(&self, person: &str, mut entries: Vec<Entry>) -> Result<Vec<Entry>> {
         let wanted = self.read(|s| {
-            let tasks: std::collections::HashSet<_> =
-                ids.iter().filter_map(|id| id.split_once(':')).filter_map(|(kind, key)| if kind == "t" { s.runs.get(key).map(|r| r.task.as_str()) } else { Some(key) }).collect();
-            s.tasks
-                .values()
-                .filter(|t| {
-                    t.person == person
-                        && t.seq <= history.through
-                        && (tasks.contains(t.task_id.as_str())
-                            || t.chat.as_ref().and_then(|c| c.from_run.as_ref()).is_some_and(|r| ids.iter().any(|id| id.strip_prefix("t:") == Some(r.as_str()))))
-                })
+            entries
+                .iter()
+                .filter(|e| !matches!(&e.body, Body::Copied(_)))
+                .flat_map(Entry::task_ids)
+                .filter_map(|id| s.tasks.get(&id))
+                .filter(|t| t.person == person)
                 .map(|t| (person.to_string(), t.seq))
                 .collect::<Vec<_>>()
         });
         let w = self.words(wanted).await?;
-        Ok(self.history_entries(person, &chat.thread, history, &w).into_iter().filter(|e| ids.contains(&e.id)).collect())
+        self.read(|s| {
+            let task = |id: &str| s.tasks.get(id).filter(|t| t.person == person);
+            let title = |t: &Task| crate::api::title_of(t, s.runs.get(&t.run_id), &w);
+            for e in &mut entries {
+                match &mut e.body {
+                    Body::Said(c) if e.kind == Kind::Message => {
+                        if let Some(t) = e.task_id.as_deref().and_then(task) {
+                            c.text = w.text(t.seq).to_string();
+                        }
+                    }
+                    Body::Said(c) if e.kind == Kind::Tasks => {
+                        for row in c.tasks.iter_mut().flatten() {
+                            if let Some(t) = task(&row.task_id) {
+                                row.title = title(t);
+                                row.text = w.text(t.seq).to_string();
+                            }
+                        }
+                    }
+                    Body::Result(r) => {
+                        if let Some(t) = e.task_id.as_deref().and_then(task) {
+                            r.title = title(t);
+                            r.text = w.text(t.seq).to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+        Ok(entries)
     }
 
     pub(crate) async fn recent_thread_history(&self, task: &Task, run: &Run) -> Result<Vec<Value>> {
         let Some(chat) = &task.chat else { return Ok(vec![]) };
         let Some(history) = &chat.history else { return Ok(recent_legacy(&chat.conversation)) };
-        let ids: Vec<_> = self.history_entries(&task.person, &chat.thread, history, &Words::default()).iter().rev().take(RECENT_ENTRIES).map(|e| e.id.clone()).collect();
-        let entries = self.read_entries(&task.person, chat, history, &ids).await?;
+        let mut entries = self.history_entries(&task.person, &chat.thread, history, &Words::default());
+        let recent = entries.split_off(entries.len().saturating_sub(RECENT_ENTRIES));
+        let entries = self.read_entries(&task.person, recent).await?;
         let allowed = Label { untrusted: run.untrusted, private: run.private };
         let mut lines: Vec<_> = entries
             .iter()
@@ -97,7 +122,7 @@ impl Kernel {
         let Some(ids) = page_ids(&entries, a.input["before"].as_str(), a.input["entry"].as_str()) else {
             return answer("That entry is outside this work's conversation history.".into(), true, Label::PRINCIPAL);
         };
-        let entries = self.read_entries(&person, &chat, &history, &ids).await?;
+        let entries = self.read_entries(&person, entries.into_iter().filter(|e| ids.contains(&e.id)).collect()).await?;
         let label = self.label_of(&entries);
         let mut lines = vec![];
         for e in entries {

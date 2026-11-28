@@ -90,6 +90,11 @@ impl Kernel {
                 }
                 if history.is_none() || ended(r).is_some() {
                     out.push(self.turn_reply(t, r, history.is_none()));
+                } else if history.and_then(|h| h.upto.as_deref()) == Some(format!("a:{}", t.task_id).as_str()) {
+                    // An active answer can be the selected entry, but a later completion is outside the boundary.
+                    let mut anchor = self.turn_reply(t, r, false).2;
+                    anchor.kind = Kind::Turn;
+                    out.push((t.created_at, i64::MAX, anchor));
                 }
             } else {
                 let title = crate::api::title_of(t, Some(r), w);
