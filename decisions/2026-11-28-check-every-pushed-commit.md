@@ -33,5 +33,10 @@ could not be traced to a commit of its own.
 - The status is a verdict on the commit, not a block: nothing requires it
   before a merge.
 
+**Same environment as `fast`.** The matrix job starts the same Postgres
+service as fast.yml's `fast` job; without it 329 of the lib tests fail to
+connect (seen on this change's first push). `ci/release-gate-check.sh`
+checks the image, password and port match.
+
 **Cost.** One full `ci/fast.sh` (about ten minutes of hosted runner) per
 earlier commit. The repository is public, so hosted runner minutes are free.
