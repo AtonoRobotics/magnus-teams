@@ -254,7 +254,8 @@ mod tests {
         let (prompt, named, allowed) = literal_from(&crate::run_words::tests::words("chat"));
         let eve = Destination::parse_email("eve@evil.example").unwrap();
         assert!(!allowed.contains(&eve), "the model's goal allowed {eve:?}: {prompt}");
-        assert!(!named.iter().any(|n| n.contains("eve@")), "{named:?}");
+        assert!(!named.iter().any(|n| n.contains("eve@") || n.contains("old@")), "{named:?}");
+        assert!(!allowed.contains(&Destination::parse_email("old@corp.example").unwrap()), "an earlier request authorized a destination");
         assert!(allowed.contains(&Destination::parse_email("bob@corp.example").unwrap()), "the person's own words in the conversation were lost");
         // A sub-agent's goal, a teammate's lane and the server's text name nothing either.
         for shape in ["sub", "lane", "opener", "review"] {
