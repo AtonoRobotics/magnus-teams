@@ -281,7 +281,11 @@ impl Kernel {
         let Some(w) = w.filter(|w| w.may_read(project, &run.person)) else { return Ok(("there is no such knowledge base open to you".to_string(), true, None)) };
         let entries = w.entries(project);
         if entries.is_empty() {
-            return Ok(("that knowledge base is empty".to_string(), false, Some(serde_json::json!({ "untrusted": false, "private": true }))));
+            return Ok((
+                "that knowledge base is empty".to_string(),
+                false,
+                Some(serde_json::json!({ "untrusted": false, "private": true, super::SOURCE_KEY: super::project_source(&ws) })),
+            ));
         }
         let shown: Vec<_> = entries.into_iter().take(MAX_ENTRIES_SHOWN).collect();
         // From outside, or written by anyone but the reader: words that are not theirs.
@@ -290,7 +294,11 @@ impl Kernel {
         // Which entries it returned, so removing one reaches it (`read_copies`).
         let read = shown.iter().map(|e| e.id.clone()).collect::<Vec<_>>();
         let lines: String = shown.into_iter().map(Entry::line).collect();
-        Ok((format!("{lines}\n{CITE}"), false, Some(crate::read_copies::read_data(read, serde_json::json!({ "untrusted": untrusted, "private": true })))))
+        Ok((
+            format!("{lines}\n{CITE}"),
+            false,
+            Some(crate::read_copies::read_data(read, serde_json::json!({ "untrusted": untrusted, "private": true, super::SOURCE_KEY: super::project_source(&ws) }))),
+        ))
     }
 }
 

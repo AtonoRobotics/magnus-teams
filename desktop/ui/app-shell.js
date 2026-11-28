@@ -108,8 +108,8 @@ function navigationTree() {
     ...(App.projects || []).map(p=>({name:p.name, html:row(`#/project/${enc(p.id)}`,p.name,{lead:icon("folder")},del("data-nav-del-project",p.id,p.name))})),
     ...(App.workspaces || []).map(w=>({name:w.name, html:row(`#/team/${enc(w.id)}`,w.name,{lead:icon("folder"),tail:`${shared}${teamBadge(w)}`},(w.role==="owner" || w.role==="admin") ? del("data-nav-del-shared",w.id,w.name) : "")})),
   ].sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(x=>x.html).join("");
-  // Recents: every conversation, newest first. A shared chat with no time
-  // of its own is recent while it has unread messages.
+  // Recents: every conversation, newest first, a shared chat by its latest
+  // message.
   const at=(v,fallback)=>{const ts=Date.parse(v || "");return Number.isNaN(ts) ? fallback : ts;};
   const recents=(App.threads || []).map(t=>({at:at(t.updated_at || t.created_at,Date.now()),html:conv(t)}));
   for (const w of (App.workspaces || [])) {

@@ -215,7 +215,7 @@ impl Kernel {
             content: vec![],
             to: "the conversation",
             covered: false,
-            within: true,
+            within: Some(workspace),
             standing: format!("the person asked for this in the conversation themselves; {ROOM_AUDIENCE}"),
         };
         self.checked_send(send).await

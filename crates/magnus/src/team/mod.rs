@@ -462,6 +462,23 @@ impl Ledger {
 }
 
 /// Whether a name is fit to be a file in a volume.
+/// Where a read of a shared project's own knowledge or files says its
+/// private data is from, in the result's data (`boundary::finish`).
+pub(crate) const SOURCE_KEY: &str = "private_source";
+const PROJECT_SOURCE_PREFIX: &str = "team:";
+
+/// A shared project, as the source of private data a run read from it. A
+/// post back into that same project leaks none of it
+/// (`lane_release::holds_private_for`).
+pub(crate) fn project_source(workspace: &str) -> String {
+    format!("{PROJECT_SOURCE_PREFIX}{workspace}")
+}
+
+/// Whether a run's private source is a shared project's own.
+pub(crate) fn is_project_source(source: &str) -> bool {
+    source.starts_with(PROJECT_SOURCE_PREFIX)
+}
+
 pub(crate) fn fit_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0') && name.len() <= MAX_FILE_NAME_BYTES
 }

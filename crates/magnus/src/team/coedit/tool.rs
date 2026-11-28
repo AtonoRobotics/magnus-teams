@@ -56,7 +56,7 @@ impl Kernel {
             }
             _ => text.push_str(&format!("A binary file of {} bytes; its content is not shown here.", bytes.len())),
         }
-        let mut data = json!({ "untrusted": untrusted, "private": true });
+        let mut data = json!({ "untrusted": untrusted, "private": true, crate::team::SOURCE_KEY: crate::team::project_source(ws) });
         if let Some(n) = head {
             data[READ_KEY] = json!({ "workspace": ws, "name": name, "version": n });
         }

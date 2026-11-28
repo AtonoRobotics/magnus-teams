@@ -57,7 +57,11 @@ impl Kernel {
         let d = || data.cloned().unwrap_or_default();
         match crate::tool_registry::taint(&a.tool) {
             // What the search returned decides; a result that says nothing is untrusted and private.
-            Taint::Returned => (Label { untrusted: d()["untrusted"] != false, private: d()["private"] != false }, vec![f.app.clone()]),
+            // A read may name where its private data is from (a shared project's own, `team::project_source`).
+            Taint::Returned => {
+                let source = d()[crate::team::SOURCE_KEY].as_str().map_or_else(|| f.app.clone(), str::to_string);
+                (Label { untrusted: d()["untrusted"] != false, private: d()["private"] != false }, vec![source])
+            }
             // A reference file carries its own taint (M1, M2).
             Taint::ProjectFile => (self.project_file(&a.run, a.input["name"].as_str().unwrap_or_default()).map_or(Label::PRINCIPAL, |f| f.label), vec![f.app.clone()]),
             // The summaries it lists carry what their runs read.

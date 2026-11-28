@@ -391,7 +391,11 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             }
             if label.private && !*check {
                 r.private = true;
-                r.read_private = true;
+                // A shared project's own knowledge and files stay named in
+                // `private_from`, for a post back to that project to pass.
+                if sources.is_empty() || !sources.iter().all(|s| crate::team::is_project_source(s)) {
+                    r.read_private = true;
+                }
                 r.private_from.extend(sources.iter().cloned());
                 if sources.is_empty() {
                     r.private_from.insert(String::new());

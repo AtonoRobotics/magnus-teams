@@ -69,7 +69,7 @@ async fn home(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pa
             let (unread, mentions) = w.unread(id, &p.id, &me);
             let direct = w.chat.direct.get(id).map(|d| json!({ "people": d.people, "agent": d.agent }));
             let (archived, deleted) = (w.archived(id, &p.id), w.deleted_for(id, &p.id));
-            json!({ "id": id, "name": c.name, "project": c.project, "mode": w.agent_mode(id), "notify": w.notify_level(id, &p.id), "unread": unread, "mentions": mentions, "direct": direct, "archived": archived, "deleted": deleted })
+            json!({ "id": id, "name": c.name, "project": c.project, "mode": w.agent_mode(id), "notify": w.notify_level(id, &p.id), "unread": unread, "mentions": mentions, "direct": direct, "archived": archived, "deleted": deleted, "last_at": c.messages.last().map(|m| m.at) })
         })
         .collect();
     let projects: Vec<Value> = w

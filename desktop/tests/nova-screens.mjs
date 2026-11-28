@@ -217,9 +217,12 @@ try {
       overlay: !!document.querySelector("#navigation-drawer[open]"),
       stageLeft: Math.round(document.getElementById("main")?.getBoundingClientRect().left || 0),
       quickJump: !!document.querySelector(".shell > nav.side .nav-quick-jump")?.getBoundingClientRect().height,
+      // One control collapses the open sidebar, not two of the same icon.
+      sidebarButtons: [...document.querySelectorAll(".shell > nav.side :is(.aurora-rail-open, .aurora-rail-pin, [data-nav-toggle])")].filter(e => /** @type {HTMLElement} */ (e).offsetParent).map(e => e.getAttribute("aria-label")),
       drift: [...document.querySelectorAll(".shell > nav.side :is(a, summary, span)")].filter(e => /** @type {HTMLElement} */ (e).offsetHeight && /^(Workspace|Admin|Trash)$/i.test((e.textContent || "").trim())).map(e => (e.textContent || "").trim()),
     }));
     check(`${mode}: the sidebar has no Workspace group, Admin or Trash`, () => assert.deepEqual(side.drift, []));
+    check(`${mode}: the open sidebar has one collapse control`, () => assert.deepEqual(side.sidebarButtons, ["Collapse the sidebar"]));
     check(`${mode}: the sidebar docks beside the stage with Quick Jump at its foot`, () => assert.ok(side.navigation === "expanded" && !side.overlay && side.stageLeft >= 200 && side.quickJump, JSON.stringify(side)));
     await page.locator(".shell > nav.side .aurora-rail-pin").click();
     await page.waitForTimeout(700);

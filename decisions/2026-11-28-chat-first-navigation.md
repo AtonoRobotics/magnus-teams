@@ -42,10 +42,12 @@ modern chat agents."
   by name, a shared one carrying a small people icon; Recents, every
   conversation newest first, personal, in a project and shared alike (a
   shared chat reads "general" as its project's name, others "name ·
-  project"; one with no time of its own is recent while it has unread
-  messages). Approvals (with its count), Briefing & Routines, Explore, Apps
+  project"; a shared chat is ordered by its latest message, the server's
+  `last_at`). Approvals (with its count), Briefing & Routines, Explore, Apps
   and Trash are one row of icons at the foot, above the person; Settings is
   the person's initial or gear. Nothing is deleted: each page is where it was.
+  The open sidebar has one control that collapses it; the rail's sidebar
+  button shows on the rail only.
   People are reached from a shared project's page, where each member is a
   link to a direct chat.
 - **A project's composer sends.** In a personal project, the message goes to

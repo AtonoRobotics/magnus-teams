@@ -130,7 +130,9 @@ nav.side a.primary-nav { position: relative; flex: none; min-height: 44px; paddi
 nav.side .nav-tree { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 nav.side .nav-tree a { position: relative; font-size: 13px; }
 .developer-nav > summary { cursor: pointer; }
-nav.side [data-close-drawer], .rail-search, .rail-tree { display: none; }
+/* The rail's sidebar button belongs to the rail: the open sidebar has its
+   own collapse, and two of the same icon read as two controls. */
+nav.side [data-close-drawer], .rail-search, .rail-tree, nav.side .aurora-rail-open { display: none; }
 
 .workspace-heading { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-bar .grow { flex: 1; }

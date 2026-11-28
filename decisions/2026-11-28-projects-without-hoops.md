@@ -21,10 +21,11 @@ The owner chose eight changes. The server half is here; the app half is in
    source such as an upload (`lane_release::holds_private_for`). An answer
    from the web posts to the chat. One built from the person's mail after an
    outside read is still held. A reply to an outside agent keeps the full
-   rule: any private mark holds it. Caveat: the shared project's own
-   knowledge and files are still read as private (`team_read_knowledge`,
-   `team_read_file`). So an answer that reads them and the web is held
-   for its asker.
+   rule: any private mark holds it. The shared project's own knowledge and
+   files are private too, but named as their source (`team::project_source`,
+   read from the result's `private_source`), so an answer from them and the
+   web posts back to that project. Another project's knowledge, or a reply
+   to an outside agent, is still held.
 2. **No answer is dropped without a word.** The reply watcher no longer stops
    after 15 minutes. After that it polls every 5 seconds until the run ends,
    so an answer that waited on an approval still posts. A run that failed or
@@ -50,6 +51,9 @@ The owner chose eight changes. The server half is here; the app half is in
    kind `Change::Renamed`.
 7. **Members fix their own facts.** The member whose words alone an entry
    holds may correct, retire or delete it. Before, only an admin could.
+8. **The monitor is asked once per reply.** A reply's calls are checked at
+   once; each now waits on the one ask in flight instead of making its own
+   (`safety::watching`), as invariant 4's monitor test asks.
 
 ## Why
 

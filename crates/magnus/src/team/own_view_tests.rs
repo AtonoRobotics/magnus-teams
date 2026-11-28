@@ -158,6 +158,25 @@ async fn an_archived_conversation_comes_back_when_someone_writes() {
     s.done().await;
 }
 
+/// A shared chat says when it was last written in, so Recents orders it
+/// beside the person's own chats, read or not (2026-11-28-chat-first-navigation).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shared_chat_says_when_it_was_last_written_in() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, mo, _) = workspace(&s).await;
+    let c = general(&s, &ws);
+    let last = |v: Value| v["channels"].as_array().unwrap().iter().find(|x| x["id"] == json!(c)).map(|x| x["last_at"].clone()).unwrap();
+    assert_eq!(last(s.get(&sam, &format!("/v1/workspaces/{ws}/home")).await.1), Value::Null, "an empty chat had a time");
+    say(&s, &mo, &ws, &c, "first").await;
+    let first = last(s.get(&sam, &format!("/v1/workspaces/{ws}/home")).await.1);
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    say(&s, &sam, &ws, &c, "second").await;
+    let second = last(s.get(&sam, &format!("/v1/workspaces/{ws}/home")).await.1);
+    let at = |v: &Value| chrono::DateTime::parse_from_rfc3339(v.as_str().unwrap_or_else(|| panic!("no time: {v}"))).unwrap();
+    assert!(at(&second) > at(&first), "{first} then {second}");
+    s.done().await;
+}
+
 /// The notices: a direct message, a mention and, where the setting is all,
 /// any message; never one's own, never in a channel turned off.
 #[tokio::test(flavor = "multi_thread")]
