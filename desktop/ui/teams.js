@@ -62,8 +62,8 @@ async function mayStartWorkspace() {
  * that starts one.
  * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
 function teamsPageHtml(list, mayStart) {
-  const none = mayStart ? "You are in no shared project yet. Type a name to start one and invite teammates." : "You are in no shared project yet.";
-  return `<div class="teams-page"><h1>Shared projects</h1><p class="small faint">Collaborate with teammates while each person's Magnus works in private and shares scrubbed outputs.</p>${list.length ? `<ul class="team-list">${list.map(w => {
+  const none = "No shared projects yet.";
+  return `<div class="teams-page"><h1>Shared projects</h1>${list.length ? `<ul class="team-list">${list.map(w => {
     const canDel = w.role === "owner" || w.role === "admin";
     return `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a>${canDel ? `<button type="button" class="icon-btn team-list-del" data-del-shared-ws="${esc(w.id)}" data-del-shared-name="${esc(w.name)}" title="Delete ${esc(w.name)}" aria-label="Delete ${esc(w.name)}">${icon("trash")}</button>` : ""}</li>`;
   }).join("")}</ul>` : `<p class="empty">${none}</p>`}

@@ -287,7 +287,7 @@ function computerScreen(body, c, alive, opts = {}) {
     d.className = "ask";
     const text = steps.map((s, idx) => `${idx + 1}. ${typeof s === "string" ? s : `Type [redacted text, ${s.count} char${s.count === 1 ? "" : "s"}]`}`).join("\n");
     d.innerHTML = `<h3>Review steps before sharing</h3>
-      <p class="small muted">Typed values and screenshots are omitted by default so passwords and private data are never shared. Edit or remove any step below.</p>
+      <p class="small muted">Typed values and screenshots are left out.</p>
       <textarea data-rec-edit rows="8" style="width:100%;margin:8px 0;"></textarea>
       <div class="row"><button type="button" data-rec-act="cancel">Discard</button><button type="button" class="primary" data-rec-act="send">Send to Magnus</button></div>`;
     $("[data-rec-edit]", d).value = text;

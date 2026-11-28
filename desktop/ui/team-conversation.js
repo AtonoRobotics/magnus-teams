@@ -151,11 +151,11 @@ function teamConversation(s, thread) {
     },
     lead: e => e.kind === "deleted" ? "" : teamLead(e, !!thread, teamCaps(s)),
     extras: e => teamExtras(teamCaps(s).reactions ? e : { ...e, reactions: {} }, r, thread && e.id === thread ? replies().length : undefined),
-    note: e => e.private && e.requester === Team.home.me && e.task_id ? `<div class="small faint private-note">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(e.task_id)}">Post it to the thread</button></div>` : "",
+    note: e => e.private && e.requester === Team.home.me && e.task_id ? `<div class="small faint private-note">Only you can see this. <button class="link small" data-share-answer="${esc(e.task_id)}">Post it to the thread</button></div>` : "",
     before: () => !thread && s.unreadAtOpen >= TEAM_CATCH_UP_AFTER && Team.home.role !== "guest" ? `<button type="button" class="chip run" data-catch-up>Catch me up: ${s.unreadAtOpen} new</button>` : "",
     beforeItem: (_e, i, entries) => !thread && s.unreadAtOpen > 0 && i === Math.max(0, entries.length - s.unreadAtOpen)
       ? `<div class="team-unread-divider" role="separator"><span>New messages</span></div>` : "",
-    after: () => thread ? "" : s.whispers.filter(w => !w.shared && !s.hidden.has(w.task)).map(w => `<div class="entry them" data-whisper="${esc(w.task)}"><div class="msg magnus whisper"><div class="small faint byline"><strong>Your Magnus</strong> · only you can see this</div>${w.held_because ? `<div class="small bad">Held for you to check: ${esc(w.held_because)}</div>` : ""}<div class="pre">${esc(w.text || "Working on it…")}</div>${w.done && w.text ? `<div class="row"><button class="primary" data-whisper-share="${esc(w.task)}">Share</button><button data-not-now="${esc(w.task)}">Not now</button></div>` : ""}</div></div>`).join(""),
+    after: () => thread ? "" : s.whispers.filter(w => !w.shared && !s.hidden.has(w.task)).map(whisperHtml).join(""),
     status: () => {
       const typing = thread || !teamCaps(s).typing ? [] : s.view.typing || [];
       return typing.length ? `${esc(typing.join(", "))} ${typing.length === 1 ? "is" : "are"} ${typing.includes(Team.home.agent.name) && typing.length === 1 ? "working" : "typing"}…` : "";
@@ -202,6 +202,20 @@ function teamTransport(s, r) {
     remove: e => Server.messages.remove(s.ws, s.channel, e.id),
     after: () => TeamChat.refresh(),
   };
+}
+
+/**
+ * One's own Magnus answering in private. While it runs it is working; once
+ * its run ended with an answer, the answer can be shared; once it ended
+ * without one, why it stopped (`held_because`) is what it says.
+ * @param {{task: string, text?: ?string, done?: boolean, held_because?: ?string}} w
+ */
+function whisperHtml(w) {
+  const stopped = w.done && !w.text;
+  const body = w.text || (stopped ? w.held_because || "Stopped without an answer." : "Working on it…");
+  const held = w.held_because && w.text ? `<div class="small bad">Held for you to check: ${esc(w.held_because)}</div>` : "";
+  const acts = w.done ? `<div class="row">${w.text ? `<button class="primary" data-whisper-share="${esc(w.task)}">Share</button>` : ""}<button data-not-now="${esc(w.task)}">${w.text ? "Not now" : "Dismiss"}</button></div>` : "";
+  return `<div class="entry them" data-whisper="${esc(w.task)}"><div class="msg magnus whisper"><div class="small faint byline"><strong>Your Magnus</strong> · only you can see this</div>${held}<div class="pre">${esc(body)}</div>${acts}</div></div>`;
 }
 
 /** A channel's own buttons: reactions, threads, files, private answers, whispers, catch-up. */

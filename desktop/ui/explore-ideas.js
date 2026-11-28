@@ -29,7 +29,7 @@ const ExploreIdeas = (() => {
     if (!list.length) return "";
     return `<section class="explore-ideas" aria-labelledby="explore-ideas-head">
       <div class="spread"><h2 id="explore-ideas-head">For you <span class="muted small">(${list.length})</span></h2></div>
-      <p class="small muted">What Magnus could take over, from what it saw in your apps and work. Nothing starts until you say so.</p>
+      <p class="small muted">What Magnus could take over, from what it saw in your apps and work.</p>
       <div class="explore-ideas-list">${list.map(cardOf).join("")}</div>
     </section>`;
   }
