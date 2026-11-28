@@ -1,5 +1,5 @@
 // Aurora's rail (decisions/2026-11-21-aurora-rail.md), in the real app:
-// - the navigation is a rail of icons: the avatar, then New conversation,
+// - the navigation is a rail of icons: the avatar, then New chat,
 //   Search, Conversations and Explore, and Settings at its foot; Trash, the
 //   tree and the old collapse control are not on it;
 // - Conversations, or Ctrl+B, slides the full sidebar in over the stage,
@@ -80,8 +80,8 @@ try {
   const items = await rail();
   const names = items.map(i => i.name);
   const at = (/** @type {string} */ n) => names.indexOf(n);
-  for (const n of ["avatar", "New conversation", "Search conversations, tasks and files", "Conversations", "Explore", "Settings"]) assert.ok(at(n) >= 0, `the rail shows ${n}: ${JSON.stringify(names)}`);
-  assert.ok(at("avatar") < at("New conversation") && at("New conversation") < at("Search conversations, tasks and files") && at("Search conversations, tasks and files") < at("Conversations") && at("Conversations") < at("Explore") && at("Explore") < at("Settings"), `the rail's order: ${JSON.stringify(names)}`);
+  for (const n of ["avatar", "New chat", "Search conversations, tasks and files", "Conversations", "Explore", "Settings"]) assert.ok(at(n) >= 0, `the rail shows ${n}: ${JSON.stringify(names)}`);
+  assert.ok(at("avatar") < at("New chat") && at("New chat") < at("Search conversations, tasks and files") && at("Search conversations, tasks and files") < at("Conversations") && at("Conversations") < at("Explore") && at("Explore") < at("Settings"), `the rail's order: ${JSON.stringify(names)}`);
   for (const n of ["Trash", "Projects and conversations", "Collapse navigation", "Expand navigation", "Pin the sidebar"]) assert.ok(at(n) < 0, `the rail has no ${n}: ${JSON.stringify(names)}`);
   assert.ok(items[items.length - 1].name === "Settings" && items[items.length - 1].y > 640, `Settings is at the rail's foot: ${JSON.stringify(items)}`);
   await shot("1-rail");

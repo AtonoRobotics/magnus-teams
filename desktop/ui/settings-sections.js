@@ -251,7 +251,7 @@ async function memorySection(el) {
     const lessons = pbRes.playbook || [];
     const commitments = cmtRes.commitments || [];
     paint(el, `<h2>Memory, Playbook &amp; Promises</h2>
-      <p class="muted">Everything Magnus remembers about you, lessons it learned from your feedback, and promises you or Magnus made. No one else sees these.</p>
+      <p class="muted">Everything Magnus remembers about you, lessons it learned from your feedback, and promises you or Magnus made.</p>
       <h3>What Magnus remembers <span class="count">${facts.length}</span></h3>
       <div class="card" data-memory-facts>
         <div class="row" style="margin-bottom:8px;flex-wrap:wrap">

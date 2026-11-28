@@ -91,9 +91,9 @@ assert.match(stage, /lastBentoWidth/, "aurora-stage.js ResizeObserver only slide
 assert.match(exploreAnim, /EXPLORE_LEAVE_FALLBACK_MS/, "aurora-explore.js has a fallback cleanup timeout");
 assert.match(rail, /addEventListener\("hashchange"/, "aurora-rail.js closes navigation drawer on hashchange");
 assert.doesNotMatch(app, /class="nav-teams primary-nav/, "left rail has no separate Teams icon");
-assert.match(app, /nav-shared-project/, "sidebar merges shared projects into Projects");
-assert.match(app, /aria-label="People"/, "sidebar includes People section");
-assert.match(app, /class="nav-apps primary-nav/, "left rail includes Apps link");
+assert.match(app, /data-nav-del-shared/, "sidebar merges shared projects into Projects");
+assert.doesNotMatch(app, /aria-label="People"/, "the sidebar has no People section: people are in a shared project's page (decisions/2026-11-28-chat-first-navigation.md)");
+assert.match(app, /"#\/library","nav-apps"/, "the sidebar's foot row includes Apps");
 assert.match(app, /if \(App\.serverVersion && App\.serverVersion !== v\.version\) refreshUpdate\(true\)/, "server version change triggers desktop update check");
 assert.match(app, /let restartingUpdate = false;/, "restartToUpdate guards against concurrent clicks");
 assert.match(admin, /submit\.disabled = true/, "stepUp disables Confirm button while in flight");

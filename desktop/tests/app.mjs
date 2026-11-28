@@ -33,7 +33,7 @@ await step("connect Claude", async () => {
 });
 
 await step("ask for the work in a conversation", async () => {
-  await click(xpath("//nav//a[normalize-space()='New conversation']"));
+  await click(xpath("//nav//a[normalize-space()='New chat']"));
   await type(css("#msg"), task);
   await click(css("#send"));
   await xpath("//div[@id='thread']//li[@data-chat-task]");

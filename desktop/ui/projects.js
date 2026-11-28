@@ -1,7 +1,11 @@
-// Unified, calm Project views: one-step creation (zero tasks started),
-// full-stage Project home in #main (never trapped in the right inspector
-// panel), and direct, no-ceremony deletion from sidebar, list, or header.
+// Projects: one-step creation, one project home for personal and shared
+// projects in #main (a composer that starts a chat, its chats, files and
+// instructions), and direct deletion from sidebar, list, or header.
 "use strict";
+
+/** How many of a first message's words name a shared chat, and at most how long. */
+const CHAT_NAME_WORDS = 6;
+const CHAT_NAME_MAX_CHARS = 48;
 
 const Projects = (() => {
   /** Whether the sidebar inline "New project" input is currently open. */
@@ -64,8 +68,8 @@ const Projects = (() => {
     const title = home?.name || name || "this project";
     const memberCount = home?.members?.length || 1;
     const confirmed = memberCount > 1
-      ? await askTyped(`Delete “${title}” for all ${memberCount} people? Shared conversations, files, and tasks will be permanently deleted. Personal spaces are untouched.`, title, "Delete project")
-      : await ask(`Delete “${title}”? Its conversations and files will be permanently deleted. Your personal space is untouched.`, "Delete project");
+      ? await askTyped(`Delete “${title}” for all ${memberCount} people? Its chats, files and tasks are deleted for everyone.`, title, "Delete project")
+      : await ask(`Delete “${title}”? Its chats and files are deleted.`, "Delete project");
     if (!confirmed) return false;
     try {
       await Server.workspaces.remove(wsId);
@@ -111,7 +115,7 @@ const Projects = (() => {
         <input type="text" name="name" placeholder="New project name…" aria-label="New project name" autocomplete="off" required>
         <button type="submit" class="primary">Create</button>
       </form>
-      ${any ? `<ul class="project-list">${pRows}${sRows}</ul>` : `<p class="empty">No projects yet. Type a name above to create one — nothing runs until you ask Magnus.</p>`}
+      ${any ? `<ul class="project-list">${pRows}${sRows}</ul>` : `<p class="empty">No projects yet.</p>`}
     </div>`;
   }
 
@@ -149,53 +153,80 @@ const Projects = (() => {
     };
   }
 
-  /** Render a single project's clean full-stage HTML. */
-  function pageHtml(p) {
-    const hasIns = Boolean((p.instructions || "").trim());
-    const hasTasks = Boolean(p.tasks?.length);
-    const hasScheds = Boolean(p.schedules?.length);
-    return `<div class="project-page" data-project-page="${esc(p.id)}">
+  /**
+   * One project home for both kinds (decisions/2026-11-28-chat-first-navigation.md):
+   * the name, a composer that starts a chat, the chats, the files, the
+   * instructions, and what only one kind has (tasks and routines; people).
+   * @param {{ root: string, name: string, rename: string, ask: string, acts: string,
+   *   chats: Array<{ href: string, title: string, note: string }>, addFiles: string, files: string,
+   *   ins: { id: string, draft: string, text: string, save: string }, side: string }} h
+   */
+  function homeHtml(h) {
+    const ins = (h.ins.text || "").trim();
+    return `<div class="project-page" ${h.root}>
       <header class="project-page-head">
         <div class="project-title-wrap">
           <a class="small muted project-crumb" href="#/projects">Projects</a>
-          <form class="project-rename-form" data-project-rename="${esc(p.id)}">
-            <input type="text" class="project-title-input" name="name" value="${esc(p.name)}" aria-label="Project name" autocomplete="off">
-          </form>
+          ${h.rename ? `<form class="project-rename-form" ${h.rename}>
+            <input type="text" class="project-title-input" name="name" value="${esc(h.name)}" aria-label="Project name" autocomplete="off">
+          </form>` : `<h1>${esc(h.name)}</h1>`}
         </div>
-        <div class="row project-head-acts">
-          <a class="button primary" href="#/chat/new/${enc(p.id)}">New conversation</a>
-          <button type="button" class="shared-promote-btn" data-project-share="${esc(p.id)}" data-project-name="${esc(p.name)}" title="Add people to collaborate">${icon("team")}<span>Add people</span></button>
-          <button type="button" class="icon-btn" data-project-delete="${esc(p.id)}" data-project-name="${esc(p.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>
-        </div>
+        <div class="row project-head-acts">${h.acts}</div>
       </header>
-      <form class="project-hero-composer" data-project-ask="${esc(p.id)}">
-        <input type="text" name="prompt" placeholder="Ask Magnus anything in ${esc(p.name)}… (nothing runs until you send)" aria-label="Ask Magnus in ${esc(p.name)}" autocomplete="off">
-        <button type="submit" class="primary">Ask Magnus</button>
-      </form>
+      ${h.ask ? `<form class="project-hero-composer" ${h.ask}>
+        <input type="text" name="prompt" placeholder="New chat in ${esc(h.name)}" aria-label="New chat in ${esc(h.name)}" autocomplete="off">
+        <button type="submit" class="primary">Send</button>
+      </form>` : ""}
       <div class="project-sections project-hub-grid">
         <div class="project-hub-main">
           <section class="project-sec">
-            <div class="spread"><h2>Conversations</h2></div>
-            ${p.threads?.length ? `<ul class="tlist">${p.threads.map(t => `<li class="trow"><a href="#/chat/${enc(t.thread)}"><span class="ttl">${esc(t.title)}</span><span class="small faint when">${esc(when(t.updated_at))}</span></a></li>`).join("")}</ul>` : `<p class="empty">No conversations yet. Start one when you're ready — Magnus waits until you ask.</p>`}
+            <h2>Chats</h2>
+            ${h.chats.length ? `<ul class="tlist">${h.chats.map(c => `<li class="trow"><a href="${c.href}"><span class="ttl">${esc(c.title)}</span>${c.note ? `<span class="small faint when">${esc(c.note)}</span>` : ""}</a></li>`).join("")}</ul>` : `<p class="small muted">No chats yet.</p>`}
           </section>
           <section class="project-sec">
-            <div class="spread"><h2>Files</h2>${attachButton("Add files")}</div>
-            ${p.files?.length ? `<ul class="flist">${p.files.map(f => `<li data-project-file="${esc(f.id)}">${fileChip(f)} <span class="small faint">${f.source === "delivered" ? "delivered" : "uploaded"} ${esc(when(f.at))}</span></li>`).join("")}</ul>` : `<p class="small muted">No files yet.</p>`}
+            <div class="spread"><h2>Files</h2>${h.addFiles}</div>
+            ${h.files || `<p class="small muted">No files yet.</p>`}
           </section>
         </div>
         <div class="project-hub-side">
-          <details class="project-sec project-instructions"${hasIns ? " open" : ""}>
-            <summary><span>Instructions</span><span class="small muted">${hasIns ? "Active" : "Optional"}</span></summary>
+          <details class="project-sec project-instructions"${ins ? " open" : ""}>
+            <summary><span>Instructions</span></summary>
             <div class="project-ins-body">
-              <textarea id="pin" rows="3" data-draft="pin-${esc(p.id)}" placeholder="Rules or context Magnus should follow in this project…">${esc(p.instructions || "")}</textarea>
-              <div class="row"><button type="button" data-project-save-ins="${esc(p.id)}">Save</button></div>
+              <textarea id="${h.ins.id}" rows="3" data-draft="${esc(h.ins.draft)}" placeholder="How Magnus should work in this project"${h.ins.save ? "" : " readonly"}>${esc(h.ins.text || "")}</textarea>
+              ${h.ins.save ? `<div class="row"><button type="button" ${h.ins.save}>Save</button></div>` : ""}
             </div>
           </details>
-          ${hasTasks ? `<section class="project-sec"><h2>Tasks</h2><ul class="tlist">${p.tasks.map(taskRow).join("")}</ul></section>` : ""}
-          ${hasScheds ? `<section class="project-sec"><h2>Routines</h2><ul class="tlist">${p.schedules.map(x => `<li class="trow"><a href="#/schedules" data-open="schedule:${esc(x.id)}"><span class="ttl">${esc(x.title)}</span><span class="small faint when">Next ${esc(until(x.next))}</span></a></li>`).join("")}</ul></section>` : ""}
+          ${h.side}
         </div>
       </div>
     </div>`;
+  }
+
+  /** A personal project's home. */
+  function pageHtml(p) {
+    const title = t => typeof displayTitle === "function" ? displayTitle(t) : String(t || "");
+    return homeHtml({
+      root: `data-project-page="${esc(p.id)}"`,
+      name: p.name,
+      rename: `data-project-rename="${esc(p.id)}"`,
+      ask: `data-project-ask="${esc(p.id)}"`,
+      acts: `<button type="button" class="shared-promote-btn" data-project-share="${esc(p.id)}" data-project-name="${esc(p.name)}" title="Add people">${icon("team")}<span>Add people</span></button>
+          <button type="button" class="icon-btn" data-project-delete="${esc(p.id)}" data-project-name="${esc(p.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>`,
+      chats: (p.threads || []).map(t => ({ href: `#/chat/${enc(t.thread)}`, title: title(t.title), note: when(t.updated_at) })),
+      addFiles: attachButton("Add files"),
+      files: p.files?.length ? `<ul class="flist">${p.files.map(f => `<li data-project-file="${esc(f.id)}">${fileChip(f)} <span class="small faint">${f.source === "delivered" ? "delivered" : "uploaded"} ${esc(when(f.at))}</span></li>`).join("")}</ul>` : "",
+      ins: { id: "pin", draft: `pin-${p.id}`, text: p.instructions || "", save: `data-project-save-ins="${esc(p.id)}"` },
+      side: `${p.tasks?.length ? `<section class="project-sec"><h2>Tasks</h2><ul class="tlist">${p.tasks.map(taskRow).join("")}</ul></section>` : ""}
+          ${p.schedules?.length ? `<section class="project-sec"><h2>Routines</h2><ul class="tlist">${p.schedules.map(x => `<li class="trow"><a href="#/schedules" data-open="schedule:${esc(x.id)}"><span class="ttl">${esc(x.title)}</span><span class="small faint when">Next ${esc(until(x.next))}</span></a></li>`).join("")}</ul></section>` : ""}`,
+    });
+  }
+
+  /** Asking Magnus in a personal project sends: a new chat in the project,
+   * sent as the chat's own composer sends it (app-chat.js showNewChat). An
+   * empty ask opens the new chat to type in. */
+  function askPersonal(id, text) {
+    if (text) { App.appSearch = text; App.sendOnOpen = true; }
+    location.hash = `#/chat/new/${enc(id)}`;
   }
 
   /** Render a single project in `#main` (`#/project/:id`). */
@@ -218,10 +249,7 @@ const Projects = (() => {
       if (askForm) {
         e.preventDefault();
         const inp = /** @type {?HTMLInputElement} */ ($('input[name="prompt"]', askForm));
-        const text = (inp?.value || "").trim();
-        if (!text) return;
-        App.appSearch = text;
-        location.hash = `#/chat/new/${enc(id)}`;
+        askPersonal(id, (inp?.value || "").trim());
         return;
       }
       const f = /** @type {HTMLElement} */ (e.target).closest?.("[data-project-rename]");
@@ -267,60 +295,69 @@ const Projects = (() => {
     };
   }
 
-  /** Render a shared project's unified Project Home in `#main` (`#/team/:ws`). */
+  /** A shared project's home: the personal one, with its people. */
   function sharedPageHtml(home, panel) {
     const ws = home.id;
     const edit = home.role !== "guest";
-    const canDel = home.role === "owner" || home.role === "admin";
+    const admin = home.role === "owner" || home.role === "admin";
     const chats = (home.channels || []).filter(c => !c.direct && !c.archived && !c.deleted);
     const files = panel?.files || [];
     const members = home.members || [];
-    return `<div class="project-page" data-shared-project-page="${esc(ws)}">
-      <header class="project-page-head">
-        <div class="project-title-wrap">
-          <a class="small muted project-crumb" href="#/projects">Projects</a>
-          <h1>${esc(home.name)} <span class="nav-shared-badge">Shared</span></h1>
-        </div>
-        <div class="row project-head-acts">
-          ${chats[0] ? `<a class="button primary" href="#/team/${enc(ws)}/c/${enc(chats[0].id)}">Open chat</a>` : ""}
-          <button type="button" class="shared-members-btn" data-open="shared:settings" title="People and project settings">${icon("team")}<span>${members.length} ${members.length === 1 ? "person" : "people"}</span></button>
-          ${canDel ? `<button type="button" class="icon-btn" data-shared-project-delete="${esc(ws)}" data-shared-project-name="${esc(home.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>` : ""}
-        </div>
-      </header>
-      ${edit && chats[0] ? `<form class="project-hero-composer" data-shared-project-ask="${esc(ws)}" data-shared-default-ch="${esc(chats[0].id)}">
-        <input type="text" name="prompt" placeholder="Ask @${esc(home.agent?.name || "Magnus")} anything in ${esc(home.name)}… (nothing runs until you send)" aria-label="Ask Magnus in ${esc(home.name)}" autocomplete="off">
-        <button type="submit" class="primary">Ask ${esc(home.agent?.name || "Magnus")}</button>
-      </form>` : ""}
-      <div class="project-sections project-hub-grid">
-        <div class="project-hub-main">
-          <section class="project-sec">
-            <div class="spread"><h2>Shared chats</h2></div>
-            ${chats.length ? `<ul class="tlist">${chats.map(c => `<li class="trow"><a href="#/team/${enc(ws)}/c/${enc(c.id)}"><span class="ttl">${esc(c.name)}</span>${c.unread ? `<span class="small faint when">${c.unread} new</span>` : ""}</a></li>`).join("")}</ul>` : `<p class="empty">No shared chats yet.</p>`}
-            ${edit ? `<form class="project-create-bar" data-shared-new-chat="${esc(ws)}"><input type="text" name="name" placeholder="New shared chat name…" aria-label="New shared chat name" autocomplete="off" required><button type="submit">New chat</button></form>` : ""}
-          </section>
-          <section class="project-sec">
-            <div class="spread"><h2>Shared documents</h2>${edit ? `<label class="button">${icon("file")}<span>Add files</span><input type="file" multiple data-shared-upload hidden></label>` : ""}</div>
-            ${files.length ? `<ul class="flist">${files.map(f => `<li data-shared-file="${esc(f.name)}"><span class="fchip"><span>${esc(f.name)}</span> <button type="button" class="link small" data-shared-file-dl="${esc(f.name)}">Download</button>${edit ? ` <button type="button" class="link small" data-shared-file-del="${esc(f.name)}">Delete</button>` : ""}</span> <span class="small faint">${esc(f.by_name || "")}${f.size ? ` · ${esc(kb(f.size))}` : ""}</span></li>`).join("")}</ul>` : `<p class="small muted">No shared documents yet.</p>`}
-          </section>
-        </div>
-        <div class="project-hub-side">
-          <details class="project-sec project-instructions"${(home.instructions || "").trim() ? " open" : ""}>
-            <summary><span>Instructions</span><span class="small muted">${(home.instructions || "").trim() ? "Active" : "Optional"}</span></summary>
-            <div class="project-ins-body">
-              <textarea id="spin" rows="3" data-draft="spin-${esc(ws)}" placeholder="Rules or context Magnus should follow in this shared project…"${edit ? "" : " readonly"}>${esc(home.instructions || "")}</textarea>
-              ${edit ? `<div class="row"><button type="button" data-shared-save-ins="${esc(ws)}">Save</button></div>` : ""}
-            </div>
-          </details>
-          <section class="project-sec">
-            <div class="spread"><h2>People</h2><button type="button" class="link small" data-open="shared:settings">${edit ? "Add or invite" : "See all"}</button></div>
-            <ul class="tlist">${members.map(m => `<li class="trow"><span><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)}${m.id === home.me ? ` <span class="small faint">you</span>` : ""}</span><span class="small faint">${esc(typeof teamRoleLabel === "function" ? teamRoleLabel(m.role) : m.role)}</span></li>`).join("")}</ul>
-          </section>
-        </div>
-      </div>
-    </div>`;
+    const role = m => typeof teamRoleLabel === "function" ? teamRoleLabel(m.role) : m.role;
+    const person = m => m.id === home.me
+      ? `<span><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)} <span class="small faint">(you)</span></span>`
+      : `<a href="#/team/${enc(ws)}" data-start-dm="${esc(ws)}:${esc(m.id)}" title="Message ${esc(m.name)}"><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span> ${esc(m.name)}</a>`;
+    return homeHtml({
+      root: `data-shared-project-page="${esc(ws)}"`,
+      name: home.name,
+      rename: edit ? `data-shared-rename="${esc(ws)}"` : "",
+      ask: edit ? `data-shared-project-ask="${esc(ws)}"` : "",
+      acts: admin ? `<button type="button" class="icon-btn" data-shared-project-delete="${esc(ws)}" data-shared-project-name="${esc(home.name)}" title="Delete project" aria-label="Delete project">${icon("trash")}</button>` : "",
+      chats: chats.map(c => ({ href: `#/team/${enc(ws)}/c/${enc(c.id)}`, title: c.name, note: c.unread ? `${c.unread} new` : "" })),
+      addFiles: edit ? `<label class="button">${icon("file")}<span>Add files</span><input type="file" multiple data-shared-upload hidden></label>` : "",
+      files: files.length ? `<ul class="flist">${files.map(f => `<li data-shared-file="${esc(f.name)}"><span class="fchip"><span>${esc(f.name)}</span> <button type="button" class="link small" data-shared-file-dl="${esc(f.name)}">Download</button>${edit ? ` <button type="button" class="link small" data-shared-file-del="${esc(f.name)}">Delete</button>` : ""}</span> <span class="small faint">${esc(f.by_name || "")}${f.size ? ` · ${esc(kb(f.size))}` : ""}</span></li>`).join("")}</ul>` : "",
+      ins: { id: "spin", draft: `spin-${ws}`, text: home.instructions || "", save: edit ? `data-shared-save-ins="${esc(ws)}"` : "" },
+      side: `<section class="project-sec">
+            <div class="spread"><h2>People</h2>${edit ? `<button type="button" class="link small" data-open="shared:settings">Add people</button>` : ""}</div>
+            <ul class="tlist">${members.map(m => `<li class="trow">${person(m)} <span class="small faint">· ${esc(role(m))}</span></li>`).join("")}</ul>
+          </section>`,
+    });
   }
 
-  /** Render a shared project's unified home in `#main` (`#/team/:ws`). */
+  /** A chat's name from its first message: its first words, which the
+   * server makes a channel name ("Launch site" is `launch-site`). */
+  function chatName(text) {
+    const words = String(text || "").replace(/^@\S+\s*/, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean).slice(0, CHAT_NAME_WORDS);
+    return words.join(" ").slice(0, CHAT_NAME_MAX_CHARS).trim();
+  }
+
+  /** The conversation everyone in a shared project has: general. */
+  function defaultChannel(home) {
+    const open = (home.channels || []).filter(c => !c.direct && !c.archived && !c.deleted);
+    return open.find(c => c.name === "general")?.id || (typeof firstChannel === "function" ? firstChannel(home) : open[0]?.id) || null;
+  }
+
+  /**
+   * Asking Magnus in a shared project sends, as in a personal one: a new
+   * chat named by the message; with no chat there yet, or when a new one
+   * cannot be made, the project's general chat. The chat's address.
+   * @returns {Promise<string>}
+   */
+  async function askShared(ws, home, text) {
+    const agentName = home?.agent?.name || "Magnus";
+    const body = new RegExp(`^@${agentName}\\b`, "i").test(text) ? text : `@${agentName} ${text}`;
+    const open = (home.channels || []).filter(c => !c.direct && !c.archived && !c.deleted);
+    const name = chatName(text);
+    let ch = null;
+    if (open.length && name) ch = await Server.workspaces.start(ws, { kind: "channel", name }).then(r => r?.channel || null, () => null);
+    ch = ch || defaultChannel(home);
+    if (!ch) ch = (await Server.workspaces.start(ws, { kind: "channel", name: "general" })).channel;
+    await Server.channels.post(ws, ch, { text: body });
+    if (typeof loadHome === "function") await loadHome(ws).catch(() => null);
+    return `#/team/${enc(ws)}/c/${enc(ch)}`;
+  }
+
+  /** Render a shared project's home in `#main` (`#/team/:ws`). */
   async function showShared(main, wsId) {
     App.thread = null;
     if (typeof Team !== "undefined") { Team.ws = wsId; Team.place = { kind: "home" }; }
@@ -354,26 +391,20 @@ const Projects = (() => {
         e.preventDefault();
         const inp = /** @type {?HTMLInputElement} */ ($('input[name="prompt"]', askForm));
         const text = (inp?.value || "").trim();
-        const ch = askForm.dataset.sharedDefaultCh || "";
-        if (!text || !ch) return;
-        const agentName = App.shared?.home?.agent?.name || "Magnus";
-        const body = /^@magnus\b/i.test(text) ? text : `@${agentName} ${text}`;
-        try {
-          await Server.channels.post(wsId, ch, { text: body });
-          location.hash = `#/team/${enc(wsId)}/c/${enc(ch)}`;
-        } catch (err) { toast(err.message); }
+        if (!text) return;
+        try { location.hash = await askShared(wsId, App.shared?.home || await loadHome(wsId), text); } catch (err) { toast(err.message); }
         return;
       }
-      const newChat = /** @type {HTMLElement} */ (e.target).closest?.("[data-shared-new-chat]");
-      if (newChat) {
+      const rename = /** @type {HTMLElement} */ (e.target).closest?.("[data-shared-rename]");
+      if (rename) {
         e.preventDefault();
-        const inp = /** @type {?HTMLInputElement} */ ($('input[name="name"]', newChat));
+        const inp = /** @type {?HTMLInputElement} */ ($('input[name="name"]', rename));
         const name = (inp?.value || "").trim();
         if (!name) return;
         try {
-          const r = await Server.workspaces.start(wsId, { kind: "channel", name });
-          if (typeof loadHome === "function") await loadHome(wsId);
-          location.hash = `#/team/${enc(wsId)}/c/${enc(r.channel)}`;
+          await Server.workspaces.rename(wsId, name);
+          toast("Renamed.");
+          await refresh();
         } catch (err) { toast(err.message); }
       }
     };
@@ -470,5 +501,5 @@ const Projects = (() => {
 
   if (typeof document !== "undefined") wireGlobal();
 
-  return { inlineNewHtml, openInlineNew, closeInlineNew, listHtml, pageHtml, sharedPageHtml, showList, show, showShared, deletePersonal, deleteShared };
+  return { inlineNewHtml, openInlineNew, closeInlineNew, listHtml, pageHtml, sharedPageHtml, askPersonal, askShared, chatName, showList, show, showShared, deletePersonal, deleteShared };
 })();

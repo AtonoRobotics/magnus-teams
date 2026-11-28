@@ -154,8 +154,7 @@ body[data-workspace=split] .shell { grid-template-columns: var(--nav-width) minm
 body[data-workspace=single][data-region=work] .shell > main, body[data-workspace=single][data-region=conversation] .shell > aside.detail, body[data-workspace=conversation] .shell > aside.detail { display: none; }
 body[data-navigation=compact] nav.side .brand-name, body[data-navigation=compact] nav.side #find,
 body[data-navigation=compact] nav.side .nav-label, body[data-navigation=compact] nav.side .nav-tree,
-body[data-navigation=compact] nav.side .whoami, body[data-navigation=compact] nav.side .avatar,
-body[data-navigation=compact] nav.side .companion-theme-nav { display: none; }
+body[data-navigation=compact] nav.side .whoami, body[data-navigation=compact] nav.side .avatar { display: none; }
 body[data-navigation=compact] nav.side .rail-search, body[data-navigation=compact] nav.side .rail-tree { display: inline-grid; }
 body[data-navigation=compact] nav.side .brand { justify-content: center; }
 body[data-navigation=compact] nav.side a.primary-nav { justify-content: center; padding: 0; }
@@ -246,7 +245,7 @@ nav.side .brand .logo { display: grid; place-items: center; width: 20px; height:
 body[data-navigation="compact"] nav.side .brand .logo { display: none; }
 nav.side .new-chat { border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); font-weight: 500; min-height: 32px; }
 nav.side .new-chat:hover { background: var(--raised); }
-body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-explore, body[data-navigation="compact"] nav.side .nav-apps { width: 44px; padding: 0; justify-content: center; }
+body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-projects { width: 44px; padding: 0; justify-content: center; }
 /* Search… ⌘K trigger */
 #find input:hover { background: var(--row-sel); }
 #find .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: var(--r-xs); border: 1px solid var(--line); color: var(--muted); pointer-events: none; }
@@ -265,37 +264,20 @@ nav.side a.on, .navigation-flyout a.on { background: var(--raised); font-weight:
   nav.side #find input { min-height: 30px; height: 30px; }
   nav.side .group a.more { min-width: 0; min-height: 0; }
 }
-/* Collapsible project groups in sidebar */
-nav.side .nav-project > summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding-left: 4px;
-  border-radius: var(--r-sm);
-}
-nav.side .nav-project > summary::before {
-  content: "▸";
-  font-size: 10px;
-  color: var(--muted);
-  width: 12px;
-  text-align: center;
-  flex: none;
-}
-nav.side .nav-project[open] > summary::before { content: "▾"; }
-nav.side .nav-project > summary::-webkit-details-marker { display: none; }
-nav.side .nav-project > summary > a { flex: 1; min-width: 0; }
 .nav-group-acts { display: inline-flex; align-items: center; gap: 8px; }
-.nav-shared-badge { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-text); flex: none; }
-.nav-shared-project > a.conv { padding-left: 24px; }
 nav.side .nav-group-link { color: inherit; text-decoration: none; }
 nav.side .nav-group-link:hover { color: var(--fg); }
 nav.side .nav-group-add { width: 22px; height: 22px; padding: 0; border-radius: var(--r-sm); }
-nav.side .nav-row-del { width: 24px; height: 24px; padding: 0; opacity: 0; flex: none; color: var(--muted); }
-nav.side .nav-project > summary:hover .nav-row-del,
-nav.side .nav-project > summary:focus-within .nav-row-del { opacity: 1; }
-nav.side .nav-row-del:hover { color: var(--bad, #d14343); }
+/* A shared project or chat carries the people mark. */
+nav.side .nav-shared { display: inline-flex; flex: none; color: var(--muted); }
+nav.side .nav-shared svg.ic { width: 13px; height: 13px; }
+/* Projects is a heading in the sidebar, and an icon only in the rail. */
+nav.side .nav-projects { display: none; }
+body[data-navigation=compact] nav.side .nav-projects { display: flex; }
+/* The rest of the app: one row of icons above the person, a column in the rail. */
+nav.side .nav-more { display: flex; flex-wrap: wrap; gap: 2px; flex: none; }
+body[data-navigation=compact] nav.side .nav-more { flex-direction: column; align-items: center; }
+nav.side .nav-more a.icon-btn { padding: 0; justify-content: center; }
 .nav-project-new { display: flex; align-items: center; gap: 4px; padding: 4px 6px; }
 .nav-project-new input { flex: 1; min-width: 0; height: 28px; padding: 2px 8px; font-size: 13px; }
 /* Conversation-left / Artifact-right split mode & seamless 1px splitter */

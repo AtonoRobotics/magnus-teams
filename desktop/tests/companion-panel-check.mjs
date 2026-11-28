@@ -231,8 +231,10 @@ assert.doesNotMatch(nv, /Two schedules are paused/, "a dismissed observation is 
 
 ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Running job", created_at: recentIso }];
 const tree = ctx.navigationTree();
-assert.match(tree, /<div class="group"><span>Today<\/span><\/div>/);
-assert.match(tree, /<div class="group"><span>Previous<\/span><\/div>/);
+// Recents is one list, newest first, without date groups (decisions/2026-11-28-chat-first-navigation.md).
+assert.match(tree, /<div class="group"><span>Recents<\/span><\/div>/);
+assert.doesNotMatch(tree, /<span>Today<\/span>|<span>Previous<\/span>/);
+assert.ok(tree.indexOf("#/chat/t1") < tree.indexOf("#/chat/t2"), "the newer conversation comes first");
 assert.match(tree, /class="nav-dot warn"/);
 assert.match(tree, /class="nav-dot run"/);
 

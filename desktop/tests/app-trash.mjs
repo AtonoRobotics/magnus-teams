@@ -15,13 +15,13 @@ const QUESTION = "Where do walruses live?";
 const count = xp => d.run(`return document.evaluate(arguments[0], document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotLength`, xp);
 const gone = async (what, xp) => d.until(what, async () => (await count(xp)) === 0 || null);
 const accept = d.answer;
-const nav = label => d.click(d.xpath(`//nav//a[normalize-space()='${label}']`));
+const nav = label => d.click(d.xpath(`//nav//a[normalize-space()='${label}' or @aria-label='${label}']`));
 const row = `//tr[@data-trashed][.//div[@data-title][normalize-space()='${QUESTION}']]`;
 
 await pinAndSignIn(d, { url, fingerprint, provider, person });
 
 await d.step("ask in a new conversation", async () => {
-  await nav("New conversation");
+  await nav("New chat");
   await d.type(d.css("#msg"), QUESTION);
   await d.click(d.css("#send"));
   await d.seen(`Answer to: ${QUESTION}`);

@@ -86,6 +86,10 @@ function displayTitle(title) {
   return plain || t;
 }
 
+// The sidebar is a chat agent's (decisions/2026-11-28-chat-first-navigation.md):
+// New chat and Search, then the projects, personal and shared in one list,
+// then Recents, every conversation newest first, personal and shared alike.
+// The rest of the app is one row of icons at its foot, above the person.
 function navigationTree() {
   const current=href=>(location.hash || "#/home")===href ? 'class="on" aria-current="page"' : "";
   const route=location.hash || "#/home";
@@ -93,78 +97,58 @@ function navigationTree() {
   const activeThreads=new Set(App.tasks.filter(t=>!ENDED.includes(t.status) && t.thread && !(typeof isQuietSystemTask==="function" ? isQuietSystemTask(t) : (t?.system && !t.needs_you && t.status!=="failed"))).map(t=>t.thread));
   const dot=t=>waitingThreads.has(t.thread) ? '<span class="nav-dot warn" aria-hidden="true"></span>' : activeThreads.has(t.thread) ? '<span class="nav-dot run" aria-hidden="true"></span>' : "";
   const conv=t=>{const ttl=displayTitle(t.title);return `<div class="nav-conv-row"><a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(ttl)}">${dot(t)}<span class="ttl">${esc(ttl)}</span></a><button type="button" class="nav-conv-del" data-trash="${esc(t.thread)}" data-trash-label="Delete conversation"${t.thread===App.thread ? ' data-then="#/home"' : ""} title="Delete conversation" aria-label="Delete ${esc(ttl)}">${icon("trash")}</button></div>`;};
-  const loose=App.threads.filter(t=>!t.project);
-  const DAY_MS=86_400_000, cutoff=Date.now()-DAY_MS;
-  const today=loose.filter(t=>{const ts=Date.parse(t.updated_at||t.created_at||"");return Number.isNaN(ts)||ts>=cutoff;});
-  const earlier=loose.filter(t=>{const ts=Date.parse(t.updated_at||t.created_at||"");return !Number.isNaN(ts)&&ts<cutoff;});
-  const looseHtml=!loose.length ? '<p class="small muted pad">No conversations yet.</p>'
-    : (today.length && earlier.length)
-      ? `<div class="group"><span>Today</span></div>${today.map(conv).join("")}<div class="group"><span>Previous</span></div>${earlier.map(conv).join("")}`
-      : `${today.length ? '<div class="group"><span>Today</span></div>' : '<div class="group"><span>Conversations</span></div>'}${loose.map(conv).join("")}`;
   const homes=(typeof Team!=="undefined" && Team.homes) || {};
   const countBadge=c=>c.mentions ? `<span class="pill" title="${c.mentions} mention${c.mentions===1?"":"s"}">${c.mentions}</span>` : (c.unread && c.notify!=="off") ? `<span class="small muted">${c.unread}</span>` : "";
   const teamBadge=w=>{const chs=homes[w.id]?.channels || [];const m=w.mentions ?? chs.reduce((n,c)=>n+(c.mentions||0),0);const u=w.unread ?? chs.reduce((n,c)=>n+(c.notify==="off"?0:(c.unread||0)),0);return m?`<span class="pill" title="${m} mention${m===1?"":"s"}">${m}</span>`:u?`<span class="small muted">${u}</span>`:"";};
-  const sharedProjects=(App.workspaces || []).map(w=>{
-    const home=homes[w.id];
-    const openChs=(home?.channels || []).filter(c=>!c.direct && !c.archived && !c.deleted);
-    const activeWs=route.startsWith(`#/team/${enc(w.id)}`);
-    const chRows=openChs.map(c=>{
-      const href=`#/team/${enc(w.id)}/c/${enc(c.id)}`;
-      const on=route===href || route.startsWith(`${href}/`);
-      return `<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(c.name)}"><span class="ttl">${esc(c.name)}</span>${countBadge(c)}</a>`;
-    }).join("");
-    const canDelWs = w.role === "owner" || w.role === "admin";
-    const delWsBtn = canDelWs ? `<button type="button" class="icon-btn nav-row-del" data-nav-del-shared="${esc(w.id)}" data-nav-del-name="${esc(w.name)}" title="Delete ${esc(w.name)}" aria-label="Delete ${esc(w.name)}">${icon("trash")}</button>` : "";
-    return `<details class="nav-project nav-shared-project" data-key="ws:${esc(w.id)}" open><summary><a href="#/team/${enc(w.id)}"${activeWs && !chRows ? ' class="on" aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span><span class="nav-shared-badge" aria-label="Shared project">Shared</span>${teamBadge(w)}</a>${delWsBtn}</summary>${chRows}</details>`;
-  }).join("");
-  const peopleRows=[];
-  const seenPeople=new Set();
+  const shared=`<span class="nav-shared" role="img" aria-label="Shared" title="Shared">${icon("team")}</span>`;
+  const row=(href,name,extra,del)=>{const on=route===href;return `<div class="nav-conv-row"><a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(name)}">${extra.lead || ""}<span class="ttl">${esc(name)}</span>${extra.tail || ""}</a>${del}</div>`;};
+  const del=(attr,id,name)=>`<button type="button" class="nav-conv-del" ${attr}="${esc(id)}" data-nav-del-name="${esc(name)}" title="Delete ${esc(name)}" aria-label="Delete ${esc(name)}">${icon("trash")}</button>`;
+  // Projects: personal and shared in one list, by name; a shared one carries the people mark.
+  const projects=[
+    ...(App.projects || []).map(p=>({name:p.name, html:row(`#/project/${enc(p.id)}`,p.name,{lead:icon("folder")},del("data-nav-del-project",p.id,p.name))})),
+    ...(App.workspaces || []).map(w=>({name:w.name, html:row(`#/team/${enc(w.id)}`,w.name,{lead:icon("folder"),tail:`${shared}${teamBadge(w)}`},(w.role==="owner" || w.role==="admin") ? del("data-nav-del-shared",w.id,w.name) : "")})),
+  ].sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(x=>x.html).join("");
+  // Recents: every conversation, newest first. A shared chat with no time
+  // of its own is recent while it has unread messages.
+  const at=(v,fallback)=>{const ts=Date.parse(v || "");return Number.isNaN(ts) ? fallback : ts;};
+  const recents=(App.threads || []).map(t=>({at:at(t.updated_at || t.created_at,Date.now()),html:conv(t)}));
   for (const w of (App.workspaces || [])) {
     const home=homes[w.id];
     if (!home) continue;
-    for (const c of (home.channels || []).filter(x=>x.direct && !x.direct.agent && !x.deleted)) {
-      const others=(c.direct.people || []).filter(p=>p!==home.me);
-      const primary=others[0];
-      const name=others.map(p=>home.members.find(m=>m.id===p)?.name || p).join(", ") || `${home.me_name} (you)`;
-      const on=primary && home.members.find(m=>m.id===primary)?.online;
+    for (const c of (home.channels || []).filter(x=>!x.archived && !x.deleted && !x.direct?.agent)) {
       const href=`#/team/${enc(w.id)}/c/${enc(c.id)}`;
-      const active=route===href || route.startsWith(`${href}/`);
-      if (others.length===1) seenPeople.add(`${w.id}:${primary}`);
-      peopleRows.push(`<a class="conv${active ? " on" : ""}" href="${href}" ${active ? 'aria-current="page"' : ""} title="${esc(name)}"><span class="nav-dot${on ? " ok" : ""}" aria-hidden="true"></span><span class="ttl">${esc(name)}</span>${countBadge(c)}</a>`);
-    }
-    for (const m of (home.members || []).filter(x=>x.id!==home.me)) {
-      if (seenPeople.has(`${w.id}:${m.id}`)) continue;
-      seenPeople.add(`${w.id}:${m.id}`);
-      peopleRows.push(`<a class="conv" href="#/team/${enc(w.id)}" data-start-dm="${esc(w.id)}:${esc(m.id)}" title="Message ${esc(m.name)}"><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span><span class="ttl">${esc(m.name)}</span></a>`);
+      const on=route===href || route.startsWith(`${href}/`);
+      const others=(c.direct?.people || []).filter(p=>p!==home.me);
+      const name=c.direct ? (others.map(p=>home.members.find(m=>m.id===p)?.name || p).join(", ") || `${home.me_name} (you)`) : c.name==="general" ? w.name : `${c.name} · ${w.name}`;
+      const lead=c.direct ? `<span class="nav-dot${others[0] && home.members.find(m=>m.id===others[0])?.online ? " ok" : ""}" aria-hidden="true"></span>` : "";
+      recents.push({at:at(c.last_at || c.updated_at,c.unread ? Date.now() : 0),html:`<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(name)}">${lead}<span class="ttl">${esc(name)}</span>${shared}${countBadge(c)}</a>`});
     }
   }
-  const peopleHtml=peopleRows.length ? peopleRows.join("") : '<a class="conv small muted" href="#/teams"><span class="ttl">Start or join a shared project…</span></a>';
+  recents.sort((a,b)=>b.at-a.at);
   const inlineNew = typeof Projects !== "undefined" ? Projects.inlineNewHtml() : "";
-  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><a href="#/projects" class="nav-group-link">Projects</a><span class="nav-group-acts"><button type="button" class="icon-btn nav-group-add" data-new-project title="New project" aria-label="New project">${icon("plus")}</button></span></div>${inlineNew}
-    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}"${route===`#/project/${enc(p.id)}` ? ' class="on" aria-current="page"' : ""} title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a><button type="button" class="icon-btn nav-row-del" data-nav-del-project="${esc(p.id)}" data-nav-del-name="${esc(p.name)}" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}">${icon("trash")}</button></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}${sharedProjects}</div>
-    <div class="sect" role="group" aria-label="Conversations">${looseHtml}</div>
-    <div class="sect" role="group" aria-label="People"><div class="group"><span>People</span><a href="#/teams" class="more">Manage</a></div>${peopleHtml}</div>
+  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><a href="#/projects" class="nav-group-link">Projects</a><span class="nav-group-acts"><button type="button" class="icon-btn nav-group-add" data-new-project title="New project" aria-label="New project">${icon("plus")}</button></span></div>${inlineNew}${projects}</div>
+    <div class="sect" role="group" aria-label="Recents"><div class="group"><span>Recents</span></div>${recents.length ? recents.map(x=>x.html).join("") : '<p class="small muted pad">No chats yet.</p>'}</div>
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
 }
 function nav() {
   const route=location.hash || "#/home";
-  const onApps=route.startsWith("#/library");
   const pending=typeof needsMe === "function" ? needsMe().length : 0;
-  // Nova names the rail's places as its spec does (§4.1).
   const nova = typeof Theme !== "undefined" && Theme.has?.("topBar");
-  const L=nova ? { inbox: "Inbox / Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills" } : { inbox: "Inbox", briefing: "Briefing", apps: "Apps" };
-  // and draws them with its mockup's icons: a pencil, an inbox tray, a grid
-  // for Explore and layers for Apps.
+  // Nova names the places as its spec does (§4.1).
+  const L=nova ? { inbox: "Inbox / Approvals", briefing: "Briefing & Routines", apps: "Apps & Skills" } : { inbox: "Approvals", briefing: "Briefing", apps: "Apps" };
+  // Nova draws its mockup's icons: a pencil, an inbox tray, a grid for
+  // Explore and layers for Apps.
   const I=nova ? { new: "pencil", inbox: "inbox", explore: "grid", apps: "layers" } : { new: "plus", inbox: "need", explore: "sparkles", apps: "grid" };
   const initial=esc((App.me?.name || "?").trim().charAt(0).toUpperCase());
   // In Nova the person's initial is the way to Settings, as in its mockup.
-  const avatar=nova ? `<a href="#/settings" class="avatar" aria-label="Settings" title="Companion · Settings">${initial}</a>` : `<span class="avatar" aria-hidden="true">${initial}</span>`;
+  const avatar=nova ? `<a href="#/settings" class="avatar" aria-label="Settings" title="Settings">${initial}</a>` : `<span class="avatar" aria-hidden="true">${initial}</span>`;
+  const more=(href,cls,[label,title],ic,test,extra="")=>`<a href="${href}" class="icon-btn ${cls}${test ? " on" : ""}" ${test ? 'aria-current="page"' : ""} aria-label="${esc(label)}" title="${esc(title)}">${icon(ic)}${extra}</a>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update" title="Restart to update">${icon("download")}<span class="update-label">Restart to update</span></button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon(I.new)}<span class="nav-label">New conversation</span></a><a href="#/inbox" class="nav-inbox primary-nav${route === "#/inbox" ? " on" : ""}" ${route === "#/inbox" ? 'aria-current="page"' : ""} aria-label="Approvals${pending ? `, ${pending} waiting` : ""}" title="Approvals & Inbox">${icon(I.inbox)}<span class="nav-label">${esc(L.inbox)}</span>${pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : ""}</a><a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a><a href="#/briefing" class="nav-briefing primary-nav${route === "#/briefing" ? " on" : ""}" ${route === "#/briefing" ? 'aria-current="page"' : ""} aria-label="Briefing and routines" title="Morning Briefing & Routines">${icon("clock")}<span class="nav-label">${esc(L.briefing)}</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon(I.explore)}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon(I.apps)}<span class="nav-label">${esc(L.apps)}</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New chat" title="New chat">${icon(I.new)}<span class="nav-label">New chat</span></a>${nova ? `<button type="button" class="nav-quick-jump" data-quick-jump title="Search (⌘K)">${icon("search")}<span class="nav-label">Search</span><kbd class="kbd" aria-hidden="true">⌘K</kbd></button>` : ""}<a href="#/projects" class="nav-projects primary-nav${route.startsWith("#/project") ? " on" : ""}" ${route.startsWith("#/project") ? 'aria-current="page"' : ""} aria-label="Projects" title="Projects">${icon("folder")}<span class="nav-label">Projects</span></a>
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
-    <div class="sect"><a href="#/trash" aria-label="Trash" title="Trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span class="nav-label">Trash</span></a></div>
-    <div class="foot">${nova ? `<button type="button" class="nav-quick-jump" data-quick-jump title="Quick Jump (⌘K)">${icon("search")}<span class="nav-label">Quick Jump</span><kbd class="kbd" aria-hidden="true">⌘K</kbd></button>` : ""}<div class="who">${avatar}<div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings/appearance" class="icon-btn companion-theme-nav${route==="#/settings/appearance" ? " on" : ""}" aria-label="Appearance" title="Theme & accent">${icon("palette")}</a><a href="#/settings" class="icon-btn${route.startsWith("#/settings") && route!=="#/settings/appearance" ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
+    <div class="nav-more" role="group" aria-label="More">${more("#/inbox","nav-inbox",[`Approvals${pending ? `, ${pending} waiting` : ""}`,L.inbox],I.inbox,route==="#/inbox",pending ? `<span class="nav-inbox-count" aria-hidden="true">${pending > 9 ? "9+" : pending}</span>` : "")}${more("#/briefing","nav-briefing",["Briefing and routines",L.briefing],"clock",route==="#/briefing")}${more("#/explore","nav-explore",["Explore","Explore"],I.explore,route==="#/explore")}${more("#/library","nav-apps",["Apps",L.apps],I.apps,route.startsWith("#/library"))}${more("#/trash","nav-trash",["Trash","Trash"],"trash",route==="#/trash")}</div>
+    <div class="foot"><div class="who">${avatar}<div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings" class="icon-btn${route.startsWith("#/settings") ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
 function sidebar() {
   paint($("#side"),nav());
@@ -492,7 +476,7 @@ function wireDocument() {
     const cs = e.target.closest("[data-conv-share]");
     if (cs && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ thread: cs.dataset.convShare, title: cs.dataset.convTitle || "" }); return; }
     const ps = e.target.closest("[data-project-share]");
-    if (ps && typeof SharedCanvas !== "undefined") { e.preventDefault(); SharedCanvas.openShareDialog({ projectId: ps.dataset.projectShare, projectName: ps.dataset.projectName || "" }); return; }
+    if (ps && typeof ProjectShare !== "undefined") { e.preventDefault(); ProjectShare.open(ps.dataset.projectShare || "", ps.dataset.projectName || ""); return; }
     const dm = e.target.closest("[data-start-dm]");
     if (!dm || e.button !== 0 || e.ctrlKey || e.metaKey) return;
     e.preventDefault();

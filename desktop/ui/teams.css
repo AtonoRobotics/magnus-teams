@@ -100,7 +100,6 @@
 .share-form { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; }
 .share-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .share-dialog-head h2 { margin: 0; font-size: 16px; }
-.share-boundary-note { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--fg2); }
 .share-fieldset { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .share-pick-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .share-msg-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }

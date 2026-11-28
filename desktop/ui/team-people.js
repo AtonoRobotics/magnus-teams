@@ -50,7 +50,7 @@ function teamPeopleHtml(home, candidates, caps = []) {
     </form>
     ${candList.length ? `<div class="people-chips" data-people-suggestions>${chips}</div>` : ""}
     <p class="small faint people-status" data-invite-result aria-live="polite">${esc(inviteNotes.get(home.id) || "")}</p>
-  </div>` : `<p class="small faint">Guests can view who is in this shared project.</p>`;
+  </div>` : "";
 
   const row = m => {
     const me = m.id === home.me;
@@ -68,10 +68,10 @@ function teamPeopleHtml(home, candidates, caps = []) {
   };
 
   const leaveBtn = !lastOwner
-    ? `<div class="gbox-row people-danger-row"><span class="gbox-main"><span class="gbox-lbl">Leave ${esc(home.name)}</span><span class="small muted">You lose access to this shared project. Your personal conversations and files stay untouched.</span></span><button type="button" data-leave>Leave</button></div>`
+    ? `<div class="gbox-row people-danger-row"><span class="gbox-main"><span class="gbox-lbl">Leave ${esc(home.name)}</span></span><button type="button" data-leave>Leave</button></div>`
     : "";
   const deleteBtn = creator
-    ? `<div class="gbox-row people-danger-row"><span class="gbox-main"><span class="gbox-lbl">Delete ${esc(home.name)}</span><span class="small muted">Deletes shared conversations, tasks, files, and knowledge for everyone. Personal conversations and computers are never touched.</span></span><button type="button" class="danger" data-delete-workspace>Delete project</button></div>`
+    ? `<div class="gbox-row people-danger-row"><span class="gbox-main"><span class="gbox-lbl">Delete ${esc(home.name)}</span></span><button type="button" class="danger" data-delete-workspace>Delete project</button></div>`
     : "";
   const dangerSec = (leaveBtn || deleteBtn)
     ? `<section class="companion-sec people-danger"><div class="companion-sec-head"><span>Danger zone</span></div><div class="gbox">${leaveBtn}${deleteBtn}</div></section>`
@@ -187,7 +187,7 @@ function wirePeopleSettings(root, ws, home, candidates, onReload) {
       return;
     }
     if (e.target.closest?.("[data-leave]")) {
-      if (!(await ask(`Leave ${ctx.home.name}? You lose access to its shared conversations and files. Your personal space is untouched.`, "Leave"))) return;
+      if (!(await ask(`Leave ${ctx.home.name}? You lose access to its chats and files.`, "Leave"))) return;
       try { await Server.workspaces.removeMember(ctx.ws, ctx.home.me); leftWorkspaceQuietly(ctx.ws); toast(`You left ${ctx.home.name}.`); } catch (err) { toast(err.message); }
       return;
     }
@@ -222,7 +222,7 @@ async function deleteWorkspace(home) {
   const others = (home.members?.length || 1) > 1;
   const ok = others
     ? await askTyped(`Delete ${home.name} for everyone? Its shared conversations, tasks, files, and knowledge go, and this cannot be undone.`, home.name, "Delete project")
-    : await ask(`Delete ${home.name}? Its conversations and files will be permanently deleted. Your personal space is untouched.`, "Delete project");
+    : await ask(`Delete ${home.name}? Its chats and files are deleted.`, "Delete project");
   if (!ok) return;
   try {
     await Server.workspaces.remove(home.id);

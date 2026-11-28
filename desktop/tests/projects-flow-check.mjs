@@ -6,7 +6,12 @@
 // - Direct deletion works from list, sidebar, and header; solo shared projects
 //   use a single confirmation (no typed-name ceremony), while multi-member
 //   shared projects still confirm by typing the name;
-// - Shared project deep links do not auto-open Missions ("Start shared work").
+// - Shared project deep links do not auto-open Missions ("Start shared work");
+// - Personal and shared project homes are one page: the name (editable), a
+//   composer that sends, the chats, files and instructions, and People only
+//   on the shared one; a shared project's composer is there with no chat,
+//   and a chat is never named before the first message
+//   (decisions/2026-11-28-chat-first-navigation.md).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -51,6 +56,7 @@ const ctx = {
   ask: async () => { askCalls++; return confirmResult; },
   askTyped: async () => { askTypedCalls++; return confirmResult; },
   Server: {
+    channels: { post: async (ws, ch, b) => { calls.push(["POST", `/v1/workspaces/${ws}/channels/${ch}`, b]); return {}; } },
     projects: {
       create: async b => { calls.push(["POST", "/v1/projects", b]); return { id: "proj_new" }; },
       get: async id => ({ id, name: "Q4 Plan", instructions: "", files: [], threads: [], tasks: [], schedules: [] }),
@@ -61,6 +67,7 @@ const ctx = {
       restore: async id => { calls.push(["POST", `/v1/trash/${id}/restore`]); },
     },
     workspaces: {
+      start: async (ws, b) => { calls.push(["START", ws, b]); return { channel: `ch_${b.name.replace(/\W+/g, "-")}` }; },
       home: async id => id === "ws_solo"
         ? { id: "ws_solo", name: "Solo", role: "owner", me: "sam", members: [{ id: "sam", name: "Sam", role: "owner" }], channels: [] }
         : { id: "ws_team", name: "Team", role: "owner", me: "sam", members: [{ id: "sam", name: "Sam", role: "owner" }, { id: "mo", name: "Mo", role: "member" }], channels: [] },
@@ -137,12 +144,55 @@ assert.match(tools, /data-nav-del-shared="ws_1"/, "creator missing direct delete
 const sharedHtml = Projects.sharedPageHtml({ ...ownerHome, instructions: "Keep updates concise." }, { files: [{ name: "spec.pdf", size: 2048, by_name: "Sam" }] });
 assert.match(sharedHtml, /data-shared-project-page="ws_1"/, "shared project home missing root");
 assert.match(sharedHtml, /data-shared-project-ask="ws_1"/, "shared project home missing hero composer");
-assert.match(sharedHtml, /data-shared-new-chat="ws_1"/, "shared project home missing new chat form");
+assert.doesNotMatch(sharedHtml, /data-shared-new-chat|New shared chat name/, "a chat is not named before anyone talks");
+assert.match(sharedHtml, /data-shared-rename="ws_1"[\s\S]*class="project-title-input"/, "the shared project's name is edited in place, as a personal one's");
 assert.match(sharedHtml, /spec\.pdf/, "shared project home missing shared documents");
 assert.match(sharedHtml, /project-instructions" open/, "populated shared instructions should open automatically");
 assert.match(sharedHtml, /data-shared-save-ins="ws_1"/, "shared project home missing instructions save button");
 assert.match(sharedHtml, /data-shared-project-delete="ws_1"/, "shared project home missing creator delete");
 assert.doesNotMatch(sharedHtml, /data-mission-new|Missions/, "shared project home must not show Missions");
 assert.deepEqual(JSON.parse(JSON.stringify(ctx.teamPlace(""))), { kind: "home" }, "bare #/team/:ws opens Shared Project Home");
+
+// 9. One project home: the same parts, and People only on the shared one.
+const parts = h => ["project-rename-form", "project-hero-composer", "<h2>Chats</h2>", "<h2>Files</h2>", "project-instructions", "<h2>People</h2>"].filter(p => h.includes(p));
+assert.deepEqual(parts(emptyProjHtml), ["project-rename-form", "project-hero-composer", "<h2>Chats</h2>", "<h2>Files</h2>", "project-instructions"]);
+assert.deepEqual(parts(sharedHtml), [...parts(emptyProjHtml), "<h2>People</h2>"]);
+const memberHtml = Projects.sharedPageHtml({ ...ownerHome, role: "member", channels: [] }, { files: [] });
+assert.match(memberHtml, /data-shared-project-ask="ws_1"/, "a shared project with no chat still has its composer");
+assert.match(memberHtml, /data-shared-rename/, "a member renames the shared project (decisions/2026-11-28-projects-without-hoops.md)");
+assert.doesNotMatch(memberHtml, /data-shared-project-delete/, "only its admins delete it");
+assert.match(memberHtml, /class="project-title-input" name="name" value="Launch"/);
+for (const h of [emptyProjHtml, sharedHtml, listHtml, Projects.listHtml([], [])]) {
+  assert.doesNotMatch(h, /nothing runs|Magnus waits|when you're ready|untouched|Optional|Active/, "nothing reassures or explains");
+}
+
+// 10. Asking Magnus in a personal project sends: the new chat's composer sends it.
+ctx.App.appSearch = null; ctx.App.sendOnOpen = false;
+Projects.askPersonal("proj_1", "Draft the Q4 plan");
+assert.equal(ctx.location.hash, "#/chat/new/proj_1");
+assert.equal(ctx.App.appSearch, "Draft the Q4 plan");
+assert.equal(ctx.App.sendOnOpen, true, "asked, not only typed");
+ctx.App.appSearch = null; ctx.App.sendOnOpen = false;
+Projects.askPersonal("proj_1", "");
+assert.equal(ctx.App.sendOnOpen, false, "an empty ask only opens the new chat");
+
+// 11. Asking in a shared project: a chat named by its first message, or general when it has none.
+calls.length = 0;
+const withGeneral = { ...ownerHome, channels: [{ id: "c1", name: "general", direct: null }] };
+assert.equal(await Projects.askShared("ws_1", withGeneral, "Draft the launch plan for Friday please now"), "#/team/ws_1/c/ch_Draft-the-launch-plan-for-Friday");
+assert.deepEqual(JSON.parse(JSON.stringify(calls.slice(0, 2))), [
+  ["START", "ws_1", { kind: "channel", name: "Draft the launch plan for Friday" }],
+  ["POST", "/v1/workspaces/ws_1/channels/ch_Draft-the-launch-plan-for-Friday", { text: "@Magnus Draft the launch plan for Friday please now" }],
+]);
+calls.length = 0;
+assert.equal(await Projects.askShared("ws_1", { ...ownerHome, channels: [] }, "@Magnus hello"), "#/team/ws_1/c/ch_general");
+assert.deepEqual(JSON.parse(JSON.stringify(calls.slice(0, 2))), [
+  ["START", "ws_1", { kind: "channel", name: "general" }],
+  ["POST", "/v1/workspaces/ws_1/channels/ch_general", { text: "@Magnus hello" }],
+], "with no chat, the message goes to the project's general chat");
+calls.length = 0;
+const archived = { ...ownerHome, channels: [{ id: "c9", name: "general", archived: true, direct: null }] };
+assert.equal(await Projects.askShared("ws_1", archived, "status?"), "#/team/ws_1/c/c9", "the default channel the server made");
+assert.deepEqual(calls.map(c => c[0]), ["POST"]);
 
 console.log("projects flow check passed");
