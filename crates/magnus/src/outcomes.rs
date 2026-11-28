@@ -281,7 +281,7 @@ pub fn result_shows(s: &State, started: &BTreeSet<String>, t: &Task) -> bool {
 /// carrying its taint, never from here.
 pub fn turn_text(task: &str, status: Status, attempt: u32, max: u32) -> String {
     let head = format!(
-        "This turn is not a message from the person: the server started it because a task ended. Task {task} {}. The recorded outcome is in the conversation. ",
+        "This turn is not a message from the person: the server started it because a task ended. Task {task} {}. The recorded outcome is in the conversation. This follow-up serves the original objective if work remains. ",
         if status == Status::Completed { "finished" } else { "failed" }
     );
     let next = match status {
