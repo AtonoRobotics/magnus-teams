@@ -46,7 +46,11 @@ clippy() {
   fi
   base=$(cat "$baseline")
   echo "clippy warnings: $count (baseline $base, $baseline)"
-  [ "$count" -le "$base" ] || { echo "clippy warnings rose above the baseline" >&2; exit 1; }
+  if [ "$count" -gt "$base" ]; then
+    jq -r 'select(.reason == "compiler-message" and .message.level == "warning") | .message.rendered' "$out"
+    echo "clippy warnings rose above the baseline" >&2
+    exit 1
+  fi
 }
 
 case "${1:-}" in
