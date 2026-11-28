@@ -56,21 +56,22 @@ impl Store {
     }
 
     pub fn config(&self) -> Config {
-        self.cfg.lock().unwrap().clone()
+        self.cfg.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     fn save(&self, c: &Config) -> Result<(), String> {
-        write_private(&self.dir.join("app.json"), &serde_json::to_vec_pretty(c).unwrap()).map_err(|e| format!("save settings: {e}"))
+        let bytes = serde_json::to_vec_pretty(c).map_err(|e| format!("save settings: {e}"))?;
+        write_private(&self.dir.join("app.json"), &bytes).map_err(|e| format!("save settings: {e}"))
     }
 
     pub fn set_appliance(&self, url: &str) -> Result<(), String> {
-        let mut c = self.cfg.lock().unwrap();
+        let mut c = self.cfg.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         c.appliance = Some(url.into());
         self.save(&c)
     }
 
     pub fn set_pin(&self, url: &str, fp: &str) -> Result<(), String> {
-        let mut c = self.cfg.lock().unwrap();
+        let mut c = self.cfg.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         c.pins.insert(url.into(), fp.into());
         c.appliance = Some(url.into());
         self.save(&c)
@@ -148,7 +149,8 @@ impl Store {
 
     pub fn set_device(&self, url: &str, certificate: &str, private_key: &str) -> Result<(), String> {
         let v = serde_json::json!({ "certificate": certificate, "private_key": private_key });
-        write_private(&self.device_file(url), &serde_json::to_vec(&v).unwrap()).map_err(|e| format!("save the device certificate: {e}"))
+        let bytes = serde_json::to_vec(&v).map_err(|e| format!("save the device certificate: {e}"))?;
+        write_private(&self.device_file(url), &bytes).map_err(|e| format!("save the device certificate: {e}"))
     }
 
     pub fn clear_device(&self, url: &str) {

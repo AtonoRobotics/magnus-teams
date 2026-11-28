@@ -8,6 +8,9 @@ use rustls::crypto::{ring, CryptoProvider};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::sync::{Arc, Mutex};
+
+/// The certificate fingerprint the server last showed, shared with its verifier.
+type Seen = Arc<Mutex<Option<String>>>;
 use std::time::Duration;
 
 const CONNECT_TIMEOUT_S: Duration = Duration::from_secs(10);
@@ -22,7 +25,7 @@ pub fn fingerprint(cert: &CertificateDer<'_>) -> String {
 struct Pinned {
     /// None only for the first look, which sends no credentials.
     want: Option<String>,
-    seen: Arc<Mutex<Option<String>>>,
+    seen: Seen,
     provider: Arc<CryptoProvider>,
 }
 
@@ -50,7 +53,7 @@ impl ServerCertVerifier for Pinned {
     }
 }
 
-fn config(want: Option<String>, seen: Arc<Mutex<Option<String>>>) -> Result<rustls::ClientConfig, String> {
+fn config(want: Option<String>, seen: Seen) -> Result<rustls::ClientConfig, String> {
     let provider = Arc::new(ring::default_provider());
     let verifier = Arc::new(Pinned { want, seen, provider: provider.clone() });
     Ok(rustls::ClientConfig::builder_with_provider(provider)
@@ -66,7 +69,7 @@ pub fn tls(pin: Option<&str>) -> Result<rustls::ClientConfig, String> {
     config(pin.map(String::from), Arc::new(Mutex::new(None)))
 }
 
-fn build(want: Option<String>) -> Result<(reqwest::Client, Arc<Mutex<Option<String>>>), String> {
+fn build(want: Option<String>) -> Result<(reqwest::Client, Seen), String> {
     let seen = Arc::new(Mutex::new(None));
     let tls = config(want, seen.clone())?;
     // Versions both ways: the appliance answers with its own and refuses an app too old for it.

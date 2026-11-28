@@ -2,8 +2,9 @@
 //! Windows (docs/connectors.md, Programs). Detection data only: each
 //! program's MCP server, and so its loopback port, comes in its own phase.
 
-// Each system's detector is built and tested everywhere; only its own runs.
-#![cfg_attr(windows, allow(dead_code))]
+// Each system's detector is built and tested everywhere; only its own runs,
+// so outside the tests the other system's fields are unread.
+#![cfg_attr(not(test), allow(dead_code))]
 
 /// How one program is found.
 pub struct Program {

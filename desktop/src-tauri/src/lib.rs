@@ -43,10 +43,15 @@ pub fn app_version() -> String {
     VERSION.get().cloned().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
 }
 
+/// An address, how its client was built, and the client.
+type Connection = (String, String, reqwest::Client);
+/// A certificate and its private key.
+type Device = (String, String);
+
 struct App {
     store: store::Store,
     /// Address, how the client was built (`pin:…` or `device:…`), and the client.
-    client: Mutex<Option<(String, String, reqwest::Client)>>,
+    client: Mutex<Option<Connection>>,
     /// Everything that belongs to the person signed in, ended as one.
     person: session::Session,
     speech: speech::Speech,
@@ -58,7 +63,7 @@ struct App {
 
 impl App {
     /// How the display's socket and the local agent reach the appliance.
-    fn trust(&self) -> Res<(String, Option<String>, Option<(String, String)>)> {
+    fn trust(&self) -> Res<(String, Option<String>, Option<Device>)> {
         let cfg = self.store.config();
         let url = cfg.appliance.ok_or("not connected to a server")?;
         if pin::is_public_appliance(&url) {
@@ -84,7 +89,7 @@ impl App {
     }
 
     /// The address, the sign-in, the pin and the device certificate.
-    fn local_session(&self) -> Res<(String, String, Option<String>, Option<(String, String)>)> {
+    fn local_session(&self) -> Res<(String, String, Option<String>, Option<Device>)> {
         let (url, pinned, device) = self.trust()?;
         let token = self.store.token(&url).ok_or("signed out")?;
         Ok((url, token, pinned, device))
@@ -107,7 +112,7 @@ impl App {
             Some((cert, _)) => format!("device:{}", hex::encode(sha2::Sha256::digest(cert.as_bytes()))),
             None => format!("pin:{}", pinned.as_deref().unwrap_or("")),
         };
-        let mut c = self.client.lock().unwrap();
+        let mut c = self.client.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((u, m, client)) = c.as_ref() {
             if *u == url && *m == mode {
                 return Ok((url.clone(), client.clone()));
@@ -538,7 +543,7 @@ async fn loopback_open(app: State<'_, App>, redirect: Option<String>) -> Res<Str
         Some(u) => u,
         None => format!("http://127.0.0.1:{}/callback", l.local_addr().map_err(|e| e.to_string())?.port()),
     };
-    *app.loopback.lock().unwrap() = Some(l);
+    *app.loopback.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(l);
     Ok(back)
 }
 
@@ -550,7 +555,7 @@ const SIGN_IN_WAIT_SECS: std::time::Duration = std::time::Duration::from_secs(10
 /// appliance refuses the answer as a possible mix-up), or its error.
 #[tauri::command]
 async fn loopback_wait(app: State<'_, App>) -> Res<Value> {
-    let l = app.loopback.lock().unwrap().take().ok_or("no sign-in is waiting")?;
+    let l = app.loopback.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().ok_or("no sign-in is waiting")?;
     let q = redirected(l, SIGN_IN_WAIT_SECS).await?;
     Ok(json!({ "code": q["code"], "state": q["state"], "iss": q.get("iss") }))
 }
@@ -565,7 +570,7 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     let (url, c) = app.conn()?;
     // One at a time, from the first request: a new sign-in, or the person's
     // Cancel (shown as soon as this starts), ends this one.
-    let (n, mut cancel) = app.browser_sign_in.lock().unwrap().begin();
+    let (n, mut cancel) = app.browser_sign_in.lock().unwrap_or_else(std::sync::PoisonError::into_inner).begin();
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("cannot listen on this computer: {e}"))?;
     let port = l.local_addr().map_err(|e| e.to_string())?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
@@ -609,7 +614,7 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     // cannot replace the one the person chose.
     let person = body["person"]["id"].as_str().ok_or("the server did not say who signed in")?;
     let kept = {
-        let mut current = app.browser_sign_in.lock().unwrap();
+        let mut current = app.browser_sign_in.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if current.finish(n) {
             app.person.begin(&app.store, &url, person)?;
             app.store.set_token(&url, token)?;
@@ -671,13 +676,13 @@ async fn unless_cancelled<T>(wait: impl std::future::Future<Output = Res<T>>, ca
 /// The person cancelled the provider sign-in: nothing it brings back is kept.
 #[tauri::command]
 async fn provider_sign_in_cancel(app: State<'_, App>) -> Res<()> {
-    app.browser_sign_in.lock().unwrap().cancel();
+    app.browser_sign_in.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cancel();
     Ok(())
 }
 
 pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    tauri::Builder::default()
+    let started = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -748,8 +753,13 @@ pub fn run() {
             look::set_background,
             look::system_look
         ])
-        .run(tauri::generate_context!())
-        .expect("start the Magnus app");
+        .run(tauri::generate_context!());
+    // Nothing is on screen to show this in: say it where a launch from a
+    // terminal or the system's log can show it, and end as a failed start.
+    if let Err(e) = started {
+        eprintln!("Magnus could not start: {e}");
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]

@@ -43,12 +43,12 @@ impl Speech {
             }
             let (send, cancel) = oneshot::channel();
             let (finished, done) = oneshot::channel();
-            *self.active.lock().unwrap() = Some(Playback { cancel: send, finished: done });
+            *self.active.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Playback { cancel: send, finished: done });
             (child, cancel, finished)
         };
         let result = finish(child, cancel).await;
         {
-            let mut active = self.active.lock().unwrap();
+            let mut active = self.active.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if self.generation.load(Ordering::SeqCst) == generation {
                 active.take();
             }
@@ -58,7 +58,7 @@ impl Speech {
     }
 
     async fn cancel_active(&self) {
-        let active = self.active.lock().unwrap().take();
+        let active = self.active.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         if let Some(active) = active {
             let _ = active.cancel.send(());
             let _ = active.finished.await;

@@ -3,8 +3,9 @@
 //! Snap, the PATH and install paths; on Windows the uninstall keys and
 //! install paths. What is read of the computer goes through `Machine` and
 //! `Registry`, so the detectors are tested with fakes on any system.
-// Each system's detector is built and tested everywhere; only its own runs.
-#![cfg_attr(windows, allow(dead_code))]
+// Each system's detector is built and tested everywhere; only its own runs,
+// so outside the tests the other system's is unused.
+#![cfg_attr(not(test), allow(dead_code))]
 
 use crate::programs::{Program, PROGRAMS};
 use serde::Serialize;
@@ -77,8 +78,10 @@ pub fn dpkg_versions(status: &str) -> Vec<(String, String)> {
         .split("\n\n")
         .filter_map(|block| {
             let field = |name: &str| block.lines().find_map(|l| l.strip_prefix(name).map(|v| v.trim().to_string()));
-            let installed = field("Status:").is_some_and(|s| s.ends_with(" installed"));
-            Some((field("Package:")?, field("Version:")?)).filter(|_| installed)
+            if !field("Status:").is_some_and(|s| s.ends_with(" installed")) {
+                return None;
+            }
+            Some((field("Package:")?, field("Version:")?))
         })
         .collect()
 }
@@ -120,7 +123,7 @@ impl<M: Machine> LinuxDetector<M> {
         let path = on_path().or_else(installed);
         let version = package.or_else(|| flatpak.and_then(|(_, v)| v.clone())).or_else(|| snap.map(|(_, v)| v.clone()));
         let path = path.or_else(|| flatpak.map(|(id, _)| format!("flatpak:{id}"))).or_else(|| snap.map(|(n, _)| format!("/snap/bin/{n}")));
-        (path.is_some() || version.is_some()).then(|| Found { program: p.id, version, path })
+        (path.is_some() || version.is_some()).then_some(Found { program: p.id, version, path })
     }
 }
 
@@ -173,7 +176,7 @@ impl<M: Machine, R: Registry> LocalPrograms for WindowsDetector<M, R> {
                 let installed = p.windows_paths.iter().filter_map(|pat| self.expand(pat)).find_map(|pat| resolve(&self.machine, &pat, '\\'));
                 let path = installed.or_else(|| entry.and_then(|e| e.location.clone()).map(|l| l.trim_end_matches('\\').to_string()));
                 let version = entry.and_then(|e| e.version.clone());
-                (entry.is_some() || path.is_some()).then(|| Found { program: p.id, version, path })
+                (entry.is_some() || path.is_some()).then_some(Found { program: p.id, version, path })
             })
             .collect()
     }

@@ -82,7 +82,7 @@ fn source(app: &crate::App) -> Result<(url::Url, rustls::ClientConfig, Option<St
 pub async fn look<R: Runtime>(handle: &AppHandle<R>) -> Result<bool, String> {
     let app = handle.state::<crate::App>();
     let ups = handle.state::<Updates>();
-    if ups.ready.lock().unwrap().is_some() {
+    if ups.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some() {
         return Ok(true);
     }
     can_update()?;
@@ -92,11 +92,11 @@ pub async fn look<R: Runtime>(handle: &AppHandle<R>) -> Result<bool, String> {
         builder = builder.header("authorization", format!("Bearer {t}")).map_err(|e| e.to_string())?;
     }
     let updater = builder.configure_client(move |b| b.tls_backend_preconfigured(tls.clone())).build().map_err(|e| e.to_string())?;
-    *ups.looked.lock().unwrap() = Some(chrono_now());
+    *ups.looked.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chrono_now());
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else { return Ok(false) };
     let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     let version = update.version.clone();
-    *ups.ready.lock().unwrap() = Some((update, bytes));
+    *ups.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((update, bytes));
     let _ = handle.emit("update-ready", json!({ "version": version }));
     Ok(true)
 }
@@ -111,7 +111,7 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         loop {
             let r = look(&handle).await;
-            *handle.state::<Updates>().error.lock().unwrap() = r.err();
+            *handle.state::<Updates>().error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = r.err();
             tokio::time::sleep(EVERY_SECS).await;
         }
     });
@@ -160,13 +160,13 @@ fn whats_new_file<R: Runtime>(handle: &AppHandle<R>) -> Option<std::path::PathBu
 #[tauri::command]
 pub async fn update_state<R: Runtime>(handle: AppHandle<R>) -> Result<Value, String> {
     let ups = handle.state::<Updates>();
-    let ready = ups.ready.lock().unwrap().as_ref().map(|(u, _)| json!({ "version": u.version, "notes": u.body }));
+    let ready = ups.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|(u, _)| json!({ "version": u.version, "notes": u.body }));
     Ok(json!({
         "current": crate::app_version(),
         "ready": ready,
-        "error": ups.error.lock().unwrap().clone(),
+        "error": ups.error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
         "can_update": can_update().err(),
-        "looked_at": ups.looked.lock().unwrap().clone(),
+        "looked_at": ups.looked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
     }))
 }
 
@@ -174,7 +174,7 @@ pub async fn update_state<R: Runtime>(handle: AppHandle<R>) -> Result<Value, Str
 #[tauri::command]
 pub async fn update_look<R: Runtime>(handle: AppHandle<R>) -> Result<Value, String> {
     let r = look(&handle).await;
-    *handle.state::<Updates>().error.lock().unwrap() = r.clone().err();
+    *handle.state::<Updates>().error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = r.clone().err();
     r?;
     update_state(handle).await
 }
@@ -189,7 +189,7 @@ pub async fn update_install<R: Runtime>(handle: AppHandle<R>) -> Result<(), Stri
 /// click, or unasked when the page is broken (`watch_page`).
 fn install<R: Runtime>(handle: &AppHandle<R>) -> Result<(), String> {
     let ups = handle.state::<Updates>();
-    let Some((update, bytes)) = ups.ready.lock().unwrap().take() else { return Err("no update is ready".into()) };
+    let Some((update, bytes)) = ups.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() else { return Err("no update is ready".into()) };
     if let Some(f) = whats_new_file(handle) {
         if let Some(d) = f.parent() {
             let _ = std::fs::create_dir_all(d);
@@ -197,7 +197,7 @@ fn install<R: Runtime>(handle: &AppHandle<R>) -> Result<(), String> {
         let _ = std::fs::write(&f, serde_json::to_vec(&json!({ "version": update.version, "notes": update.body, "from": crate::app_version() })).unwrap_or_default());
     }
     if let Err(e) = update.install(&bytes) {
-        *ups.ready.lock().unwrap() = Some((update, bytes));
+        *ups.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((update, bytes));
         return Err(e.to_string());
     }
     handle.restart();
