@@ -49,6 +49,26 @@ case $in_order in *"if: always()"*) ;; *) bad "fast.yml's in-order job does not 
 case $in_order in *'sh ci/fast-wait-previous.sh "$REPOSITORY" "$PREVIOUS_SHA"'*) ;; *) bad "fast.yml's in-order job does not wait for the previous push's run" ;; esac
 case $in_order in *'PREVIOUS_SHA: ${{ github.event.before }}'*) ;; *) bad "fast.yml's in-order job does not wait on the commit before the push" ;; esac
 
+# The commits of a push before its tip are checked by fast-earlier.yml, which
+# is not a gate: release.yml waits for "fast" alone, so a commit that fails
+# there neither releases nor holds up another push
+# (decisions/2026-11-28-check-every-pushed-commit.md). It runs all of
+# ci/fast.sh, as fast.yml does, and takes no more permission than a status.
+earlier=$root/.github/workflows/fast-earlier.yml
+[ -f "$earlier" ] || bad "fast-earlier.yml is missing, so commits before a push's tip have no check"
+if [ -f "$earlier" ]; then
+  grep -qx 'name: fast-earlier' "$earlier" || bad "fast-earlier.yml is not named 'fast-earlier'; named 'fast', release.yml would wait for it"
+  grep -qx 'on:' "$earlier" && has "$earlier" "  push:" || bad "fast-earlier.yml does not run on a push"
+  has "$earlier" "run: sh ci/fast.sh" || bad "fast-earlier.yml does not run ci/fast.sh on each commit"
+  has "$earlier" "fail-fast: false" || bad "fast-earlier.yml lets one commit's failure cancel the others' checks"
+  for want in "image: pgvector/pgvector:pg16" "POSTGRES_PASSWORD: magnus_dev" "- 54340:5432"; do
+    has "$earlier" "$want" || bad "fast-earlier.yml lacks the test database fast.yml has ('$want'), so the lib tests cannot connect"
+  done
+  has "$earlier" "statuses: write" || bad "fast-earlier.yml cannot put a status on a commit"
+  has "$earlier" "ref: \${{ matrix.sha }}" || bad "fast-earlier.yml does not check out each commit it checks"
+  case $release in *) grep -qF 'fast-earlier' "$release" && bad "release.yml mentions fast-earlier; it must wait for fast alone" ;; esac
+fi
+
 # One list of checks.
 grep -qx 'name: fast' "$fast" || bad "fast.yml is not named 'fast', which release.yml waits for"
 has "$fast" 'run: sh ci/fast.sh checks' || bad "fast.yml does not run ci/fast.sh's checks"

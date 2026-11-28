@@ -1,0 +1,91 @@
+# The commits of a push before its tip, each checked on its own.
+#
+# GitHub starts one run per push, so fast.yml checks a push's tip, and the
+# commits sent with it in the same `git push` get no verdict of their own
+# (decisions/2026-11-27-fast-runs-fifo.md, "Limits"). This workflow runs the
+# same ci/fast.sh on each of them, in parallel and independently of the
+# others, and puts a `fast-earlier` status on the commit.
+#
+# It is not a gate. Its name is not "fast", so release.yml does not wait for
+# it, and the tip's release still waits only for the tip's fast run. A
+# commit that fails here is not released by it and does not hold up another
+# push. ci/release-gate-check.sh holds this to that.
+name: fast-earlier
+on:
+  push:
+concurrency:
+  group: fast-earlier-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+  statuses: write
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commits: ${{ steps.plan.outputs.commits }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: plan
+        run: python3 -I ci/push-earlier-commits.py >> "$GITHUB_OUTPUT"
+  commit:
+    name: ${{ matrix.sha }}
+    needs: plan
+    if: needs.plan.outputs.commits != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        sha: ${{ fromJSON(needs.plan.outputs.commits) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # The same database as fast.yml's fast job: the lib tests connect to it.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: magnus_dev
+        ports:
+          - 54340:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.sha }}
+      - name: Mark the commit as waiting
+        run: sh ci/commit-status.sh "$REPOSITORY" "${{ matrix.sha }}" pending "checking this commit"
+      - name: Pinned Node
+        run: sh ci/ensure-node.sh >> "$GITHUB_PATH"
+      - name: Tauri's Linux libraries
+        run: sh ci/desktop-libs.sh
+      - name: Install the pinned toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
+      # The same checks as fast.yml: all of ci/fast.sh, both its parts.
+      - run: sh ci/fast.sh
+      - name: Record the verdict on the commit
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          case $RESULT in
+            success) sh ci/commit-status.sh "$REPOSITORY" "${{ matrix.sha }}" success "the fast checks passed on this commit" ;;
+            cancelled) sh ci/commit-status.sh "$REPOSITORY" "${{ matrix.sha }}" error "the check was cancelled" ;;
+            *) sh ci/commit-status.sh "$REPOSITORY" "${{ matrix.sha }}" failure "the fast checks failed on this commit" ;;
+          esac

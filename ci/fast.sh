@@ -80,6 +80,7 @@ check sh ci/egress-check.sh
 check sh ci/strix-beta-host-check.sh
 check python3 -I sandbox/desktop/test_desktop.py
 check python3 -I sandbox/test_images.py
+check python3 -I ci/push-earlier-commits-test.py
 for f in desktop/tests/*-check.mjs; do
   check node "$f"
 done
