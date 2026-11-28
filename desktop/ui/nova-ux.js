@@ -4,27 +4,12 @@
 // 2. Live Companion Studio preview card in Settings -> Appearance with
 //    interactive state demo pills (Ready, Listening, Thinking, Working, Waiting, Done).
 // 3. Verified Task Replay Scrubber on task views with 2+ steps.
-// 4. "While Magnus works" calm tip carousel during active background runs.
-// 5. Featured Spotlight hero banner on the Apps & Connectors catalog.
-// 6. Keyboard-first approval triage (A = Allow, D = open decline note drawer).
+// 4. Featured Spotlight hero banner on the Apps & Connectors catalog.
+// 5. Keyboard-first approval triage (A = Allow, D = open decline note drawer).
 "use strict";
 
 const NovaUx = (() => {
   const SYNC_DEBOUNCE_MS = 60;
-  const WORKING_TIPS = [
-    {
-      title: "Edit before approving",
-      body: "Open “Edit before allowing” on any approval card to adjust recipients, subjects, or wording—Magnus executes your exact edit with a verified receipt.",
-    },
-    {
-      title: "Trust Graduation",
-      body: "Approve the same safe pattern three times and Magnus offers to turn it into a standing rule automatically.",
-    },
-    {
-      title: "Quiet routines",
-      body: "Scheduled checks run silently in the background and only surface a card when something genuinely needs your attention.",
-    },
-  ];
   const DEMO_STATES = [
     ["ready", "Ready"],
     ["listening", "Listening"],
@@ -35,8 +20,6 @@ const NovaUx = (() => {
   ];
 
   let syncTimer = 0;
-  let tipIndex = 0;
-  let tipDismissedFor = "";
   let studioState = "ready";
   let studioAvatar = null;
 
@@ -202,40 +185,6 @@ const NovaUx = (() => {
     });
   }
 
-  function syncWorkingTips() {
-    const existing = document.querySelector(".nova-wait-tips");
-    if (!isNova()) { existing?.remove(); return; }
-    const state = document.documentElement.dataset.auroraState || "idle";
-    const working = state === "executing" || state === "thinking";
-    const hasPendingAsk = Boolean(document.querySelector(".ask[data-ask]"));
-    const threadKey = location.hash || "#/home";
-    if (!working || hasPendingAsk || tipDismissedFor === threadKey) {
-      existing?.remove();
-      return;
-    }
-    const host = document.querySelector("section.conv > .stage-bento");
-    if (!host) return;
-    if (existing && existing.parentElement === host) return;
-    existing?.remove();
-    const tip = WORKING_TIPS[tipIndex];
-    const card = document.createElement("div");
-    card.className = "nova-wait-tips";
-    card.setAttribute("role", "note");
-    card.innerHTML = `<div class="nova-wait-head">
-      <span class="small muted">While Magnus works</span>
-      <button type="button" class="icon-btn nova-wait-close" data-nova-tip-close aria-label="Dismiss tips">×</button>
-    </div>
-    <div class="nova-wait-row">
-      <button type="button" class="icon-btn" data-nova-tip-step="-1" aria-label="Previous tip">←</button>
-      <div class="nova-wait-body">
-        <strong class="nova-wait-title">${tip.title}</strong>
-        <p class="small muted nova-wait-copy">${tip.body}</p>
-      </div>
-      <button type="button" class="icon-btn" data-nova-tip-step="1" aria-label="Next tip">→</button>
-    </div>`;
-    host.append(card);
-  }
-
   // The app the spotlight shows: one of the catalog's own, not yet connected,
   // the mockup's Notion first.
   const FEATURED_FIRST = ["notion", "linear", "github", "slack", "google-calendar", "gmail"];
@@ -298,7 +247,6 @@ const NovaUx = (() => {
     syncIntroState();
     syncCompanionStudio();
     syncTaskReplay();
-    syncWorkingTips();
     syncLibraryFeatured();
   }
 
@@ -330,21 +278,6 @@ const NovaUx = (() => {
         box.form?.requestSubmit();
       }
       return;
-    }
-    const stepBtn = t.closest?.("[data-nova-tip-step]");
-    if (stepBtn) {
-      const d = Number(stepBtn.getAttribute("data-nova-tip-step") || "1");
-      tipIndex = (tipIndex + d + WORKING_TIPS.length) % WORKING_TIPS.length;
-      const tip = WORKING_TIPS[tipIndex];
-      const titleEl = document.querySelector(".nova-wait-title");
-      const copyEl = document.querySelector(".nova-wait-copy");
-      if (titleEl) titleEl.textContent = tip.title;
-      if (copyEl) copyEl.textContent = tip.body;
-      return;
-    }
-    if (t.closest?.("[data-nova-tip-close]")) {
-      tipDismissedFor = location.hash || "#/home";
-      document.querySelector(".nova-wait-tips")?.remove();
     }
   });
 
@@ -390,5 +323,5 @@ const NovaUx = (() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", queueSync);
   else queueSync();
 
-  return { sync, WORKING_TIPS };
+  return { sync };
 })();

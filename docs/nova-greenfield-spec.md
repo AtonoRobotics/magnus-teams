@@ -118,7 +118,7 @@ This document is the complete, self-contained specification for implementing the
   - Crisp `artifact-top` header with pill `Close` button (`border-radius: 999px`).
   - Pill-segmented `.panel-tabs` (`Activity | Tasks | Routines | Approvals | Files | Apps`) with `background: var(--surface)` container and `var(--seg-on)` active pill.
   - Matte `18px` rounded cards for `.gbox`, cleared/needs banners, active task cards, computer footer, and `<details>` sections; pill buttons inside the panel.
-- **"While Magnus works" Tip Carousel** (`nova-ux.js`): Shown in `.stage-bento` during active runs when no approval is pending; dismissible per thread.
+- **Stage side column** (`.stage-bento` in a composed conversation): as narrow as its tiles need (`clamp(280px, 30%, 360px)`) and as tall as they are; no tip carousel, and no tile that repeats a sub-agent the thread already shows inline (decisions/2026-11-28-stage-column-fits-its-tiles.md).
 - **Verified Task Replay Scrubber** (`nova-ux.js`): Horizontal range slider injected above 2+ `.step` items on task views.
 
 ### 4.5 3-Tier Approvals (`asks.js`, `aurora-stage.js`, `nova.css`)

@@ -118,6 +118,10 @@ const AuroraStage = (() => {
     const list = [];
     if (typeof App !== "undefined" && App.shared && typeof SharedCanvas !== "undefined") list.push(...SharedCanvas.boxes());
     const live = { key: "live", label: "Live Workspace", icon: "sparkles" };
+    // Sub-agents are read from the thread's own inline card (threadSubAgents),
+    // so the stage never draws them again: a tile of sub-agents alone, or
+    // their rows under the run, would repeat that card beside it. The run's
+    // tile names how many are working.
     // A request that became several tasks says how far it has got.
     const tally = here.length > 1 ? ` · ${here.filter(t => t.status === "completed").length} of ${here.length} done` : "";
     if (run) {
@@ -134,22 +138,9 @@ const AuroraStage = (() => {
         steps: run.recent_steps,
         pct: pctOf(run),
         planSteps: planUnitsOf(run),
-        subAgents: threadSubs.slice(0, 6),
         canStop: true,
         count: activeAll.length > 1 ? activeAll.length : 0,
         updatedAt: tsOf(run.updated_at || run.created_at),
-      });
-    } else if (activeSubs.length) {
-      list.push({
-        ...live,
-        tone: activeSubs.some(s => s.status === "suspended") ? "needs" : "run",
-        open: activeSubs[0].open || "tasks",
-        href: "#/tasks",
-        title: activeSubs.length === 1 ? activeSubs[0].goal : `${plural(activeSubs.length, "sub-agent")} working`,
-        desc: activeSubs[0].sub || "Working on your request…",
-        subAgents: activeSubs.slice(0, 6),
-        count: activeSubs.length > 1 ? activeSubs.length : 0,
-        updatedAt: Date.now(),
       });
     } else if (last) {
       list.push({
@@ -160,7 +151,6 @@ const AuroraStage = (() => {
         title: named(last),
         desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped"),
         steps: last.recent_steps,
-        subAgents: threadSubs.slice(0, 6),
         proof: proofOf(last),
         verified: !!(last.verified || last.receipts_count > 0 || last.has_deliverable),
         updatedAt: tsOf(last.ended_at || last.created_at),
@@ -278,11 +268,9 @@ const AuroraStage = (() => {
     return out;
   }
 
-  const SUB_STATE_LABEL = /** @type {Record<string, string>} */ ({ running: "Working", suspended: "Waiting", completed: "Done", failed: "Stopped", cancelled: "Stopped" });
-
   /** Whether a stage box contains inline expandable items or controls (so clicking it never yanks open the right sidebar). */
   function isInlineCard(c) {
-    return !!(c.answers || c.said || c.canStop || c.key === "live" || (Array.isArray(c.subAgents) && c.subAgents.length) || (Array.isArray(c.planSteps) && c.planSteps.length) || (Array.isArray(c.steps) && c.steps.length));
+    return !!(c.answers || c.said || c.canStop || c.key === "live" || (Array.isArray(c.planSteps) && c.planSteps.length) || (Array.isArray(c.steps) && c.steps.length));
   }
 
   /** A box's inside: single calm card with clickable inline expandable line items instead of spawning many cards or opening the sidebar on every click. */
@@ -294,15 +282,6 @@ const AuroraStage = (() => {
     const bar = typeof c.pct === "number" ? `<div class="stage-tile-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${c.pct}"><span style="width:${c.pct}%"></span></div>` : "";
     const planStepsHtml = Array.isArray(c.planSteps) && c.planSteps.length
       ? `<div class="stage-items">${c.planSteps.map((u, idx) => `<details class="stage-item" data-key="plan:${idx}" data-status="${html(u.status)}"><summary class="stage-item-row"><span class="stage-step-dot" aria-hidden="true"></span><span class="stage-item-title">${html(u.goal)}</span><span class="stage-item-meta">${html(u.status === "done" ? "Done" : u.status === "active" ? "In progress" : "Queued")}</span></summary><div class="stage-item-body"><p>${html(u.goal)}</p></div></details>`).join("")}</div>`
-      : "";
-    const subsHtml = Array.isArray(c.subAgents) && c.subAgents.length
-      ? `<div class="stage-items">${c.subAgents.map(s => {
-        const meta = SUB_STATE_LABEL[s.status] || s.status || "Working";
-        const detail = s.summary || s.sub || (s.status === "completed" ? "Finished." : "Working in background…");
-        const taskId = s.open?.startsWith("task:") ? s.open.slice(5) : "";
-        const link = s.open ? `<a class="stage-item-link" href="${taskId ? `#/task/${enc(taskId)}` : "#/tasks"}" data-open="${html(s.open)}">Open full log →</a>` : "";
-        return `<details class="stage-item" data-key="sub:${html(s.run)}" data-status="${html(s.status)}"><summary class="stage-item-row"><span class="stage-step-dot" aria-hidden="true"></span><span class="stage-item-title">${html(s.goal)}</span><span class="stage-item-meta">${html(meta)}</span></summary><div class="stage-item-body"><p>${html(detail)}</p>${link}</div></details>`;
-      }).join("")}</div>`
       : "";
     const previewHtml = (Array.isArray(c.previewRows) && c.previewRows.length) || c.previewBody
       ? `<div class="stage-tile-preview">${c.previewRows?.length ? c.previewRows.map(([k, v]) => `<div class="stage-preview-row"><span class="stage-preview-key">${html(k)}</span><span class="stage-preview-val">${html(v)}</span></div>`).join("") : ""}${c.previewBody ? `<p class="stage-preview-body">${html(c.previewBody)}</p>` : ""}${c.consequence ? `<p class="stage-preview-note">${html(c.consequence)}</p>` : ""}</div>`
@@ -323,7 +302,7 @@ const AuroraStage = (() => {
       : "";
     const foot = c.said
       ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
-      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${planStepsHtml}${subsHtml}${batchHtml}${actsHtml}`;
+      : `${c.tierHtml || ""}${bar}${descHtml}${previewHtml}${planStepsHtml}${batchHtml}${actsHtml}`;
     return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${verifiedPill}${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
       ${title}
       ${foot}`;

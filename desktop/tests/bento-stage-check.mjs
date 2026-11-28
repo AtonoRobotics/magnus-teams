@@ -36,12 +36,13 @@ assert.match(shellCss, /\.stage-bento-bottom\[data-count="0"\]\s*\{[^}]*height:\
 assert.match(shellCss, /#thread \[data-history="1"\] \.sub-agent\s*\{[^}]*background:\s*transparent;/s, "sub-agent rows in #thread strip card background");
 assert.match(shellCss, /#thread \[data-history="1"\] \.card-acts\s*\{\s*display:\s*none;\s*\}/, "inline card action bars are hidden in #thread history");
 
-// 4. aurora-stage.js consolidates sub-agents inside Live Workspace as inline expandable rows (no per-sub-agent card flood) and keeps tight caps.
+// 4. aurora-stage.js never repeats on the stage the sub-agents the thread shows inline (decisions/2026-11-28-stage-column-fits-its-tiles.md), and keeps tight caps.
 assert.doesNotMatch(stageJs, /key:\s*`sub:\$\{/, "sub-agents must not spawn a separate bento card per sub-agent");
 assert.match(stageJs, /const SHOWN_BOXES = 3;/, "stage caps total cards to 3");
 assert.match(stageJs, /const MAX_APPROVAL_BOXES = 1;/, "stage shows at most 1 approval card at a time");
-assert.match(stageJs, /subAgents:\s*(?:threadSubs|activeSubs)/, "sub-agents render compactly inside the single Live Workspace card");
-assert.match(stageJs, /<details class="stage-item" data-key="sub:/, "sub-agents expand inline inside the card without forcing the right sidebar open");
+assert.doesNotMatch(stageJs, /subAgents:/, "the stage does not list the sub-agents the thread's inline card already shows");
+assert.doesNotMatch(stageJs, /data-key="sub:/, "no sub-agent rows inside a stage tile");
+assert.doesNotMatch(stageJs, /\} else if \(activeSubs\.length\) \{/, "no stage tile of sub-agents alone, which would repeat the inline card");
 assert.match(stageJs, /openKeys\.has\(d\.dataset\.key\)/, "place() preserves expanded inline line items across live updates");
 assert.match(stageJs, /function bentoBottomIn\(/, "Bottom Bento container is managed by AuroraStage");
 assert.match(stageJs, /const isPrimary = c => c\.key === "live" \|\| c\.key\.startsWith\("approval:"\);/, "primary focus tiles stay in Side Bento while secondary tiles arrange in Bottom Bento");
@@ -49,4 +50,19 @@ assert.match(stageJs, /function compactThreadHistory\(conv\)/, "compactThreadHis
 assert.match(stageJs, /el\.dataset\.history = "1";/, "compactThreadHistory marks inline process cards as change history");
 assert.match(stageJs, /d\.dataset\.historyInit = "1";\s*d\.open = false;/, "compactThreadHistory auto-collapses verbose <details> logs once");
 
+
+// 5. The stage's side column fits its tiles (decisions/2026-11-28-stage-column-fits-its-tiles.md):
+// no wider than a tile needs, no taller than its tiles, and no tip card.
+{
+  const stageCss = read("nova-stage.css");
+  const composed = stageCss.match(/section\.conv\[data-stage-mode="composed"\]:not\(:has\(\.hello-hero\)\)\s*\{([^}]*)\}/);
+  assert.ok(composed, "the composed conversation grid rule exists");
+  assert.match(composed[1], /grid-template-columns:\s*minmax\(360px, 1fr\) clamp\(280px, 30%, 360px\);/, "the side column is at most 360px and the conversation keeps the rest");
+  const side = stageCss.match(/section\.conv\[data-stage-mode="composed"\]:not\(:has\(\.hello-hero\)\) > \.stage-bento\s*\{([^}]*)\}/);
+  assert.ok(side, "the composed side bento rule exists");
+  assert.match(side[1], /align-self:\s*start;/, "the side column is as tall as its tiles, not the whole row");
+  assert.doesNotMatch(side[1], /background:|border-left:/, "no tinted band runs on below the tiles");
+  const ux = read("nova-ux.js");
+  assert.doesNotMatch(ux, /While Magnus works|nova-wait-tips/, "no tip card takes the stage while Magnus works");
+}
 console.log("bento-stage-check: ok");

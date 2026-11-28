@@ -189,53 +189,7 @@ html[data-style="nova"][data-motion="full"] .nova-prism-card::before { animation
   .nova-prism-card { grid-template-columns: 1fr; }
 }
 
-/* ---------- 5. Working-State Tip Carousel & Task Replay Scrubber ---------- */
-.nova-wait-tips {
-  padding: 14px 16px;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--hair);
-  background: var(--surface);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.nova-wait-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.nova-wait-close {
-  width: 26px;
-  height: 26px;
-  font-size: 16px;
-}
-
-.nova-wait-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.nova-wait-body {
-  flex: 1;
-  min-width: 0;
-  text-align: center;
-}
-
-.nova-wait-title {
-  display: block;
-  font-size: 14px;
-  margin-bottom: 2px;
-}
-
-.nova-wait-copy {
-  margin: 0;
-  line-height: 1.45;
-}
-
+/* ---------- 5. Task Replay Scrubber ---------- */
 .nova-replay {
   padding: 12px 14px;
   margin-bottom: 12px;
@@ -740,10 +694,6 @@ body[data-navigation="compact"] .nav-inbox .nav-inbox-count { position: absolute
 }
 
 @media (pointer: coarse) {
-  .nova-wait-close {
-    width: 44px;
-    height: 44px;
-  }
   .nova-brief-head button[data-brief-dnd] { min-height: 44px; }
 }
 
@@ -753,7 +703,6 @@ body[data-navigation="compact"] .nav-inbox .nav-inbox-count { position: absolute
     display: none;
   }
   .nova-prism-tile,
-  .nova-wait-tips,
   .nova-featured,
   .nova-companion-studio,
   .nova-replay,

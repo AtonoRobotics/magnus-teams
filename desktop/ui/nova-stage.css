@@ -76,11 +76,14 @@ html[data-style="nova"] .stage-bento > .stage-tile:first-child:is([data-tone="ne
 }
 
 /* The two-column composition is for a conversation under way; the empty
-   New Chat intro keeps its centred order whatever boxes show (spec 4.3). */
+   New Chat intro keeps its centred order whatever boxes show (spec 4.3).
+   The side column is as narrow as a tile needs and as tall as its tiles:
+   the conversation keeps the rest, and no tinted band runs on below them
+   (decisions/2026-11-28-stage-column-fits-its-tiles.md). */
 @container aurora-main (min-width: 820px) {
   html[data-style="nova"] section.conv[data-stage-mode="composed"]:not(:has(.hello-hero)) {
     display: grid;
-    grid-template-columns: minmax(360px, 56%) minmax(280px, 44%);
+    grid-template-columns: minmax(360px, 1fr) clamp(280px, 30%, 360px);
     grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
     align-content: stretch;
   }
@@ -91,13 +94,12 @@ html[data-style="nova"] .stage-bento > .stage-tile:first-child:is([data-tone="ne
     grid-column: 2;
     grid-row: 3;
     grid-template-columns: 1fr;
+    align-self: start;
     max-width: none;
-    max-height: none;
+    max-height: 100%;
     height: auto;
     margin: 0;
-    padding: 14px 18px;
-    border-left: 1px solid var(--aurora-rim);
-    background: color-mix(in srgb, var(--fg) 1.5%, transparent);
+    padding: 14px 16px 14px 4px;
     gap: 10px;
   }
   html[data-style="nova"] section.conv[data-stage-mode="composed"]:not(:has(.hello-hero)) > .stage-bento-bottom {
