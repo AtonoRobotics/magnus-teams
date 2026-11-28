@@ -472,6 +472,9 @@ function takeOver(body, id, grant, view, strip) {
   const mask = e => (e.buttons & 1) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
   for (const type of ["mousemove", "mousedown", "mouseup"]) onCanvas(type, e => {
     const [x, y] = at(e);
+    // The press is kept from the page, so the browser does not focus the
+    // screen itself: it takes the keyboard here, or keys go elsewhere.
+    if (type === "mousedown") canvas.focus({ preventScroll: true });
     if (type === "mousedown" && view.recording) {
       view.recordedSteps.push(`Click at (${x}, ${y}) on ${canvas.width}x${canvas.height}`);
     }

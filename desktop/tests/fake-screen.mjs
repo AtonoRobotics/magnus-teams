@@ -24,8 +24,10 @@ class El {
   get innerHTML() { return this.html; }
   getContext() { return { putImageData() {}, drawImage() {} }; }
   toDataURL() { return "data:frame"; }
-  focus() {}
-  addEventListener() {}
+  focus() { this.focused = (this.focused || 0) + 1; }
+  // What the page listens for on this element, to dispatch to.
+  addEventListener(type, fn) { (this.listeners ||= []).push([type, fn]); }
+  dispatch(type, fields = {}) { const e = { type, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, clientX: 0, clientY: 0, buttons: 1, ...fields }; for (const [t, fn] of this.listeners || []) if (t === type) fn(e); return e; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 1, height: 1 }; }
   requestFullscreen() { this.fullScreens++; return Promise.resolve(); }
 }
@@ -55,7 +57,7 @@ export class Page {
 export function load({ reply, hash = "#/computer/c/screen", me = "alice" }) {
   const page = new Page();
   const calls = [];
-  const stream = { rfb: null, closed: null, timers: [], listeners: [] };
+  const stream = { rfb: null, closed: null, timers: [], listeners: [], keys: [] };
   const sandbox = {
     UI: {}, route: () => {}, location: { hash },
     window: { addEventListener() {}, removeEventListener() {} },
@@ -67,7 +69,7 @@ export function load({ reply, hash = "#/computer/c/screen", me = "alice" }) {
     setTimeout: f => { stream.timers.push(f); return 0; },
     api: async (method, path, body) => { calls.push(`${method} ${path}`); return reply(method, path, body); },
     Magnus: { displayOpen: (id, ticket, prefix, feed, onClose) => { stream.closed = onClose; return { send() {}, close() {} }; } },
-    Rfb: class { constructor(o) { stream.rfb = o; } feed() {} },
+    Rfb: class { constructor(o) { stream.rfb = o; } feed() {} pointer() {} key(name, down) { stream.keys.push([name, down]); return true; } },
     ImageData: class { constructor() {} },
   };
   // The page's requests go through server.js to the transport the check answers.
